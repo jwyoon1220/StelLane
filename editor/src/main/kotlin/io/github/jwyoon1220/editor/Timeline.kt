@@ -10,6 +10,7 @@ import kotlin.math.abs
 /**
  * 타임라인 뷰를 Graphics2D에 그립니다.
  * 화면 중앙이 [currentTimeMs]이고, 좌우로 [visibleWindowMs]/2 만큼 보입니다.
+ * [selectedIndices]: 선택된 노트의 인덱스 집합 (강조 표시됨).
  */
 object Timeline {
 
@@ -19,15 +20,19 @@ object Timeline {
         Color(255, 200, 80),
         Color(255, 120, 120)
     )
+    private val selectedColor = Color(255, 255, 80)
     private val labelFont = Font("Arial", Font.PLAIN, 12)
     private val timeFont  = Font("Arial", Font.BOLD, 13)
+    private val beatFont  = Font("Arial", Font.PLAIN, 10)
 
     fun render(
         g: Graphics2D,
         chart: MutableChart,
         currentTimeMs: Long,
         x: Int, y: Int, width: Int, height: Int,
-        visibleWindowMs: Long = 6_000L
+        visibleWindowMs: Long = 6_000L,
+        selectedIndices: Set<Int> = emptySet(),
+        bpm: Double? = null
     ) {
         val laneCount  = 4
         val laneH      = height / laneCount
@@ -48,37 +53,81 @@ object Timeline {
         g.color = Color(50, 50, 72)
         g.drawLine(x, y + height, x + width, y + height)
 
-        // BPM 비트 눈금 (bpm 있을 때)
-        chart.offsetMs.let { _ ->
-            // 눈금은 생략 — bpm이 선택사항이므로 optional 렌더링
+        // BPM 비트 / 서브비트 눈금
+        if (bpm != null && bpm > 0) {
+            val beatMs   = 60_000.0 / bpm
+            val subBeatMs = beatMs / 4.0
+            val windowHalf = visibleWindowMs / 2.0
+
+            // 화면에 보이는 비트 범위
+            val firstBeat = Math.floor((currentTimeMs - windowHalf) / subBeatMs).toLong()
+            val lastBeat  = Math.ceil((currentTimeMs + windowHalf) / subBeatMs).toLong()
+
+            g.font = beatFont
+            for (beatIdx in firstBeat..lastBeat) {
+                val timeMs = beatIdx * subBeatMs
+                val bx = cursorX + ((timeMs - currentTimeMs) / visibleWindowMs * width).toInt()
+                if (bx < x || bx > x + width) continue
+
+                val isMeasure = beatIdx % 16 == 0L
+                val isBeat    = beatIdx % 4 == 0L
+                val isHalf    = beatIdx % 2 == 0L
+
+                when {
+                    isMeasure -> {
+                        g.color = Color(100, 100, 160)
+                        g.drawLine(bx, y, bx, y + height)
+                        val ms = timeMs.toLong().coerceAtLeast(0)
+                        g.drawString("%d:%02d".format(ms / 60_000, (ms % 60_000) / 1000), bx + 2, y + 10)
+                    }
+                    isBeat -> {
+                        g.color = Color(60, 60, 100)
+                        g.drawLine(bx, y, bx, y + height)
+                    }
+                    isHalf -> {
+                        g.color = Color(40, 40, 70)
+                        g.drawLine(bx, y + laneH / 4, bx, y + height - laneH / 4)
+                    }
+                    else -> {
+                        g.color = Color(30, 30, 55)
+                        g.drawLine(bx, y + laneH / 3, bx, y + height - laneH / 3)
+                    }
+                }
+            }
         }
 
-        // 노트
-        for (note in chart.notes) {
+        // 노트 (선택 여부에 따라 강조)
+        chart.notes.forEachIndexed { idx, note ->
             val offsetMs = note.time - currentTimeMs
             val nx       = cursorX + (offsetMs.toDouble() / visibleWindowMs * width).toInt()
-            if (nx < x - 20 || nx > x + width + 20) continue
+            if (nx < x - 20 || nx > x + width + 20) return@forEachIndexed
 
-            val ly    = y + note.lane * laneH
-            val color = laneColors[note.lane % laneColors.size]
+            val ly       = y + note.lane * laneH
+            val baseColor = laneColors[note.lane % laneColors.size]
+            val isSelected = idx in selectedIndices
+            val color = if (isSelected) selectedColor else baseColor
 
             if (note.type == NoteType.SHORT) {
                 g.color = color
-                g.fillRect(nx - 3, ly + 4, 6, laneH - 8)
-                g.color = color.brighter()
-                g.drawRect(nx - 3, ly + 4, 6, laneH - 8)
+                g.fillRect(nx - 4, ly + 4, 8, laneH - 8)
+                g.color = if (isSelected) Color.WHITE else color.brighter()
+                g.drawRect(nx - 4, ly + 4, 8, laneH - 8)
             } else {
-                // LONG: 바디
                 val endMs = note.endTime ?: note.time
                 val ex    = cursorX + ((endMs - currentTimeMs).toDouble() / visibleWindowMs * width).toInt()
                 val left  = minOf(nx, ex)
                 val bw    = abs(ex - nx).coerceAtLeast(4)
-                g.color   = Color(color.red, color.green, color.blue, 120)
+                val alpha = if (isSelected) 200 else 120
+                g.color   = Color(color.red, color.green, color.blue, alpha)
                 g.fillRect(left, ly + laneH / 3, bw, laneH / 3)
-                // 헤드 & 테일
                 g.color = color
-                g.fillRect(nx - 3, ly + 4, 6, laneH - 8)
-                g.fillRect(ex - 3, ly + 4, 6, laneH - 8)
+                g.fillRect(nx - 4, ly + 4, 8, laneH - 8)
+                g.fillRect(ex - 4, ly + 4, 8, laneH - 8)
+                if (isSelected) {
+                    g.color = Color.WHITE
+                    g.drawRect(nx - 4, ly + 4, 8, laneH - 8)
+                    g.drawRect(ex - 4, ly + 4, 8, laneH - 8)
+                }
             }
         }
 

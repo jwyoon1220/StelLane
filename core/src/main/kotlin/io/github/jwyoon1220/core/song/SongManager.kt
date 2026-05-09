@@ -1,13 +1,14 @@
 package io.github.jwyoon1220.core.song
 
 import io.github.jwyoon1220.core.data.SongEntry
+import it.unimi.dsi.fastutil.objects.ObjectArrayList
 import java.io.File
 
 class SongManager(val workingDir: File) {
     private val songsDir get() = File(workingDir, "songs")
 
     @Volatile
-    var songs: List<SongEntry> = emptyList()
+    var songs: List<SongEntry> = ObjectArrayList()
         private set
 
     fun load() = refresh()
@@ -15,6 +16,7 @@ class SongManager(val workingDir: File) {
     fun refresh() {
         val dir = songsDir
         if (!dir.exists()) {
+            dir.mkdirs()
             songs = emptyList()
             return
         }

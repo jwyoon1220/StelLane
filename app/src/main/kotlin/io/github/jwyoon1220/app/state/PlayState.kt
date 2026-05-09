@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.app.state
 
+import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.core.GameState
 import io.github.jwyoon1220.core.data.Chart
@@ -15,7 +16,6 @@ import it.unimi.dsi.fastutil.objects.ObjectArrayList
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Font
 import java.awt.Graphics2D
 import java.awt.event.KeyEvent
 import java.io.File
@@ -62,11 +62,11 @@ class PlayState(
     private var mediaStarted = false
 
     // ── 폰트 ──────────────────────────────────────────────────────────────────
-    private val comboFont = Font("Arial", Font.BOLD, 56)
-    private val judgeFont = Font("Arial", Font.BOLD, 48)
-    private val scoreFont = Font("Arial", Font.BOLD, 28)
-    private val statFont  = Font("Arial", Font.PLAIN, 18)
-    private val hintFont  = Font("Arial", Font.PLAIN, 15)
+    private val comboFont = FontLoader.bold(56f)
+    private val judgeFont = FontLoader.bold(48f)
+    private val scoreFont = FontLoader.bold(28f)
+    private val statFont  = FontLoader.regular(18f)
+    private val hintFont  = FontLoader.light(15f)
 
     // ── 렌더링 동기화 잠금 ────────────────────────────────────────────────────
     // activeNotes는 GameLoopThread(update)와 EDT(render)에서 동시 접근 가능 → lock

@@ -13,7 +13,7 @@ class SongImportDialog(private val songManager: SongManager) {
 
     fun show() {
         val owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
-
+        
         val chooser = JFileChooser().apply {
             dialogTitle     = "Select Song Metadata JSON"
             fileSelectionMode = JFileChooser.FILES_ONLY

@@ -1,12 +1,13 @@
 package io.github.jwyoon1220.app.state
 
+import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.app.ui.SongImportDialog
 import io.github.jwyoon1220.core.GameState
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.ChartParser
+import org.slf4j.LoggerFactory
 import java.awt.Color
-import java.awt.Font
 import java.awt.Graphics2D
 import java.awt.event.KeyEvent
 import java.io.File
@@ -19,13 +20,15 @@ class SongSelectState(
     private val mode: SelectMode
 ) : GameState {
 
+    private val log = LoggerFactory.getLogger(SongSelectState::class.java)
+
     private var songIndex = 0
     private var diffIndex = 0
 
-    private val headerFont = Font("Arial", Font.BOLD, 36)
-    private val listFont   = Font("Arial", Font.PLAIN, 28)
-    private val infoFont   = Font("Arial", Font.PLAIN, 22)
-    private val hintFont   = Font("Arial", Font.PLAIN, 14)
+    private val headerFont = FontLoader.bold(36f)
+    private val listFont   = FontLoader.regular(28f)
+    private val infoFont   = FontLoader.regular(22f)
+    private val hintFont   = FontLoader.light(14f)
 
     private val songs    get() = ctx.songManager.songs
     private val curSong  get() = songs.getOrNull(songIndex)
@@ -33,12 +36,15 @@ class SongSelectState(
 
     override fun enter() {
         ctx.songManager.refresh()
+        log.info("SongSelectState enter mode={} songs={}", mode, ctx.songManager.songs.size)
         songIndex = 0
         diffIndex = 0
         ctx.inputManager.clearEvents()
     }
 
-    override fun exit() {}
+    override fun exit() {
+        log.info("SongSelectState exit")
+    }
 
     override fun update(deltaTime: Double) {}
 
@@ -126,12 +132,15 @@ class SongSelectState(
     }
 
     private fun onConfirm() {
-        val entry      = curSong ?: return
-        val diffName   = curDiffs.getOrNull(diffIndex) ?: return
-        val chartFile  = File(entry.songDir, entry.song.difficulties[diffName] ?: return)
-        if (!chartFile.exists()) return
-        val chart = runCatching { ChartParser.parseChart(chartFile) }.getOrNull() ?: return
+        val entry      = curSong ?: run { log.warn("onConfirm: curSong null"); return }
+        val diffName   = curDiffs.getOrNull(diffIndex) ?: run { log.warn("onConfirm: diff null"); return }
+        val chartFile  = File(entry.songDir, entry.song.difficulties[diffName] ?: run { log.warn("onConfirm: chartPath null"); return })
+        if (!chartFile.exists()) { log.warn("onConfirm: chartFile not found: {}", chartFile); return }
+        val chart = runCatching { ChartParser.parseChart(chartFile) }
+            .onFailure { log.error("onConfirm: 채보 파싱 실패", it) }
+            .getOrNull() ?: return
 
+        log.info("onConfirm: {} / {} → mode={}", entry.song.title, diffName, mode)
         when (mode) {
             SelectMode.PLAY -> ctx.stateManager.changeState(PlayState(ctx, entry, chart))
             SelectMode.EDIT -> ctx.stateManager.changeState(EditorState(ctx, entry, chartFile, chart))
