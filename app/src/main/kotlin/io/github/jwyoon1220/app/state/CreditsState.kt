@@ -18,6 +18,9 @@ class CreditsState(private val ctx: GameContext) : GameState {
             Entry("MaruBuri", "NAVER Corporation"),
             Entry("라이선스", "SIL Open Font License 1.1")
         )),
+        Section("소프트웨어", listOf(
+            Entry("VideoLAN VLC Media Player", "VideoLAN — GPL-2.0+"),
+        )),
         Section("오픈소스 라이브러리", listOf(
             Entry("Kotlin",                "JetBrains s.r.o. — Apache-2.0"),
             Entry("kotlinx-coroutines",    "JetBrains s.r.o. — Apache-2.0"),
@@ -29,8 +32,8 @@ class CreditsState(private val ctx: GameContext) : GameState {
             Entry("Apache Commons CLI",    "Apache Software Foundation — Apache-2.0"),
             Entry("JNA",                   "JNA contributors — Apache-2.0 / LGPL-2.1")
         )),
-        Section("스페셜 땡스", listOf(
-            Entry("", "이 게임을 플레이해주신 모든 분들 ♥")
+        Section("Special Thanks to", listOf(
+            Entry("", "이 게임을 플레이해주신 모든 분들")
         ))
     )
 
