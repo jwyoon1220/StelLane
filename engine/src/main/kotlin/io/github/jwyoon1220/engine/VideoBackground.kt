@@ -44,6 +44,9 @@ class VideoBackground private constructor(
      */
     @Volatile var onPlayingStarted: (() -> Unit)? = null
 
+    /** 미디어 재생이 끝까지 완료됐을 때 한 번 호출됩니다. */
+    @Volatile var onFinished: (() -> Unit)? = null
+
     // VLC getTime() 보간용 앵커 (VLC 시간 갱신 주기가 ~33ms이므로 nanoTime으로 보간)
     private data class TimeAnchor(val vlcMs: Long, val nanoTime: Long)
     @Volatile private var timeAnchor = TimeAnchor(0L, System.nanoTime())
@@ -97,8 +100,9 @@ class VideoBackground private constructor(
                 onPlayingStarted?.invoke()
             }
             override fun paused(mp: MediaPlayer)  { log.debug("[VLC] paused") }
-            override fun stopped(mp: MediaPlayer) { log.debug("[VLC] stopped") }
-            override fun error(mp: MediaPlayer)   { log.warn("[VLC] 미디어 오류 발생") }
+            override fun stopped(mp: MediaPlayer)  { log.debug("[VLC] stopped") }
+            override fun finished(mp: MediaPlayer) { log.debug("[VLC] finished"); onFinished?.invoke() }
+            override fun error(mp: MediaPlayer)    { log.warn("[VLC] 미디어 오류 발생") }
         })
 
         log.info("[VideoBackground] 초기화 완료 (isAvailable=true)")

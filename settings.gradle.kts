@@ -1,3 +1,3 @@
 rootProject.name = "StelLane"
 
-include("app", "core", "engine", "editor", "assets")
+include("app", "core", "engine", "editor", "assets", "builder")

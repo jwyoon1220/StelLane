@@ -108,6 +108,14 @@ fun main(args: Array<String>) {
             override fun mouseClicked(e: MouseEvent)  { stateManager.currentState?.mouseClicked(remap(e))  }
             override fun mouseReleased(e: MouseEvent) { stateManager.currentState?.mouseReleased(remap(e)) }
         })
+        renderPanel.addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
+            override fun mouseDragged(e: MouseEvent) {
+                val p = renderPanel.toLogical(e.x, e.y)
+                val remapped = MouseEvent(e.component, e.id, e.`when`, e.modifiersEx,
+                    p.x, p.y, e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger, e.button)
+                stateManager.currentState?.mouseDragged(remapped)
+            }
+        })
 
         // ── 초기 화면: MainMenu ───────────────────────────────────────────────
         songManager.load()

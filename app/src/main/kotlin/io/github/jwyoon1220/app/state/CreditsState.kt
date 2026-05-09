@@ -33,7 +33,7 @@ class CreditsState(private val ctx: GameContext) : GameState {
             Entry("JNA",                   "JNA contributors — Apache-2.0 / LGPL-2.1")
         )),
         Section("Special Thanks to", listOf(
-            Entry("", "이 게임을 플레이해주신 모든 분들")
+            Entry("", "이 게임을 플레이해주신 모든 분들"),
         ))
     )
 

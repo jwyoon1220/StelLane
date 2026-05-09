@@ -131,6 +131,37 @@ class SongSelectState(
         }
     }
 
+    override fun mouseClicked(e: java.awt.event.MouseEvent) {
+        val listX = 40; val listY = 100; val rowH = 38
+        val h = 720
+        val visibleCount = minOf(songs.size, (h - listY - 20) / rowH)
+        val startIdx = maxOf(0, minOf(songIndex - visibleCount / 2, songs.size - visibleCount))
+
+        // 곳 목록 앉터
+        for (i in startIdx until minOf(startIdx + visibleCount, songs.size)) {
+            val top = listY + (i - startIdx) * rowH - rowH + 6
+            val bot = listY + (i - startIdx) * rowH + 6
+            if (e.x in listX..600 && e.y in top..bot) {
+                if (i == songIndex) onConfirm() else { songIndex = i; diffIndex = 0 }
+                return
+            }
+        }
+
+        // 난이도 선택
+        curSong?.let { _ ->
+            val infoX = 640 + 20
+            val baseY = 110 + 46 + 30 + 30 + 16 + 36  // 'Difficulty' 헤더 다음줄
+            curDiffs.forEachIndexed { i, _ ->
+                val top = baseY + i * 36 - 30
+                val bot = baseY + i * 36 + 6
+                if (e.x > infoX && e.y in top..bot) {
+                    if (i == diffIndex) onConfirm() else diffIndex = i
+                    return
+                }
+            }
+        }
+    }
+
     private fun onConfirm() {
         val entry      = curSong ?: run { log.warn("onConfirm: curSong null"); return }
         val diffName   = curDiffs.getOrNull(diffIndex) ?: run { log.warn("onConfirm: diff null"); return }
