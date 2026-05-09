@@ -19,6 +19,8 @@ import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import java.io.File
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
@@ -82,7 +84,7 @@ fun main(args: Array<String>) {
         val workingDir  = File(System.getProperty("user.dir"))
         val songManager = SongManager(workingDir)
 
-        val windowManager = WindowManager(frame)
+        val windowManager = WindowManager(frame, renderPanel)
         val ctx = GameContext(stateManager, songManager, videoBackground, notePool, inputManager, windowManager)
 
         // ── 화면 구성 ────────────────────────────────────────────────────────
@@ -116,7 +118,14 @@ fun main(args: Array<String>) {
         gameLoop.start()
 
         frame.isVisible = true
-        renderPanel.requestFocusInWindow()   // InputMap/KeyAdapter 가 동작하도록 포커스 요청
+        renderPanel.requestFocusInWindow()
+
+        // 창 포커스를 얻을 때마다 renderPanel 에 키 포커스 재요청 (창 모드에서 타이틀바 클릭 후 키 입력 복구)
+        frame.addWindowFocusListener(object : WindowAdapter() {
+            override fun windowGainedFocus(e: WindowEvent) {
+                renderPanel.requestFocusInWindow()
+            }
+        })
 
         // 독점 전체화면은 창이 표시된 후 적용
         if (AppSettings.windowMode == WindowMode.EXCLUSIVE) {

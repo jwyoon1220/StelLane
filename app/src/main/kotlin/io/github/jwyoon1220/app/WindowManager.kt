@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.app
 
+import java.awt.Component
 import java.awt.GraphicsEnvironment
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
@@ -8,7 +9,7 @@ import javax.swing.SwingUtilities
  * 창 모드 전환을 담당합니다.
  * 데코레이션 변경은 JFrame.dispose() 후 재표시가 필요합니다.
  */
-class WindowManager(val frame: JFrame) {
+class WindowManager(val frame: JFrame, private val focusTarget: Component? = null) {
 
     fun applyMode(mode: WindowMode) {
         SwingUtilities.invokeLater {
@@ -45,7 +46,7 @@ class WindowManager(val frame: JFrame) {
                 }
             }
 
-            frame.requestFocusInWindow()
+            (focusTarget ?: frame).requestFocusInWindow()
             AppSettings.windowMode = mode
         }
     }

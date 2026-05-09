@@ -2,8 +2,6 @@ package io.github.jwyoon1220.app.state
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.ui.CalibrationDialog
-import io.github.jwyoon1220.app.ui.SettingsDialog
 import io.github.jwyoon1220.core.GameState
 import org.slf4j.LoggerFactory
 import java.awt.Color
@@ -141,7 +139,7 @@ class MainMenuState(private val ctx: GameContext) : GameState {
             0 -> ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.PLAY))
             1 -> ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
             2 -> {
-                SettingsDialog(ctx.windowManager.frame, ctx.windowManager).isVisible = true
+                ctx.stateManager.changeState(SettingsState(ctx, MainMenuState(ctx)))
             }
             3 -> ctx.stateManager.changeState(CreditsState(ctx))
             4 -> ctx.stateManager.changeState(LicenseState(ctx))
