@@ -113,7 +113,7 @@ val stageFatJar by tasks.registering(Copy::class) {
 // ── jpackage 출력 폴더 정리 (항상 실행, jpackage는 기존 디렉토리를 거부함) ────
 val cleanJpackageDir by tasks.registering(Delete::class) {
     group = "distribution"
-    delete(layout.buildDirectory.dir("jpackage"))
+    delete(rootProject.layout.projectDirectory.dir("dist"))
 }
 
 // ── jpackage: 포터블 앱 이미지 생성 ──────────────────────────────────────────
@@ -125,7 +125,7 @@ val jpackageImage by tasks.registering(Exec::class) {
     val javaHome  = System.getProperty("java.home")!!
     val jreDir    = layout.buildDirectory.dir("jre").get().asFile
     val inputDir  = layout.buildDirectory.dir("jpackage-input").get().asFile
-    val outputDir = layout.buildDirectory.dir("jpackage").get().asFile
+    val outputDir = rootProject.layout.projectDirectory.dir("dist").asFile   // 루트/dist 로 출력
 
     commandLine(
         "$javaHome/bin/jpackage",
@@ -148,7 +148,7 @@ tasks.register("deploy") {
     dependsOn("jpackageImage") // jpackageImage 태스크가 플러그인에 의해 정의되어 있으므로 문자열이나 태스크 객체로 지정
 
     doLast {
-        val appDir    = layout.buildDirectory.dir("jpackage/StelLane").get().asFile
+        val appDir    = rootProject.layout.projectDirectory.dir("dist/StelLane").asFile
         val vlcSrc    = rootProject.file("vlc")
         val vlcDest   = File(appDir, "vlc")
         val songsSrc  = rootProject.file("run/songs") // 복사할 원본 run/songs 폴더

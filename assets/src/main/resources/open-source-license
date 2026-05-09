@@ -18,6 +18,7 @@ vlcj                                   4.8.2      GPL-3.0-only
 VLC (libvlc / libvlccore)              3.x        LGPL-2.1-or-later
 Logback Classic / Core                 1.5.18     EPL-2.0 OR LGPL-2.1-or-later
 SLF4J API                              2.x        MIT
+MaruBuri (마루 부리)                   1.0        SIL OFL 1.1
 --------------------------------------------------------------------------------
 
 ==============================================================================

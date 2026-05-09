@@ -10,6 +10,7 @@ import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.judgment.Judgment
 import io.github.jwyoon1220.core.judgment.JudgmentSystem
 import io.github.jwyoon1220.core.scoring.ScoreEngine
+import io.github.jwyoon1220.engine.HitSound
 import io.github.jwyoon1220.engine.LaneEventType
 import io.github.jwyoon1220.engine.pool.VisualNote
 import it.unimi.dsi.fastutil.objects.ObjectArrayList
@@ -101,7 +102,8 @@ class PlayState(
         mediaStarted = false
         phase = Phase.PLAYING
 
-        // 미디어 재생
+        // 미디어 재생 (끝나면 결과 화면으로)
+        ctx.videoBackground.onFinished = { phase = Phase.RESULT }
         val mediaPath = resolveMediaPath()
         if (mediaPath != null) ctx.videoBackground.play(mediaPath)
         mediaStarted = true
@@ -110,6 +112,7 @@ class PlayState(
     }
 
     override fun exit() {
+        ctx.videoBackground.onFinished = null
         ctx.videoBackground.stop()
         synchronized(notesLock) {
             ctx.notePool.releaseAll(activeNotes)
@@ -143,7 +146,7 @@ class PlayState(
         for (event in ctx.inputManager.pollEvents()) {
             laneHeld[event.lane] = event.type == LaneEventType.PRESS
             when (event.type) {
-                LaneEventType.PRESS   -> handlePress(event.lane, now)
+                LaneEventType.PRESS   -> { HitSound.play(); handlePress(event.lane, now) }
                 LaneEventType.RELEASE -> handleRelease(event.lane, now)
             }
         }
@@ -161,8 +164,10 @@ class PlayState(
                     iter.remove(); ctx.notePool.release(vn); continue
                 }
 
-                // SHORT 노트가 판정 창을 벗어남 → Miss
-                if (!vn.held && now - vn.timeMs > JudgmentSystem.GOOD_MS) {
+                // 판정 창을 보었음 → Miss (롱노트 방치 안전 체크 포함)
+                val tailMissed = vn.type == NoteType.LONG && !vn.held &&
+                    now > vn.endTimeMs + JudgmentSystem.GOOD_MS
+                if (!vn.held && (now - vn.timeMs > JudgmentSystem.GOOD_MS || tailMissed)) {
                     applyJudgment(Judgment.MISS)
                     iter.remove(); ctx.notePool.release(vn)
                 }
@@ -227,24 +232,25 @@ class PlayState(
                 val noteTopY = hl - ((vn.timeMs - now) * SCROLL_SPEED / 1000f).toInt()
 
                 if (vn.type == NoteType.SHORT) {
-                    g.color = Color(140, 200, 255)
+                    // 일반 노트: 금색/황색
+                    g.color = Color(255, 210, 80)
                     g.fillRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
-                    g.color = Color(220, 240, 255)
+                    g.color = Color(255, 245, 170)
                     g.drawRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
                 } else {
-                    // LONG: 바디
+                    // LONG 노트: 보라색
                     val endTopY   = hl - ((vn.endTimeMs - now) * SCROLL_SPEED / 1000f).toInt()
                     val bodyTop   = min(noteTopY - 18, endTopY)
                     val bodyBtm   = if (vn.held) hl else max(noteTopY, endTopY)
                     val bodyH     = bodyBtm - bodyTop
                     if (bodyH > 0) {
-                        g.color = Color(90, 150, 255, 160)
+                        g.color = Color(160, 80, 255, 150)
                         g.fillRect(lx + 14, bodyTop, LANE_WIDTH - 28, bodyH)
                     }
-                    // 헤드
-                    g.color = Color(140, 200, 255)
+                    // 헤드 / 테일
+                    g.color = Color(190, 120, 255)
                     g.fillRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
-                    g.color = Color(220, 240, 255)
+                    g.color = Color(225, 185, 255)
                     g.drawRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
                 }
             }

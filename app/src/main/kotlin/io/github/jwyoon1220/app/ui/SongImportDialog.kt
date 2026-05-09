@@ -8,6 +8,7 @@ import java.nio.file.StandardCopyOption
 import javax.swing.JFileChooser
 import javax.swing.JOptionPane
 import javax.swing.filechooser.FileNameExtensionFilter
+import kotlin.io.forEachLine
 
 class SongImportDialog(private val songManager: SongManager) {
 
@@ -30,7 +31,6 @@ class SongImportDialog(private val songManager: SongManager) {
 
         runCatching {
             val destDir = File(songManager.workingDir, "songs").also { it.mkdirs() }
-
             // JSON 메타파일 복사
             Files.copy(selected.toPath(), File(destDir, selected.name).toPath(), StandardCopyOption.REPLACE_EXISTING)
 

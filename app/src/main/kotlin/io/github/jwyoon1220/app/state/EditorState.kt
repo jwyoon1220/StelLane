@@ -24,7 +24,9 @@ class EditorState(
     private val chartFile: File,
     chart: Chart
 ) : GameState {
-
+    // ── 노트 모드 ──────────────────────────────────────────────────────────────
+    private enum class NoteMode { NORMAL, LONG }
+    private var noteMode = NoteMode.NORMAL
     // ── 채보 데이터 ───────────────────────────────────────────────────────────
     private val mutableChart = MutableChart(
         offsetMs = chart.offsetMs,
@@ -65,7 +67,8 @@ class EditorState(
 
     // ── 레코딩 (홀드 추적) ────────────────────────────────────────────────────
     private val heldLaneStartMs  = LongArray(4) { -1L }
-
+    // GameLoopThread(update) ↔ EDT(render) 동시 접근 목적: mutableChart.notes 보호
+    private val notesLock = Any()
     // ── 폰트 ─────────────────────────────────────────────────────────────────
     private val headerFont = FontLoader.semiBold(20f)
     private val infoFont   = FontLoader.regular(15f)
@@ -110,12 +113,14 @@ class EditorState(
                         val snappedStart = snapTime(startMs)
 
                         saveSnapshot()
-                        if (duration < 150) {
-                            mutableChart.notes.add(MutableNote(snappedStart, lane, NoteType.SHORT))
-                        } else {
-                            mutableChart.notes.add(MutableNote(snappedStart, lane, NoteType.LONG, snapTime(now)))
+                        synchronized(notesLock) {
+                            if (duration < 150 || noteMode == NoteMode.NORMAL) {
+                                mutableChart.notes.add(MutableNote(snappedStart, lane, NoteType.SHORT))
+                            } else {
+                                mutableChart.notes.add(MutableNote(snappedStart, lane, NoteType.LONG, snapTime(now)))
+                            }
+                            mutableChart.notes.sortBy { it.time }
                         }
-                        mutableChart.notes.sortBy { it.time }
                         heldLaneStartMs[lane] = -1L
                         unsaved = true
                     }
@@ -159,6 +164,7 @@ class EditorState(
             append("   ")
             append(if (quantizeEnabled) "⊞ Snap 1/$quantizeDivision" else "⊟ Free")
             append("   Zoom ${visibleWindowMs / 1000}s")
+            append(if (noteMode == NoteMode.NORMAL) "   일반" else "   롱노트")
             if (unsaved) append("   ●")
         }
         g.drawString(stateStr, 18, 50)
@@ -175,8 +181,12 @@ class EditorState(
         // ── 타임라인 ──────────────────────────────────────────────────────────
         val tlY = 86
         val tlH = h - tlY - 88
+        // GameLoopThread가 notes 를 수정할 수 있으므로 스냅샷을 찍어 전달
+        val chartSnapshot = synchronized(notesLock) {
+            MutableChart(mutableChart.offsetMs, mutableChart.notes.toMutableList())
+        }
         Timeline.render(
-            g, mutableChart, currentTimeMs,
+            g, chartSnapshot, currentTimeMs,
             0, tlY, w - 260, tlH,
             visibleWindowMs, selectedIndices,
             songEntry.song.bpm?.toDouble()
@@ -234,6 +244,7 @@ class EditorState(
 
         section("녹음 / 퀀타이즈")
         shortcut("R",        "녹음 모드")
+        shortcut("N",        "노트 타입 전환")
         shortcut("Q",        "Snap 순환")
         shortcut("4/8/6",    "1/4·1/8·1/16")
         ty += 4
@@ -303,6 +314,7 @@ class EditorState(
                                                                 -> deleteSelected()
 
             // 녹음 / 퀀타이즈
+            e.keyCode == KeyEvent.VK_N                             -> cycleNoteMode()
             e.keyCode == KeyEvent.VK_R                         -> {
                 recordingMode = !recordingMode
                 heldLaneStartMs.fill(-1L)
@@ -479,6 +491,19 @@ class EditorState(
     override fun mouseClicked(e: MouseEvent) {
         val mx = e.x
         val my = e.y
+        val h  = renderH
+
+        // 하단 바 스냅 버튼 클릭 (타임라인 밖)
+        val barY = h - 84
+        if (my in (barY + 30)..(barY + 54)) {
+            when {
+                mx in 66..118   -> { quantizeEnabled = true; quantizeDivision = 4  }
+                mx in 124..178  -> { quantizeEnabled = true; quantizeDivision = 8  }
+                mx in 184..240  -> { quantizeEnabled = true; quantizeDivision = 16 }
+                mx in 240..295  -> quantizeEnabled = false
+            }
+            return
+        }
 
         // 타임라인 영역 안에서만 처리
         if (my < tlY || my > tlY + tlH) return
@@ -508,16 +533,37 @@ class EditorState(
                 }
             }
             MouseEvent.BUTTON3 -> {
-                // 오른쪽 클릭: 노트 삭제
                 val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
                 if (hitIdx >= 0) {
+                    // 노트 우클릭: 삭제
                     saveSnapshot()
                     mutableChart.notes.removeAt(hitIdx)
-                    // 인덱스 재매핑
                     val above = selectedIndices.filter { it > hitIdx }.toSet()
                     selectedIndices.removeAll { it >= hitIdx }
                     selectedIndices.addAll(above.map { it - 1 })
                     unsaved = true
+                } else {
+                    // 빈 공간 우클릭: 노트 추가 팝업
+                    val lane    = ((my - tlY).coerceIn(0, tlH - 1) / laneH).coerceIn(0, 3)
+                    val clickMs = currentTimeMs + (mx - tlCursorX).toLong() * visibleWindowMs / tlW
+                    val snapped = snapTime(clickMs.coerceAtLeast(0L))
+                    val laneNames = arrayOf("D", "F", "J", "K")
+                    val comp  = e.component
+                    val popup = javax.swing.JPopupMenu()
+                    popup.add(javax.swing.JMenuItem("${laneNames[lane]} 레인에 노트 추가")).addActionListener {
+                        saveSnapshot()
+                        val type    = if (noteMode == NoteMode.LONG) NoteType.LONG else NoteType.SHORT
+                        val endTime = if (type == NoteType.LONG) snapped + 500L else null
+                        mutableChart.notes.add(MutableNote(snapped, lane, type, endTime))
+                        mutableChart.notes.sortBy { it.time }
+                        unsaved = true
+                    }
+                    javax.swing.SwingUtilities.invokeLater {
+                        runCatching {
+                            val loc = comp.locationOnScreen
+                            popup.show(comp, e.xOnScreen - loc.x, e.yOnScreen - loc.y)
+                        }
+                    }
                 }
             }
         }
@@ -538,6 +584,15 @@ class EditorState(
         return -1
     }
 
+    override fun mouseDragged(e: MouseEvent) {
+        val mx = e.x
+        val my = e.y
+        if (my < tlY || my > tlY + tlH || mx > tlW) return
+        val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
+        val clickMs = currentTimeMs + (mx - tlCursorX).toLong() * visibleWindowMs / tlW
+        ctx.videoBackground.seek(maxOf(0L, clickMs + mutableChart.offsetMs))
+    }
+
     // ── 설정 / 보정 다이얼로그 ─────────────────────────────────────────────────
 
     private fun openSettings() {
@@ -546,6 +601,10 @@ class EditorState(
 
     private fun openCalibration() {
         ctx.stateManager.changeState(SettingsState(ctx, this, startAt = 1))
+    }
+
+    private fun cycleNoteMode() {
+        noteMode = if (noteMode == NoteMode.NORMAL) NoteMode.LONG else NoteMode.NORMAL
     }
 
     // ── 저장 / 미디어 ────────────────────────────────────────────────────────

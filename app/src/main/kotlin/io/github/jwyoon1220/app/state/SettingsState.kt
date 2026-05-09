@@ -153,6 +153,37 @@ class SettingsState(
         }
     }
 
+    override fun mouseClicked(e: java.awt.event.MouseEvent) {
+        val w = 1280; val h = 720
+        val pw = 700; val ph = 340
+        val px = (w - pw) / 2; val py = (h - ph) / 2
+        val startY = py + 110; val rowH = 80
+
+        items.forEachIndexed { i, _ ->
+            val rowTop = startY + i * rowH - 30
+            val rowBot = startY + i * rowH + 18
+            if (e.y !in rowTop..rowBot) return@forEachIndexed
+            cursor = i
+            // ◀ 영역 클릭
+            if (e.x < w / 2 - 60) {
+                when (i) {
+                    0 -> { val idx = (modes.indexOf(localMode) - 1 + modes.size) % modes.size; localMode = modes[idx] }
+                    1 -> localOffset = (localOffset - 10L).coerceIn(-500L, 500L)
+                }
+            }
+            // ▶ 영역 클릭
+            else if (e.x > w / 2 + 60) {
+                when (i) {
+                    0 -> { val idx = (modes.indexOf(localMode) + 1) % modes.size; localMode = modes[idx] }
+                    1 -> localOffset = (localOffset + 10L).coerceIn(-500L, 500L)
+                }
+            }
+        }
+
+        // 패널 밖 클릭 → 저장 후 닫기
+        if (e.x < px || e.x > px + pw || e.y < py || e.y > py + ph) applyAndBack()
+    }
+
     private fun applyAndBack() {
         val modeChanged = (localMode != AppSettings.windowMode)
         AppSettings.calibrationOffsetMs = localOffset

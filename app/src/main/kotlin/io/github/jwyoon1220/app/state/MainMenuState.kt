@@ -133,6 +133,19 @@ class MainMenuState(private val ctx: GameContext) : GameState {
         }
     }
 
+    override fun mouseClicked(e: java.awt.event.MouseEvent) {
+        val w = 1280; val h = 720
+        val startY = h / 2 - 20
+        menuItems.forEachIndexed { i, _ ->
+            val rowTop = startY + i * 58 - 36
+            val rowBot = startY + i * 58 + 10
+            if (e.y in rowTop..rowBot) {
+                selectedIndex = i
+                onSelect()
+            }
+        }
+    }
+
     private fun onSelect() {
         log.info("선택: {} (index={})", menuItems[selectedIndex], selectedIndex)
         when (selectedIndex) {

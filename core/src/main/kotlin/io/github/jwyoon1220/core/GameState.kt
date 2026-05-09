@@ -16,6 +16,7 @@ interface GameState {
     fun mousePressed(e: MouseEvent)  {}
     fun mouseClicked(e: MouseEvent)  {}
     fun mouseReleased(e: MouseEvent) {}
+    fun mouseDragged(e: MouseEvent)  {}
 }
 
 // 화면 전환을 관리하는 매니저
