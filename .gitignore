@@ -1,0 +1,12 @@
+# 프로젝트 제외 경로
+/.gradle/
+/app/build/
+/app/build/classes/kotlin/main/
+/assets/build/
+/build/
+/core/build/
+/core/build/classes/kotlin/main/
+/editor/build/
+/editor/build/classes/kotlin/main/
+/engine/build/
+/engine/build/classes/kotlin/main/
