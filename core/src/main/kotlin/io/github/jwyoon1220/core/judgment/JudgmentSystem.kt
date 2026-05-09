@@ -3,7 +3,7 @@ package io.github.jwyoon1220.core.judgment
 import kotlin.math.abs
 
 object JudgmentSystem {
-    const val PERFECT_MS = 50L
+    const val PERFECT_MS = 20L
     const val GREAT_MS   = 100L
     const val GOOD_MS    = 150L
 

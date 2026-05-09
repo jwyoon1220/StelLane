@@ -13,5 +13,6 @@ data class GameContext(
     val songManager: SongManager,
     val videoBackground: VideoBackground,
     val notePool: ObjectPool<VisualNote>,
-    val inputManager: InputManager
+    val inputManager: InputManager,
+    val windowManager: WindowManager
 )

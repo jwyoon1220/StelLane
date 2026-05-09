@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.engine
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList
 import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -52,7 +53,7 @@ class InputManager(private val component: JComponent) {
 
     /** GameLoopThread에서 호출 — 큐에 쌓인 이벤트를 전부 드레인합니다. */
     fun pollEvents(): List<LaneEvent> {
-        val result = mutableListOf<LaneEvent>()
+        val result = ObjectArrayList<LaneEvent>()
         while (true) result += eventQueue.poll() ?: break
         return result
     }

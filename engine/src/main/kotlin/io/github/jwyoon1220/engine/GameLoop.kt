@@ -60,6 +60,7 @@ class GameLoop(
 /**
  * 단일 Swing 컴포넌트에서 비디오 프레임 + 게임 UI를 한 번에 그립니다.
  *
+ * 1280×720 논리 해상도를 유지하면서 창 크기에 맞게 letterbox/pillarbox 스케일링합니다.
  * VideoBackground 콜백 방식 덕분에 AWT Canvas가 없으므로
  * heavyweight-over-lightweight 오버드로 문제가 발생하지 않습니다.
  */
@@ -67,29 +68,65 @@ class RenderPanel(
     private val stateManager: StateManager,
     private val videoBackground: VideoBackground? = null
 ) : JComponent() {
+
+    companion object {
+        const val DESIGN_W = 1280
+        const val DESIGN_H = 720
+    }
+
+    // 마우스 역변환용 — paintComponent 때마다 갱신
+    @Volatile private var scale   = 1.0
+    @Volatile private var offsetX = 0
+    @Volatile private var offsetY = 0
+
+    /** 화면 좌표 → 논리(1280×720) 좌표 변환 */
+    fun toLogical(x: Int, y: Int): java.awt.Point = java.awt.Point(
+        ((x - offsetX) / scale).toInt(),
+        ((y - offsetY) / scale).toInt()
+    )
+
     init {
-        isOpaque = true   // 모든 픽셀을 직접 그리므로 true
+        isOpaque = true
         isFocusable = true
     }
 
     override fun paintComponent(g: java.awt.Graphics) {
         val g2d = g as Graphics2D
 
-        // 1. 비디오 프레임 (없으면 검정 배경)
+        // 0. 레터박스/필러박스 영역 검정
+        g2d.color = Color.BLACK
+        g2d.fillRect(0, 0, width, height)
+
+        // 비율 유지 스케일 계산
+        val s  = minOf(width.toDouble() / DESIGN_W, height.toDouble() / DESIGN_H)
+        val dw = (DESIGN_W * s).toInt()
+        val dh = (DESIGN_H * s).toInt()
+        val ox = (width  - dw) / 2
+        val oy = (height - dh) / 2
+        scale   = s
+        offsetX = ox
+        offsetY = oy
+
+        // 1. 비디오 프레임을 스케일된 영역에 그리기
         val frame = videoBackground?.getCurrentFrame()
         if (frame != null) {
-            g2d.drawImage(frame, 0, 0, width, height, null)
+            g2d.drawImage(frame, ox, oy, dw, dh, null)
         } else {
             g2d.color = Color.BLACK
-            g2d.fillRect(0, 0, width, height)
+            g2d.fillRect(ox, oy, dw, dh)
         }
 
         // 2. 안티앨리어싱
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-        // 3. 게임 State UI (비디오 위에 오버레이)
+        // 3. 논리 좌표계(1280×720)로 변환 후 게임 State UI 렌더링
+        val saved = g2d.transform
+        g2d.translate(ox, oy)
+        g2d.scale(s, s)
+        g2d.setClip(0, 0, DESIGN_W, DESIGN_H)   // clipBounds가 논리 해상도를 반환하도록
         stateManager.render(g2d)
+        g2d.transform = saved
     }
 }
 
