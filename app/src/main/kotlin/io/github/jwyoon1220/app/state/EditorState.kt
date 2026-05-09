@@ -2,8 +2,6 @@ package io.github.jwyoon1220.app.state
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.ui.CalibrationDialog
-import io.github.jwyoon1220.app.ui.SettingsDialog
 import io.github.jwyoon1220.core.GameState
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.MutableChart
@@ -543,13 +541,11 @@ class EditorState(
     // ── 설정 / 보정 다이얼로그 ─────────────────────────────────────────────────
 
     private fun openSettings() {
-        val frame = ctx.windowManager.frame
-        SettingsDialog(frame, ctx.windowManager).isVisible = true
+        ctx.stateManager.changeState(SettingsState(ctx, this))
     }
 
     private fun openCalibration() {
-        val frame = ctx.windowManager.frame
-        CalibrationDialog(frame).isVisible = true
+        ctx.stateManager.changeState(SettingsState(ctx, this, startAt = 1))
     }
 
     // ── 저장 / 미디어 ────────────────────────────────────────────────────────

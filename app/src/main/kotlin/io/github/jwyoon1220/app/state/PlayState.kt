@@ -39,6 +39,10 @@ class PlayState(
     private val SPAWN_AHEAD_MS  = 1200L                      // 스폰 선행 시간(ms)
     private val JUDGE_FADE_MS   = 600L
 
+    // ── 게임 페이즈 ────────────────────────────────────────────────────────────
+    private enum class Phase { PLAYING, RESULT }
+    @Volatile private var phase = Phase.PLAYING
+
     // ── 게임 상태 ──────────────────────────────────────────────────────────────
     private lateinit var scoreEngine: ScoreEngine
 
@@ -62,11 +66,15 @@ class PlayState(
     private var mediaStarted = false
 
     // ── 폰트 ──────────────────────────────────────────────────────────────────
-    private val comboFont = FontLoader.bold(56f)
-    private val judgeFont = FontLoader.bold(48f)
-    private val scoreFont = FontLoader.bold(28f)
-    private val statFont  = FontLoader.regular(18f)
-    private val hintFont  = FontLoader.light(15f)
+    private val comboFont   = FontLoader.bold(56f)
+    private val judgeFont   = FontLoader.bold(48f)
+    private val scoreFont   = FontLoader.bold(28f)
+    private val statFont    = FontLoader.regular(18f)
+    private val hintFont    = FontLoader.light(15f)
+    private val resultTitle = FontLoader.bold(52f)
+    private val resultScore = FontLoader.bold(72f)
+    private val resultStat  = FontLoader.semiBold(28f)
+    private val resultHint  = FontLoader.light(20f)
 
     // ── 렌더링 동기화 잠금 ────────────────────────────────────────────────────
     // activeNotes는 GameLoopThread(update)와 EDT(render)에서 동시 접근 가능 → lock
@@ -91,6 +99,7 @@ class PlayState(
         laneHeld.fill(false)
         combo = 0; judgmentText = ""; judgmentFadeMs = 0L
         mediaStarted = false
+        phase = Phase.PLAYING
 
         // 미디어 재생
         val mediaPath = resolveMediaPath()
@@ -161,6 +170,12 @@ class PlayState(
         }
 
         judgmentFadeMs -= (deltaTime * 1000).toLong()
+
+        // 모든 노트가 처리되면 결과 화면으로
+        if (phase == Phase.PLAYING && noteQueue.isEmpty()) {
+            val empty = synchronized(notesLock) { activeNotes.isEmpty }
+            if (empty) phase = Phase.RESULT
+        }
     }
 
     override fun render(g: Graphics2D) {
@@ -283,9 +298,88 @@ class PlayState(
         g.font  = hintFont
         g.color = Color(100, 100, 110)
         g.drawString("ESC: Back", 10, h - 10)
+
+        // 결과 화면 오버레이
+        if (phase == Phase.RESULT) renderResult(g, w, h)
+    }
+
+    private fun renderResult(g: Graphics2D, w: Int, h: Int) {
+        // 반투명 어두운 배경
+        g.color = Color(0, 0, 0, 200)
+        g.fillRect(0, 0, w, h)
+
+        val counts = scoreEngine.counts
+        val score  = scoreEngine.score
+        val rank   = when {
+            score >= 980_000 -> "SS"
+            score >= 950_000 -> "S"
+            score >= 900_000 -> "A"
+            score >= 800_000 -> "B"
+            score >= 600_000 -> "C"
+            else             -> "D"
+        }
+
+        val cx = w / 2
+        var y  = h / 2 - 180
+
+        // RESULT 타이틀
+        g.font  = resultTitle
+        g.color = Color(200, 200, 220)
+        drawCenter(g, resultTitle, "RESULT", cx, y)
+        y += 70
+
+        // 점수
+        g.font  = resultScore
+        g.color = Color.WHITE
+        drawCenter(g, resultScore, "%07d".format(score), cx, y)
+        y += 20
+
+        // 랭크
+        val rankColor = when (rank) {
+            "SS" -> Color(255, 220, 80)
+            "S"  -> Color(200, 240, 255)
+            "A"  -> Color(130, 220, 130)
+            "B"  -> Color(130, 180, 255)
+            "C"  -> Color(200, 200, 200)
+            else -> Color(160, 100, 100)
+        }
+        g.font  = resultScore
+        g.color = rankColor
+        drawCenter(g, resultScore, rank, cx, y + 75)
+        y += 140
+
+        // 판정 카운트
+        val line = "PERFECT ${counts[Judgment.PERFECT]}   " +
+                   "GREAT ${counts[Judgment.GREAT]}   " +
+                   "GOOD ${counts[Judgment.GOOD]}   " +
+                   "MISS ${counts[Judgment.MISS]}"
+        g.font  = resultStat
+        g.color = Color(180, 180, 200)
+        drawCenter(g, resultStat, line, cx, y)
+        y += 40
+
+        // 최대 콤보
+        g.font  = resultStat
+        g.color = Color(150, 150, 170)
+        drawCenter(g, resultStat, "MAX COMBO  ${scoreEngine.maxCombo}", cx, y)
+        y += 60
+
+        // 힌트
+        g.font  = resultHint
+        g.color = Color(120, 120, 140)
+        drawCenter(g, resultHint, "Enter : 곡 선택으로", cx, y)
+    }
+
+    private fun drawCenter(g: Graphics2D, font: java.awt.Font, text: String, cx: Int, y: Int) {
+        val fm = g.getFontMetrics(font)
+        g.drawString(text, cx - fm.stringWidth(text) / 2, y)
     }
 
     override fun keyPressed(e: KeyEvent) {
+        if (phase == Phase.RESULT && e.keyCode == KeyEvent.VK_ENTER) {
+            ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.PLAY))
+            return
+        }
         if (e.keyCode == KeyEvent.VK_ESCAPE) {
             ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.PLAY))
         }
