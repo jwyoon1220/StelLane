@@ -70,6 +70,17 @@ class EditorState(
     private var decorDragOffsetX = 0f
     private var decorDragOffsetY = 0f
 
+    // 노트 리사이즈 드래그
+    private var noteResizeIdx   = -1
+    private var noteResizeMoved = false
+
+    // 데코레이션 코너 핸들 리사이즈 드래그
+    private var resizingDecorIdx  = -1
+    private var decorResizePressX = 0
+    private var decorResizePressY = 0
+    private var decorResizeOrigW  = 0f
+    private var decorResizeOrigH  = 0f
+
     private var pendingSeekMs: Long = -1L
     private var lastSeekTimeMs: Long = 0L
     private var timelineDragStartX = -1
@@ -654,6 +665,26 @@ class EditorState(
                     val fh = (bh * scaleRatioY).toInt().coerceAtLeast(1)
                     val lx = vpX + ((selDec.x * 1280f - selDec.pivotX * bw) * scaleRatioX).toInt()
                     val lt = vpY + ((selDec.y * 720f  - selDec.pivotY * bh) * scaleRatioY).toInt()
+                    // 코너 핸들 히트 체크 (리사이즈 우선)
+                    val hs = 10
+                    val corners = listOf(
+                        lx        to lt,
+                        lx + fw   to lt,
+                        lx        to lt + fh,
+                        lx + fw   to lt + fh
+                    )
+                    val hitCorner = corners.indexOfFirst { (hx, hy) ->
+                        mx in (hx - hs)..(hx + hs) && my in (hy - hs)..(hy + hs)
+                    }
+                    if (hitCorner >= 0) {
+                        resizingDecorIdx  = selectedDecorIdx
+                        decorResizePressX = mx
+                        decorResizePressY = my
+                        decorResizeOrigW  = selDec.width
+                        decorResizeOrigH  = selDec.height
+                        return
+                    }
+                    // 바디 드래그 (코너 바깥이면)
                     if (mx in lx..(lx+fw) && my in lt..(lt+fh)) {
                         draggingDecorIdx = selectedDecorIdx
                         decorDragOffsetX = selDec.x - (mx - vpX) / (1280f * scaleRatioX)
@@ -663,10 +694,28 @@ class EditorState(
                 }
             }
         }
+        // 노트 트래인 영역 내 좌클릭 → 노트 리사이즈 주비
+        if (javax.swing.SwingUtilities.isLeftMouseButton(e) && my >= tlY && my <= tlY + tlH && mx <= tlW) {
+            val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
+            val laneH = tlH / 4
+            val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
+            if (hitIdx >= 0) {
+                noteResizeIdx   = hitIdx
+                noteResizeMoved = false
+            }
+        }
     }
 
     override fun mouseReleased(e: MouseEvent) {
+        // 노트 리사이즈 완료 시 스냅샷 저장
+        if (noteResizeIdx >= 0 && noteResizeMoved) {
+            saveSnapshot()
+            unsaved = true
+        }
+        noteResizeIdx   = -1
+        noteResizeMoved = false
         draggingDecorIdx = -1
+        resizingDecorIdx = -1
         if (pendingSeekMs >= 0L) {
             ctx.videoBackground.seek(pendingSeekMs)
             pendingSeekMs = -1L
@@ -764,6 +813,31 @@ class EditorState(
     override fun mouseDragged(e: MouseEvent) {
         val mx = e.x
         val my = e.y
+        // 데코레이션 코너 리사이즈
+        if (resizingDecorIdx >= 0 && decorMode) {
+            val vpH = renderH - HDR_H - btmH
+            val vpW = (vpH * 16 / 9)
+            val dx = (mx - decorResizePressX).toFloat()
+            val dy = (my - decorResizePressY).toFloat()
+            val dec = decorations.getOrNull(resizingDecorIdx) ?: run { resizingDecorIdx = -1; return }
+            val newW = if (decorResizeOrigW <= 1f) {
+                (decorResizeOrigW + dx / vpW).coerceAtLeast(0.02f)
+            } else {
+                (decorResizeOrigW + dx * 1280f / vpW).coerceAtLeast(1f)
+            }
+            val newH = if (decorResizeOrigH <= 1f) {
+                (decorResizeOrigH + dy / vpH).coerceAtLeast(0.02f)
+            } else {
+                (decorResizeOrigH + dy * 720f / vpH).coerceAtLeast(1f)
+            }
+            val updated = dec.copy(width = newW, height = newH)
+            val cur = decorData.decorations.toMutableList()
+            cur[resizingDecorIdx] = updated
+            decorData = DecorationData(cur, decorData.screenEffects)
+            syncDecorRenderer()
+            unsaved = true
+            return
+        }
         if (draggingDecorIdx >= 0 && decorMode) {
             val vpH = renderH - HDR_H - btmH
             val vpW = (vpH * 16 / 9)
@@ -782,6 +856,23 @@ class EditorState(
             decorData = DecorationData(cur, decorData.screenEffects)
             syncDecorRenderer()
             unsaved = true
+            return
+        }
+        // 노트 리사이즈 (endTime 연장)
+        if (noteResizeIdx >= 0 && javax.swing.SwingUtilities.isLeftMouseButton(e)) {
+            val note = mutableChart.notes.getOrNull(noteResizeIdx)
+            if (note != null) {
+                val newEndMs = (timelineScrollMs + mx.toLong() * visibleWindowMs / tlW)
+                    .coerceAtLeast(note.time + 50L)
+                val snapped = snapTime(newEndMs)
+                synchronized(notesLock) {
+                    note.type    = NoteType.LONG
+                    note.endTime = snapped
+                }
+                noteResizeMoved = true
+            } else {
+                noteResizeIdx = -1
+            }
             return
         }
 

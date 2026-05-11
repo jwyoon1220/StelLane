@@ -7,11 +7,14 @@ import io.github.jwyoon1220.core.data.ScreenEffect
 import java.awt.AlphaComposite
 import java.awt.Color
 import java.awt.Graphics2D
+import java.awt.GraphicsEnvironment
 import java.awt.RadialGradientPaint
 import java.awt.RenderingHints
+import java.awt.Transparency
 import java.awt.geom.AffineTransform
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
+import java.awt.image.VolatileImage
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.math.PI
@@ -26,12 +29,41 @@ class DecorationRenderer(
     private val data: DecorationData,
     private val songDir: File
 ) {
-    private val imageCache = HashMap<String, BufferedImage?>()
+    /** 원본 이미지 (VolatileImage 복원용 소스 + 크기 참조). */
+    private val rawImageCache = HashMap<String, BufferedImage?>()
+    /** 하드웨어 가속 복사본. */
+    private val volatileCache = HashMap<String, VolatileImage?>()
 
+    /** 원본 BufferedImage 반환 (크기 참조용). */
     private fun image(path: String): BufferedImage? =
-        imageCache.getOrPut(path) {
+        rawImageCache.getOrPut(path) {
             runCatching { ImageIO.read(File(songDir, path)) }.getOrNull()
         }
+
+    /** 렌더링용 이미지 반환. VolatileImage 캐시를 우선하며, 없으면 원본으로 폴백. */
+    private fun drawableImage(path: String): java.awt.Image? {
+        val raw = image(path) ?: return null
+        return try {
+            val gc = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .defaultScreenDevice.defaultConfiguration
+            var vi = volatileCache[path]
+            val status = vi?.validate(gc) ?: VolatileImage.IMAGE_INCOMPATIBLE
+            if (status == VolatileImage.IMAGE_INCOMPATIBLE || vi == null) {
+                vi = gc.createCompatibleVolatileImage(raw.width, raw.height, Transparency.TRANSLUCENT)
+                val vg = vi.createGraphics()
+                vg.drawImage(raw, 0, 0, null)
+                vg.dispose()
+                volatileCache[path] = vi
+            } else if (status == VolatileImage.IMAGE_RESTORED) {
+                val vg = vi.createGraphics()
+                vg.drawImage(raw, 0, 0, null)
+                vg.dispose()
+            }
+            vi
+        } catch (_: java.awt.HeadlessException) {
+            raw
+        }
+    }
 
     // ── 이징 함수 ─────────────────────────────────────────────────────────────
     private fun ease(t: Float, easing: String): Float = when (easing) {
@@ -137,12 +169,13 @@ class DecorationRenderer(
         at.translate((screenX - pivX).toDouble(), (screenY - pivY).toDouble())
         if (rotation != 0f) at.rotate(Math.toRadians(rotation.toDouble()), pivX.toDouble(), pivY.toDouble())
 
-        // 이미지 → finalW×finalH 로 스케일
+        // 이미지 → finalW×finalH 로 스케일 (VolatileImage 가속 사용)
+        val drawable = if (dec.image.isNotEmpty()) drawableImage(dec.image) else img
         val imgScaleX = finalW.toDouble() / img.width
         val imgScaleY = finalH.toDouble() / img.height
         at.scale(imgScaleX, imgScaleY)
 
-        g.drawImage(img, at, null)
+        g.drawImage(drawable, at, null)
 
         // 틴트 오버레이
         if (tintA > 0) {
