@@ -23,12 +23,22 @@ class GameLoop(
 
     @Volatile private var optimalTimeNs = 1_000_000_000L / 60
 
+    /**
+     * 1초마다 실제 FPS 값과 함께 호출되는 콜백.
+     * EDT가 아닌 GameLoopThread에서 호출되므로 UI 업데이트 시 SwingUtilities.invokeLater 사용.
+     */
+    var onFpsUpdate: ((fps: Int) -> Unit)? = null
+
     fun start() {
         if (isRunning) return
         isRunning = true
 
         thread(name = "GameLoopThread") {
             var lastLoopTime = System.nanoTime()
+
+            // FPS 측정용
+            var frameCount = 0
+            var fpsWindowStart = System.nanoTime()
 
             while (isRunning) {
                 val now = System.nanoTime()
@@ -43,6 +53,16 @@ class GameLoop(
                 // 2. 렌더링 요청
                 renderTarget.repaint()
                 Toolkit.getDefaultToolkit().sync()  // 디스플레이 파이프라인 플러쉬 (티어링 방지)
+
+                // FPS 카운트
+                frameCount++
+                val elapsed = System.nanoTime() - fpsWindowStart
+                if (elapsed >= 1_000_000_000L) {
+                    val fps = (frameCount * 1_000_000_000L / elapsed).toInt()
+                    onFpsUpdate?.invoke(fps)
+                    frameCount = 0
+                    fpsWindowStart = System.nanoTime()
+                }
 
                 // 3. 고정밀 프레임 대기 (Spin-wait + Thread.sleep 혼합)
                 // Windows에서 Thread.sleep은 최대 15.6ms의 오차가 발생하므로,

@@ -136,6 +136,9 @@ fun main(args: Array<String>) {
         // ── 게임 루프 시작 ────────────────────────────────────────────────────
         val gameLoop = GameLoop(stateManager, renderPanel)
         ctx.gameLoop = gameLoop
+        gameLoop.onFpsUpdate = { fps ->
+            javax.swing.SwingUtilities.invokeLater { frame.title = "StelLane  |  $fps FPS" }
+        }
         gameLoop.start()
 
         frame.isVisible = true
