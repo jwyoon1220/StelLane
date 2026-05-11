@@ -11,6 +11,13 @@ dependencies {
     implementation("it.unimi.dsi:fastutil:8.5.15")
     implementation("ch.qos.logback:logback-classic:1.5.18")
     implementation("commons-cli:commons-cli:1.9.0")
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 application {
