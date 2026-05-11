@@ -241,6 +241,8 @@ class VideoBackground private constructor(
             log.info("[VideoBackground] release 완료")
         }
         vlcExecutor.shutdown()
+        // VLC 네이티브 스레드가 블로킹할 수 있으므로 최대 2초만 대기
+        runCatching { vlcExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS) }
     }
 }
 
@@ -263,7 +265,7 @@ private class I420Format(width: Int, height: Int) : BufferFormat(
 /**
  * BT.601 YUV420(I420) → TYPE_INT_ARGB 변환.
  *
- * VLC 디코드 스레드에서 호출되며 per-frame 힙 할당 없음(프리-얼로케이티드 배열 재사용).
+ * VLC 디코드 스레드에서 호출되며 per-frame 힙 할당 없음(미리 할당해둔 배열 재사용).
  * 공식 (ITU-R BT.601, 정수 근사):
  *   R = clamp((298·(Y-16) + 409·(V-128) + 128) >> 8, 0, 255)
  *   G = clamp((298·(Y-16) - 100·(U-128) - 208·(V-128) + 128) >> 8, 0, 255)

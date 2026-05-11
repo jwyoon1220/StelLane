@@ -30,12 +30,14 @@ class SettingsState(
     private val hintFont   = FontLoader.light(14f)
     private val descFont   = FontLoader.light(13f)
 
-    private val items = listOf("창 모드", "오디오/비디오 보정")
+    private val items = listOf("창 모드", "오디오/비디오 보정", "프레임 제한")
     private var cursor = 0
 
     // 로컬 편집용 (적용 전까지 AppSettings에 반영 안 함)
     private var localMode   = AppSettings.windowMode
     private var localOffset = AppSettings.calibrationOffsetMs
+    private var localFps    = AppSettings.targetFps
+    private val fpsOptions  = listOf(30, 60, 120, 144, 165, 240)
 
     private val modes = WindowMode.entries
     private val modeLabels = mapOf(
@@ -47,6 +49,7 @@ class SettingsState(
     override fun enter() {
         localMode   = AppSettings.windowMode
         localOffset = AppSettings.calibrationOffsetMs
+        localFps    = AppSettings.targetFps
         cursor = startAt.coerceIn(0, items.lastIndex)
         ctx.inputManager.clearEvents()
     }
@@ -64,7 +67,7 @@ class SettingsState(
         g.fillRect(0, 0, w, h)
 
         // 패널
-        val pw = 700; val ph = 340
+        val pw = 700; val ph = 420
         val px = (w - pw) / 2; val py = (h - ph) / 2
         g.color = Color(16, 14, 30, 240)
         g.fillRoundRect(px, py, pw, ph, 18, 18)
@@ -102,6 +105,7 @@ class SettingsState(
             val valueStr = when (i) {
                 0 -> "◀  ${modeLabels[localMode]}  ▶"
                 1 -> "◀  ${if (localOffset >= 0) "+$localOffset" else "$localOffset"} ms  ▶"
+                2 -> "◀  $localFps FPS  ▶"
                 else -> ""
             }
             g.font  = valueFont
@@ -116,6 +120,15 @@ class SettingsState(
         val hint = "↑↓ 선택   ←→ 변경   Shift+←→ 세밀 보정(±1ms)   Enter / Esc 저장 후 돌아가기"
         val hfm = g.getFontMetrics(hintFont)
         g.drawString(hint, (w - hfm.stringWidth(hint)) / 2, py + ph - 18)
+
+        // FPS 부가 설명
+        if (cursor == 2) {
+            g.font  = descFont
+            g.color = Color(140, 140, 160)
+            val desc2 = "낮을수록 CPU 사용량 감소, 높을수록 화면이 부드럽습니다"
+            val dfm2 = g.getFontMetrics(descFont)
+            g.drawString(desc2, (w - dfm2.stringWidth(desc2)) / 2, py + ph - 38)
+        }
 
         // 보정 부가 설명
         if (cursor == 1) {
@@ -139,6 +152,10 @@ class SettingsState(
                     localMode = modes[idx]
                 }
                 1 -> localOffset = (localOffset - if (shift) 1L else 10L).coerceIn(-500L, 500L)
+                2 -> {
+                    val idx = (fpsOptions.indexOf(localFps) - 1 + fpsOptions.size) % fpsOptions.size
+                    localFps = fpsOptions[idx]
+                }
             }
             KeyEvent.VK_RIGHT -> when (cursor) {
                 0 -> {
@@ -146,6 +163,10 @@ class SettingsState(
                     localMode = modes[idx]
                 }
                 1 -> localOffset = (localOffset + if (shift) 1L else 10L).coerceIn(-500L, 500L)
+                2 -> {
+                    val idx = (fpsOptions.indexOf(localFps) + 1) % fpsOptions.size
+                    localFps = fpsOptions[idx]
+                }
             }
 
             KeyEvent.VK_ENTER,
@@ -155,7 +176,7 @@ class SettingsState(
 
     override fun mouseClicked(e: java.awt.event.MouseEvent) {
         val w = 1280; val h = 720
-        val pw = 700; val ph = 340
+        val pw = 700; val ph = 420
         val px = (w - pw) / 2; val py = (h - ph) / 2
         val startY = py + 110; val rowH = 80
 
@@ -169,6 +190,7 @@ class SettingsState(
                 when (i) {
                     0 -> { val idx = (modes.indexOf(localMode) - 1 + modes.size) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset - 10L).coerceIn(-500L, 500L)
+                    2 -> { val idx = (fpsOptions.indexOf(localFps) - 1 + fpsOptions.size) % fpsOptions.size; localFps = fpsOptions[idx] }
                 }
             }
             // ▶ 영역 클릭
@@ -176,6 +198,7 @@ class SettingsState(
                 when (i) {
                     0 -> { val idx = (modes.indexOf(localMode) + 1) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset + 10L).coerceIn(-500L, 500L)
+                    2 -> { val idx = (fpsOptions.indexOf(localFps) + 1) % fpsOptions.size; localFps = fpsOptions[idx] }
                 }
             }
         }
@@ -187,6 +210,8 @@ class SettingsState(
     private fun applyAndBack() {
         val modeChanged = (localMode != AppSettings.windowMode)
         AppSettings.calibrationOffsetMs = localOffset
+        AppSettings.targetFps = localFps
+        if (ctx.gameLoop.targetFPS != localFps) ctx.gameLoop.targetFPS = localFps
         ctx.stateManager.changeState(previous)
         // 창 모드는 상태 전환 후 적용 (전환 후 frame 재구성)
         if (modeChanged) ctx.windowManager.applyMode(localMode)

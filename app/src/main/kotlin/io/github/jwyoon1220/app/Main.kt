@@ -139,6 +139,7 @@ fun main(args: Array<String>) {
         gameLoop.onFpsUpdate = { fps ->
             javax.swing.SwingUtilities.invokeLater { frame.title = "StelLane  |  $fps FPS" }
         }
+        gameLoop.targetFPS = AppSettings.targetFps
         gameLoop.start()
 
         frame.isVisible = true
@@ -160,7 +161,8 @@ fun main(args: Array<String>) {
         // ── 종료 시 리소스 해제 ───────────────────────────────────────────────
         Runtime.getRuntime().addShutdownHook(Thread {
             gameLoop.stop()
-            videoBackground.release()
+            videoBackground.release()  // 최대 2초 대기
+            Runtime.getRuntime().halt(0)  // VLC 네이티브 스레드 hang 방어: 강제 종료
         })
     }
 }

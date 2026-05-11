@@ -17,4 +17,9 @@ object AppSettings {
     var calibrationOffsetMs: Long
         get() = prefs.getLong("calibrationOffsetMs", 0L)
         set(v) { prefs.putLong("calibrationOffsetMs", v) }
+
+    /** 목표 FPS 제한 (30~240). */
+    var targetFps: Int
+        get() = prefs.getInt("targetFps", 60).coerceIn(30, 240)
+        set(v) { prefs.putInt("targetFps", v.coerceIn(30, 240)) }
 }
