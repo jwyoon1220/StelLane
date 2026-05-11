@@ -24,19 +24,15 @@ class ScoreEngine(private val totalNotes: Int) {
     private var currentCombo = 0
 
     // 판정별 카운트 (렌더링에서 표시용)
-    val counts = mutableMapOf(
-        Judgment.PERFECT to 0,
-        Judgment.GREAT   to 0,
-        Judgment.GOOD    to 0,
-        Judgment.MISS    to 0
-    )
+    // 인덱스는 Judgment.ordinal 매핑 (0:PERFECT, 1:GREAT, 2:GOOD, 3:MISS)
+    val counts = IntArray(4)
 
     private val noteWeight = if (totalNotes > 0) BASE_SCORE / totalNotes else 0.0
     // 최대 가능 콤보 누적 합 = n*(n+1)/2
     private val maxComboSum = totalNotes.toLong() * (totalNotes + 1) / 2
 
     fun onJudgment(judgment: Judgment) {
-        counts[judgment] = (counts[judgment] ?: 0) + 1
+        counts[judgment.ordinal]++
 
         val factor = when (judgment) {
             Judgment.PERFECT -> 1.0
@@ -64,6 +60,6 @@ class ScoreEngine(private val totalNotes: Int) {
     fun reset() {
         score = 0; maxCombo = 0; weightedSum = 0.0
         comboSum = 0; currentCombo = 0
-        counts.keys.forEach { counts[it] = 0 }
+        counts.fill(0)
     }
 }

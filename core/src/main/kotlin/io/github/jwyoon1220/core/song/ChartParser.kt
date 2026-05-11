@@ -15,4 +15,8 @@ object ChartParser {
     fun serializeChart(chart: Chart, file: File) {
         mapper.writerWithDefaultPrettyPrinter().writeValue(file, chart)
     }
+
+    fun serializeSong(song: Song, file: File) {
+        mapper.writerWithDefaultPrettyPrinter().writeValue(file, song)
+    }
 }

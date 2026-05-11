@@ -7,8 +7,8 @@ import io.github.jwyoon1220.engine.GameLoop
 import io.github.jwyoon1220.engine.InputManager
 import io.github.jwyoon1220.engine.RenderPanel
 import io.github.jwyoon1220.engine.VideoBackground
-import io.github.jwyoon1220.engine.pool.ObjectPool
-import io.github.jwyoon1220.engine.pool.VisualNote
+import io.github.jwyoon1220.engine.data.pool.ObjectPool
+import io.github.jwyoon1220.engine.data.pool.VisualNote
 import org.apache.commons.cli.DefaultParser
 import org.apache.commons.cli.HelpFormatter
 import org.apache.commons.cli.Options
@@ -47,8 +47,15 @@ fun main(args: Array<String>) {
 
     log.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
 
+    // ── Java2D 극한 튜닝 (순수 CPU 소프트웨어 렌더링 극대화) ──
+    // VLC 영상 프레임(Memory)을 GPU(VRAM)로 업로드하는 과정에서 생기는 병목을 원천 차단하고
+    // CPU 버스 대역폭을 100% 활용하는 고속 소프트웨어 블리팅(Blitting)을 강제합니다.
+    System.setProperty("sun.java2d.opengl", "false")
+    System.setProperty("sun.java2d.d3d", "false")
+    System.setProperty("sun.java2d.noddraw", "true")
+
     SwingUtilities.invokeLater {
-        val frame = JFrame("StelLane - Rhythm Game")
+        val frame = JFrame("StelLane")
         frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
 
         // 저장된 창 모드 적용 (기본 BORDERLESS)
@@ -69,15 +76,19 @@ fun main(args: Array<String>) {
         val stateManager    = StateManager()
 
         // VLC 콜백 방식 (Canvas 없음 → heavyweight/lightweight 충돌 없음)
+        // VLC가 1280×720으로 디코딩하므로 Java2D 스케일링 부하 없음
         val videoBackground = VideoBackground.create()
 
         // RenderPanel: 비디오 프레임 + 게임 UI를 하나의 Swing 컴포넌트에서 처리
         val renderPanel = RenderPanel(stateManager, videoBackground)
 
         val notePool = ObjectPool(
+            initialCapacity = 2048,
             factory = { VisualNote() },
             reset   = { vn -> vn.active = false; vn.held = false }
         )
+        // 게임 도중 할당 렉을 완벽히 제거하기 위해 시작 시 최대 온스크린 노트 개수를 여유있게 미리 생성
+        notePool.preAllocate(2048)
 
         val inputManager = InputManager(renderPanel)
 
@@ -95,6 +106,7 @@ fun main(args: Array<String>) {
         renderPanel.addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent)  { stateManager.currentState?.keyPressed(e)  }
             override fun keyReleased(e: KeyEvent) { stateManager.currentState?.keyReleased(e) }
+            override fun keyTyped(e: KeyEvent)    { stateManager.currentState?.keyTyped(e)    }
         })
 
         // 마우스 이벤트를 현재 State 에 전달 (화면→논리 좌표 역변환 포함)
@@ -123,6 +135,7 @@ fun main(args: Array<String>) {
 
         // ── 게임 루프 시작 ────────────────────────────────────────────────────
         val gameLoop = GameLoop(stateManager, renderPanel)
+        ctx.gameLoop = gameLoop
         gameLoop.start()
 
         frame.isVisible = true
