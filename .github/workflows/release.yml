@@ -5,6 +5,10 @@ on:
     branches:
       - '**'
 
+# 릴리즈 생성 및 태그 작성을 위한 쓰기 권한 허용 (403 에러 해결)
+permissions:
+  contents: write
+
 jobs:
   check-version:
     runs-on: ubuntu-latest
