@@ -18,7 +18,7 @@ jobs:
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          VERSION=$(echo "$COMMIT_MSG" | grep -oP '(?i)(Release|Beta|R|B)\d+\.\d+\.\d+' | head -1)
+          VERSION=$(echo "$COMMIT_MSG" | grep -oP '(?i)\b(?:B|R)\d+\.\d+\.\d+\b|\b(?:Release|Beta)\s+(?:B|R)\d+\.\d+\.\d+\b' | head -1 | sed -E 's/^(Release|Beta)[[:space:]]+//I')
           if [ -n "$VERSION" ]; then
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
@@ -66,7 +66,7 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Build deploy artifact
-        run: ./gradlew :app:deploy
+        run: .\gradlew.bat :app:deploy
 
       - name: Zip dist folder
         run: |
