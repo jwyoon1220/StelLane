@@ -12,7 +12,7 @@ class CreditsState(private val ctx: GameContext) : GameState {
     private val sections = listOf(
         Section("StelLane", listOf(
             Entry("개발", "jwyoon1220"),
-            Entry("버전", "B0.1.1")
+            Entry("버전", "B0.1.2")
         )),
         Section("폰트", listOf(
             Entry("MaruBuri", "NAVER Corporation"),
