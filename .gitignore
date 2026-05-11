@@ -2,6 +2,7 @@
 /.gradle/
 /app/build/
 /app/build/classes/kotlin/main/
+/app/logs/
 /assets/build/
 /build/
 /core/build/
@@ -14,3 +15,5 @@
 /vlc/
 /logs/
 /builder/build/
+/dist/
+/.kotlin/
