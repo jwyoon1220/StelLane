@@ -3,6 +3,7 @@ package io.github.jwyoon1220.engine
 import io.github.jwyoon1220.core.StateManager
 import java.awt.Color
 import java.awt.Graphics2D
+import java.util.concurrent.locks.LockSupport
 import java.awt.RenderingHints
 import java.awt.Toolkit
 import javax.swing.JComponent
@@ -15,8 +16,12 @@ class GameLoop(
 ) {
     @Volatile
     private var isRunning = false
-    private val targetFPS = 144
-    private val optimalTime = 1000000000L / targetFPS
+
+    /** 목표 FPS. 언제든지 변경 가능 — 다음 루프 사이클부터 반영됩니다. */
+    @Volatile var targetFPS: Int = 60
+        set(v) { field = v.coerceAtLeast(1); optimalTimeNs = 1_000_000_000L / field }
+
+    @Volatile private var optimalTimeNs = 1_000_000_000L / 60
 
     fun start() {
         if (isRunning) return
@@ -39,13 +44,25 @@ class GameLoop(
                 renderTarget.repaint()
                 Toolkit.getDefaultToolkit().sync()  // 디스플레이 파이프라인 플러쉬 (티어링 방지)
 
-                // 3. 목표 FPS 유지를 위한 쓰레드 대기
-                val sleepTime = (lastLoopTime - System.nanoTime() + optimalTime) / 1000000
-                if (sleepTime > 0) {
-                    try {
-                        Thread.sleep(sleepTime)
-                    } catch (e: InterruptedException) {
-                        e.printStackTrace()
+                // 3. 고정밀 프레임 대기 (Spin-wait + Thread.sleep 혼합)
+                // Windows에서 Thread.sleep은 최대 15.6ms의 오차가 발생하므로,
+                // 남은 시간이 2ms 이상일 때만 sleep하고, 나머지는 yield()로 스핀 대기하여 정확도를 극대화합니다.
+                while (true) {
+                    val nowNano = System.nanoTime()
+                    val passed = nowNano - lastLoopTime
+                    val remaining = optimalTimeNs - passed
+                    if (remaining <= 0) break
+
+                    if (remaining > 2_000_000L) {
+                        try {
+                            Thread.sleep(1)
+                        } catch (e: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            break
+                        }
+                    } else {
+                        // yield()는 CPU를 양보하지 않고 소진 — parkNanos로 대체해 CPU 절감
+                        LockSupport.parkNanos(100_000L)  // 0.1ms 단위 슬립
                     }
                 }
             }
@@ -107,24 +124,35 @@ class RenderPanel(
         offsetX = ox
         offsetY = oy
 
-        // 1. 비디오 프레임을 스케일된 영역에 그리기
-        val frame = videoBackground?.getCurrentFrame()
-        if (frame != null) {
-            g2d.drawImage(frame, ox, oy, dw, dh, null)
-        } else {
-            g2d.color = Color.BLACK
-            g2d.fillRect(ox, oy, dw, dh)
+        // 현재 State가 자체적으로 배경을 처리하는지 확인
+        val currentRendersBg = stateManager.currentState?.rendersBackground == true
+
+        // 1. 비디오 프레임 (자체 처리하지 않는 경우만 그림)
+        if (!currentRendersBg) {
+            val frame = videoBackground?.getCurrentFrame()
+            if (frame != null) {
+                g2d.drawImage(frame, ox, oy, dw, dh, null)
+            } else {
+                g2d.color = Color.BLACK
+                g2d.fillRect(ox, oy, dw, dh)
+            }
         }
 
-        // 2. 안티앨리어싱
+        // 2. 렌더링 파이프라인 극한 튜닝 (Graphics2D 커스텀)
+        // 안티앨리어싱은 켜서 시각적 품질(계단현상 제거)을 유지하되,
+        // 나머지 색상 보간, 알파 블렌딩 등은 SPEED(속도) 위주로 설정하여 CPU 프레셔를 낮춥니다.
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+        g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_SPEED)
+        g2d.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_SPEED)
+        g2d.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_SPEED)
+        g2d.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
 
         // 3. 논리 좌표계(1280×720)로 변환 후 게임 State UI 렌더링
         val saved = g2d.transform
         g2d.translate(ox, oy)
         g2d.scale(s, s)
-        g2d.setClip(0, 0, DESIGN_W, DESIGN_H)   // clipBounds가 논리 해상도를 반환하도록
+        g2d.setClip(0, 0, DESIGN_W, DESIGN_H)
         stateManager.render(g2d)
         g2d.transform = saved
     }
