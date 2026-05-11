@@ -274,14 +274,20 @@ class PlayState(
 
         // before 레이어 (depth < 0)
         before.createGraphics().also { cg ->
-            cg.clearRect(0, 0, w, h)
+            val origCmp = cg.composite
+            cg.composite = AlphaComposite.Clear
+            cg.fillRect(0, 0, w, h)
+            cg.composite = origCmp
             cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             renderer.render(cg, timeMs, beforeNotes = true)
             cg.dispose()
         }
         // after 레이어 (depth ≥ 0 + 화면 효과)
         after.createGraphics().also { cg ->
-            cg.clearRect(0, 0, w, h)
+            val origCmp = cg.composite
+            cg.composite = AlphaComposite.Clear
+            cg.fillRect(0, 0, w, h)
+            cg.composite = origCmp
             cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             renderer.render(cg, timeMs, beforeNotes = false)
             renderer.renderScreenEffects(cg, timeMs)
