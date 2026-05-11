@@ -18,7 +18,7 @@ jobs:
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          VERSION=$(echo "$COMMIT_MSG" | grep -oP '(?i)\b(?:B|R)\d+\.\d+\.\d+\b|\b(?:Release|Beta)\s+(?:B|R)\d+\.\d+\.\d+\b' | head -1 | sed -E 's/^(Release|Beta)[[:space:]]+//I')
+          VERSION=$(echo "$COMMIT_MSG" | grep -oP '(?i)\b(?:B|R)\d+\.\d+\.\d+\b|\b(?:Release|Beta)\s+(?:B|R)\d+\.\d+\.\d+\b' | head -1 | sed -E 's/^([Rr][Ee][Ll][Ee][Aa][Ss][Ee]|[Bb][Ee][Tt][Aa])[[:space:]]+//')
           if [ -n "$VERSION" ]; then
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
