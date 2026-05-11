@@ -5,7 +5,7 @@ plugins {
 
 allprojects {
     group = "io.github.jwyoon1220"
-    version = "B0.1.1"
+    version = "B0.1.2"
     
     repositories {
         mavenCentral()
