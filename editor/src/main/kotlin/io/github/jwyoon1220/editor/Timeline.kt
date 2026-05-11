@@ -6,10 +6,12 @@ import java.awt.Color
 import java.awt.Font
 import java.awt.Graphics2D
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 
 /**
  * 타임라인 뷰를 Graphics2D에 그립니다.
- * 화면 중앙이 [currentTimeMs]이고, 좌우로 [visibleWindowMs]/2 만큼 보입니다.
+ * 화면 좌측 끝 시간이 [timelineScrollMs]이며, 플레이헤드는 [playheadMs]에 위치합니다.
  * [selectedIndices]: 선택된 노트의 인덱스 집합 (강조 표시됨).
  */
 object Timeline {
@@ -28,7 +30,8 @@ object Timeline {
     fun render(
         g: Graphics2D,
         chart: MutableChart,
-        currentTimeMs: Long,
+        timelineScrollMs: Long,
+        playheadMs: Long,
         x: Int, y: Int, width: Int, height: Int,
         visibleWindowMs: Long = 6_000L,
         selectedIndices: Set<Int> = emptySet(),
@@ -36,7 +39,7 @@ object Timeline {
     ) {
         val laneCount  = 4
         val laneH      = height / laneCount
-        val cursorX    = x + width / 2
+        val cursorX    = x + ((playheadMs - timelineScrollMs).toDouble() / visibleWindowMs * width).toInt()
 
         // 배경
         g.color = Color(18, 18, 32)
@@ -59,14 +62,13 @@ object Timeline {
             val subBeatMs = beatMs / 4.0
             val windowHalf = visibleWindowMs / 2.0
 
-            // 화면에 보이는 비트 범위
-            val firstBeat = Math.floor((currentTimeMs - windowHalf) / subBeatMs).toLong()
-            val lastBeat  = Math.ceil((currentTimeMs + windowHalf) / subBeatMs).toLong()
+            val firstBeat = floor(timelineScrollMs / subBeatMs).toLong()
+            val lastBeat  = ceil((timelineScrollMs + visibleWindowMs) / subBeatMs).toLong()
 
             g.font = beatFont
             for (beatIdx in firstBeat..lastBeat) {
                 val timeMs = beatIdx * subBeatMs
-                val bx = cursorX + ((timeMs - currentTimeMs) / visibleWindowMs * width).toInt()
+                val bx = x + ((timeMs - timelineScrollMs) / visibleWindowMs * width).toInt()
                 if (bx < x || bx > x + width) continue
 
                 val isMeasure = beatIdx % 16 == 0L
@@ -98,8 +100,7 @@ object Timeline {
 
         // 노트 (선택 여부에 따라 강조)
         chart.notes.forEachIndexed { idx, note ->
-            val offsetMs = note.time - currentTimeMs
-            val nx       = cursorX + (offsetMs.toDouble() / visibleWindowMs * width).toInt()
+            val nx = x + ((note.time - timelineScrollMs).toDouble() / visibleWindowMs * width).toInt()
             if (nx < x - 20 || nx > x + width + 20) return@forEachIndexed
 
             val ly       = y + note.lane * laneH
@@ -114,7 +115,7 @@ object Timeline {
                 g.drawRect(nx - 4, ly + 4, 8, laneH - 8)
             } else {
                 val endMs = note.endTime ?: note.time
-                val ex    = cursorX + ((endMs - currentTimeMs).toDouble() / visibleWindowMs * width).toInt()
+                val ex    = x + ((endMs - timelineScrollMs).toDouble() / visibleWindowMs * width).toInt()
                 val left  = minOf(nx, ex)
                 val bw    = abs(ex - nx).coerceAtLeast(4)
                 val alpha = if (isSelected) 200 else 120
@@ -149,7 +150,7 @@ object Timeline {
         // 시간 표시
         g.font  = timeFont
         g.color = Color(200, 200, 200)
-        val pos = maxOf(currentTimeMs, 0L)
+        val pos = maxOf(playheadMs, 0L)
         val ts  = "%d:%02d.%03d".format(pos / 60_000, (pos % 60_000) / 1000, pos % 1000)
         g.drawString(ts, x + 26, y + height - 6)
     }
