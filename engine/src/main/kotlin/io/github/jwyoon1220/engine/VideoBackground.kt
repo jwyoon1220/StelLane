@@ -283,9 +283,9 @@ private fun convertI420toArgb(
             val vv = (v[uvOff + (col ushr 1)].toInt() and 0xFF) - 128
 
             val c = 298 * yy + 128
-            val r = ((c + 409 * vv) ushr 8).coerceIn(0, 255)
-            val g = ((c - 100 * uu - 208 * vv) ushr 8).coerceIn(0, 255)
-            val b = ((c + 516 * uu) ushr 8).coerceIn(0, 255)
+            val r = ((c + 409 * vv) shr 8).coerceIn(0, 255)
+            val g = ((c - 100 * uu - 208 * vv) shr 8).coerceIn(0, 255)
+            val b = ((c + 516 * uu) shr 8).coerceIn(0, 255)
 
             argb[idx++] = 0xFF000000.toInt() or (r shl 16) or (g shl 8) or b
         }
