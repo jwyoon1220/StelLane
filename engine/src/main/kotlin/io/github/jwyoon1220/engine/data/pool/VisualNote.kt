@@ -1,4 +1,4 @@
-package io.github.jwyoon1220.engine.pool
+package io.github.jwyoon1220.engine.data.pool
 
 import io.github.jwyoon1220.core.data.NoteType
 
