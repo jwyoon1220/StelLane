@@ -40,7 +40,7 @@ class SettingsState(
     private var localMode   = AppSettings.windowMode
     private var localOffset = AppSettings.calibrationOffsetMs
     private var localFps    = AppSettings.targetFps
-    private var localPlayBackend = AppSettings.playRenderBackend
+    private var localPlayRenderBackend = AppSettings.playRenderBackend
     private val fpsOptions  = listOf(30, 60, 120, 144, 165, 240)
     private val playBackendOptions = PlayRenderBackend.entries
     private val playBackendLabel = mapOf(
@@ -59,7 +59,7 @@ class SettingsState(
         localMode   = AppSettings.windowMode
         localOffset = AppSettings.calibrationOffsetMs
         localFps    = AppSettings.targetFps
-        localPlayBackend = AppSettings.playRenderBackend
+        localPlayRenderBackend = AppSettings.playRenderBackend
         cursor = startAt.coerceIn(0, items.lastIndex)
         ctx.inputManager.clearEvents()
     }
@@ -116,7 +116,7 @@ class SettingsState(
                 0 -> "◀  ${modeLabels[localMode]}  ▶"
                 1 -> "◀  ${if (localOffset >= 0) "+$localOffset" else "$localOffset"} ms  ▶"
                 2 -> "◀  $localFps FPS  ▶"
-                3 -> "◀  ${playBackendLabel[localPlayBackend]}  ▶"
+                3 -> "◀  ${playBackendLabel[localPlayRenderBackend]}  ▶"
                 else -> ""
             }
             g.font  = valueFont
@@ -177,8 +177,8 @@ class SettingsState(
                     localFps = fpsOptions[idx]
                 }
                 3 -> {
-                    val idx = (playBackendOptions.indexOf(localPlayBackend) - 1 + playBackendOptions.size) % playBackendOptions.size
-                    localPlayBackend = playBackendOptions[idx]
+                    val idx = (playBackendOptions.indexOf(localPlayRenderBackend) - 1 + playBackendOptions.size) % playBackendOptions.size
+                    localPlayRenderBackend = playBackendOptions[idx]
                 }
             }
             Keys.RIGHT -> when (cursor) {
@@ -192,8 +192,8 @@ class SettingsState(
                     localFps = fpsOptions[idx]
                 }
                 3 -> {
-                    val idx = (playBackendOptions.indexOf(localPlayBackend) + 1) % playBackendOptions.size
-                    localPlayBackend = playBackendOptions[idx]
+                    val idx = (playBackendOptions.indexOf(localPlayRenderBackend) + 1) % playBackendOptions.size
+                    localPlayRenderBackend = playBackendOptions[idx]
                 }
             }
 
@@ -219,7 +219,7 @@ class SettingsState(
                     0 -> { val idx = (modes.indexOf(localMode) - 1 + modes.size) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset - 10L).coerceIn(-500L, 500L)
                     2 -> { val idx = (fpsOptions.indexOf(localFps) - 1 + fpsOptions.size) % fpsOptions.size; localFps = fpsOptions[idx] }
-                    3 -> { val idx = (playBackendOptions.indexOf(localPlayBackend) - 1 + playBackendOptions.size) % playBackendOptions.size; localPlayBackend = playBackendOptions[idx] }
+                    3 -> { val idx = (playBackendOptions.indexOf(localPlayRenderBackend) - 1 + playBackendOptions.size) % playBackendOptions.size; localPlayRenderBackend = playBackendOptions[idx] }
                 }
             }
             // ▶ 영역 클릭
@@ -228,7 +228,7 @@ class SettingsState(
                     0 -> { val idx = (modes.indexOf(localMode) + 1) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset + 10L).coerceIn(-500L, 500L)
                     2 -> { val idx = (fpsOptions.indexOf(localFps) + 1) % fpsOptions.size; localFps = fpsOptions[idx] }
-                    3 -> { val idx = (playBackendOptions.indexOf(localPlayBackend) + 1) % playBackendOptions.size; localPlayBackend = playBackendOptions[idx] }
+                    3 -> { val idx = (playBackendOptions.indexOf(localPlayRenderBackend) + 1) % playBackendOptions.size; localPlayRenderBackend = playBackendOptions[idx] }
                 }
             }
         }
@@ -241,7 +241,7 @@ class SettingsState(
         val modeChanged = (localMode != AppSettings.windowMode)
         AppSettings.calibrationOffsetMs = localOffset
         AppSettings.targetFps = localFps
-        AppSettings.playRenderBackend = localPlayBackend
+        AppSettings.playRenderBackend = localPlayRenderBackend
         if (ctx.gameLoop.targetFPS != localFps) ctx.gameLoop.targetFPS = localFps
         ctx.stateManager.changeState(previous)
         // 창 모드는 상태 전환 후 적용 (전환 후 frame 재구성)
