@@ -1,9 +1,10 @@
 package io.github.jwyoon1220.app
 
-import io.github.jwyoon1220.core.StateManager
 import io.github.jwyoon1220.core.song.SongManager
 import io.github.jwyoon1220.engine.GameLoop
 import io.github.jwyoon1220.engine.InputManager
+import io.github.jwyoon1220.engine.Renderer
+import io.github.jwyoon1220.engine.StateManager
 import io.github.jwyoon1220.engine.VideoBackground
 import io.github.jwyoon1220.engine.data.pool.ObjectPool
 import io.github.jwyoon1220.engine.data.pool.VisualNote
@@ -19,4 +20,6 @@ class GameContext(
 ) {
     /** 게임 루프. Main에서 생성 직후 주입됩니다. */
     lateinit var gameLoop: GameLoop
+    /** 렌더러. Main에서 생성 직후 주입됩니다. */
+    lateinit var renderer: Renderer
 }

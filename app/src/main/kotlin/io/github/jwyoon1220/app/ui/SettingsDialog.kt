@@ -2,7 +2,7 @@ package io.github.jwyoon1220.app.ui
 
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.WindowManager
-import io.github.jwyoon1220.app.WindowMode
+import io.github.jwyoon1220.engine.WindowMode
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension

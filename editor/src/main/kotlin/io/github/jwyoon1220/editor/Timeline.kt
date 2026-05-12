@@ -2,15 +2,15 @@ package io.github.jwyoon1220.editor
 
 import io.github.jwyoon1220.core.data.MutableChart
 import io.github.jwyoon1220.core.data.NoteType
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.FontRegistry
 import java.awt.Color
-import java.awt.Font
-import java.awt.Graphics2D
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
 /**
- * 타임라인 뷰를 Graphics2D에 그립니다.
+ * 타임라인 뷰를 DrawContext에 그립니다.
  * 화면 좌측 끝 시간이 [timelineScrollMs]이며, 플레이헤드는 [playheadMs]에 위치합니다.
  * [selectedIndices]: 선택된 노트의 인덱스 집합 (강조 표시됨).
  */
@@ -23,12 +23,9 @@ object Timeline {
         Color(255, 120, 120)
     )
     private val selectedColor = Color(255, 255, 80)
-    private val labelFont = Font("Arial", Font.PLAIN, 12)
-    private val timeFont  = Font("Arial", Font.BOLD, 13)
-    private val beatFont  = Font("Arial", Font.PLAIN, 10)
 
     fun render(
-        g: Graphics2D,
+        g: DrawContext,
         chart: MutableChart,
         timelineScrollMs: Long,
         playheadMs: Long,
@@ -65,7 +62,7 @@ object Timeline {
             val firstBeat = floor(timelineScrollMs / subBeatMs).toLong()
             val lastBeat  = ceil((timelineScrollMs + visibleWindowMs) / subBeatMs).toLong()
 
-            g.font = beatFont
+            g.font = FontRegistry.regular(10f)
             for (beatIdx in firstBeat..lastBeat) {
                 val timeMs = beatIdx * subBeatMs
                 val bx = x + ((timeMs - timelineScrollMs) / visibleWindowMs * width).toInt()
@@ -140,7 +137,7 @@ object Timeline {
         g.drawLine(cursorX, y + height - 6, cursorX, y + height)
 
         // 레인 라벨
-        g.font  = labelFont
+        g.font  = FontRegistry.regular(12f)
         val labels = arrayOf("D", "F", "J", "K")
         for (i in 0 until laneCount) {
             g.color = Color(180, 180, 180)
@@ -148,7 +145,7 @@ object Timeline {
         }
 
         // 시간 표시
-        g.font  = timeFont
+        g.font  = FontRegistry.bold(13f)
         g.color = Color(200, 200, 200)
         val pos = maxOf(playheadMs, 0L)
         val ts  = "%d:%02d.%03d".format(pos / 60_000, (pos % 60_000) / 1000, pos % 1000)

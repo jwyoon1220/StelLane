@@ -3,7 +3,6 @@ package io.github.jwyoon1220.app.state
 import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.core.GameState
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Decoration
 import io.github.jwyoon1220.core.data.DecorationData
@@ -15,16 +14,15 @@ import io.github.jwyoon1220.core.song.ChartParser
 import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.editor.Quantizer
 import io.github.jwyoon1220.editor.Timeline
+import io.github.jwyoon1220.app.SwingHelper
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.LaneEventType
 import it.unimi.dsi.fastutil.ints.IntArraySet
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Graphics2D
-import java.awt.RenderingHints
-import java.awt.event.KeyEvent
-import java.awt.event.MouseEvent
-import java.awt.image.BufferedImage
 import java.io.File
 
 class EditorState(
@@ -81,6 +79,9 @@ class EditorState(
     private var decorResizeOrigW  = 0f
     private var decorResizeOrigH  = 0f
 
+    private var timelineDecorDragIdx = -1
+    private var timelineDecorDragOffsetX = 0f
+
     private var pendingSeekMs: Long = -1L
     private var lastSeekTimeMs: Long = 0L
     private var timelineDragStartX = -1
@@ -126,12 +127,8 @@ class EditorState(
     private var decorTlW = 0
     private var decorTlH = 0
     // ── 장식 레이어 캐시 (decorMode) ───────────────────────────────────────
-    /** 장식 레이어 렌더 FPS (기본 30). */
-    var decorTargetFps: Int = 30
-    /** true: 데이터 변경 시 캐시 강제 갱신 */
-    private var decorDirty = true
-    private var decorLastRenderNs = 0L
-    private var decorCacheAll: BufferedImage? = null  // decorMode 장식 통합 레이어    // ── 폰트 ─────────────────────────────────────────────────────────────────
+    // DrawContext (NanoVG) GPU 가속이므로 CPU-side 캐시 불필요 — 매 프레임 직접 렌더링
+    // ── 폰트 ─────────────────────────────────────────────────────────────────
     private val headerFont = FontLoader.semiBold(20f)
     private val infoFont   = FontLoader.regular(15f)
     private val hintFont   = FontLoader.light(12f)
@@ -212,9 +209,9 @@ class EditorState(
         }
     }
 
-    override fun render(g: Graphics2D) {
-        renderW = g.clipBounds?.width  ?: 1280
-        renderH = g.clipBounds?.height ?: 720
+    override fun render(g: DrawContext) {
+        renderW = g.clipBounds.width
+        renderH = g.clipBounds.height
         val w = renderW
         val h = renderH
 
@@ -247,28 +244,14 @@ class EditorState(
         // ── 2. 장식 오버레이 (뷰포트 스케일 적용) ────────────────────────────────
         val renderer = decorRenderer
         if (renderer != null) {
-            val now        = System.nanoTime()
-            val intervalNs = 1_000_000_000L / decorTargetFps.coerceAtLeast(1)
-            if (decorDirty || (now - decorLastRenderNs) >= intervalNs) {
-                val cache = decorCacheAll.let {
-                    if (it != null && it.width == w && it.height == h) it
-                    else BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB).also { b -> decorCacheAll = b }
-                }
-                val cg = cache.createGraphics()
-                val origCmp = cg.composite
-                cg.composite = AlphaComposite.Clear
-                cg.fillRect(0, 0, w, h)
-                cg.composite = origCmp
-                cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                renderer.render(cg, currentTimeMs, beforeNotes = true)
-                renderer.render(cg, currentTimeMs, beforeNotes = false)
-                renderer.renderScreenEffects(cg, currentTimeMs)
-                cg.dispose()
-                decorDirty = false
-                decorLastRenderNs = now
-            }
-            // 뷰포트 크기(vpW, vpH)에 맞게 1280x720 캔버스를 스케일하여 그림
-            decorCacheAll?.let { g.drawImage(it, vpX, vpY, vpW, vpH, null) }
+            g.save()
+            g.setClip(vpX, vpY, vpW, vpH)
+            g.translate(vpX.toDouble(), vpY.toDouble())
+            g.scale(vpW / 1280.0, vpH / 720.0)
+            renderer.render(g, currentTimeMs, beforeNotes = true)
+            renderer.render(g, currentTimeMs, beforeNotes = false)
+            renderer.renderScreenEffects(g, currentTimeMs)
+            g.restore()
         }
 
         // ── 3. 선택된 장식 바운딩 박스 (뷰포트 적용) ──────────────────────────
@@ -401,18 +384,18 @@ class EditorState(
         else           renderNoteShortcutPanel(g, propsX, HDR_H, PROPS_W, tl0Y - HDR_H)
     }
 
-    override fun keyPressed(e: KeyEvent) {
-        val ctrl  = e.isControlDown
-        val shift = e.isShiftDown
+    override fun keyPressed(key: Int, mods: Int) {
+        val ctrl  = Keys.isCtrl(mods)
+        val shift = Keys.isShift(mods)
 
         // 데코레이션 모드 전용 단축키
         if (decorMode) {
             when {
-                ctrl && shift && e.keyCode == KeyEvent.VK_D -> toggleDecorMode()
-                ctrl && e.keyCode == KeyEvent.VK_S          -> saveDecor()
-                e.keyCode == KeyEvent.VK_E && selectedDecorIdx >= 0 ->
+                ctrl && shift && key == Keys.D -> toggleDecorMode()
+                ctrl && key == Keys.S          -> saveDecor()
+                key == Keys.E && selectedDecorIdx >= 0 ->
                     javax.swing.SwingUtilities.invokeLater { openDecorEditDialog(selectedDecorIdx) }
-                e.keyCode == KeyEvent.VK_DELETE || e.keyCode == KeyEvent.VK_BACK_SPACE -> {
+                key == Keys.DELETE || key == Keys.BACKSPACE -> {
                     val idx = selectedDecorIdx
                     if (idx >= 0) {
                         val cur = decorations; cur.removeAt(idx)
@@ -420,73 +403,72 @@ class EditorState(
                         selectedDecorIdx = (idx - 1).coerceAtLeast(-1)
                     }
                 }
-                e.keyCode == KeyEvent.VK_ESCAPE -> decorMode = false
+                key == Keys.ESCAPE -> decorMode = false
                 // 재생 제어는 데코레이션 모드에서도 허용
-                e.keyCode == KeyEvent.VK_SPACE  -> togglePlay()
-                e.keyCode == KeyEvent.VK_LEFT   -> seek(-1_000L)
-                e.keyCode == KeyEvent.VK_RIGHT  -> seek(1_000L)
+                key == Keys.SPACE  -> togglePlay()
+                key == Keys.LEFT   -> seek(-1_000L)
+                key == Keys.RIGHT  -> seek(1_000L)
             }
             return
         }
 
         when {
-            ctrl && shift && e.keyCode == KeyEvent.VK_D -> toggleDecorMode()
+            ctrl && shift && key == Keys.D -> toggleDecorMode()
 
             // 재생 제어 — 녹음 중에는 J/K 가 레인 키로만 동작
-            e.keyCode == KeyEvent.VK_SPACE                            -> togglePlay()
-            e.keyCode == KeyEvent.VK_J && !ctrl && !recordingMode     -> { pause(); seek(-5_000L) }
-            e.keyCode == KeyEvent.VK_K && !recordingMode              -> pause()
-            e.keyCode == KeyEvent.VK_L && !ctrl                       -> startPlay()
-            e.keyCode == KeyEvent.VK_HOME                      -> seek(-ctx.videoBackground.getSmoothTimeMs())
-            e.keyCode == KeyEvent.VK_END                       -> { /* seek to last note */ seekToEnd() }
-            e.keyCode == KeyEvent.VK_LEFT  && shift            -> seek(-100L)
-            e.keyCode == KeyEvent.VK_RIGHT && shift            -> seek(100L)
-            e.keyCode == KeyEvent.VK_LEFT  && !ctrl && !shift  -> seek(-1_000L)
-            e.keyCode == KeyEvent.VK_RIGHT && !ctrl && !shift  -> seek(1_000L)
+            key == Keys.SPACE                       -> togglePlay()
+            key == Keys.J && !ctrl && !recordingMode -> { pause(); seek(-5_000L) }
+            key == Keys.K && !recordingMode          -> pause()
+            key == Keys.L && !ctrl                  -> startPlay()
+            key == Keys.HOME                        -> seek(-ctx.videoBackground.getSmoothTimeMs())
+            key == Keys.END                         -> seekToEnd()
+            key == Keys.LEFT  && shift              -> seek(-100L)
+            key == Keys.RIGHT && shift              -> seek(100L)
+            key == Keys.LEFT  && !ctrl && !shift    -> seek(-1_000L)
+            key == Keys.RIGHT && !ctrl && !shift    -> seek(1_000L)
 
             // 선택
-            ctrl && e.keyCode == KeyEvent.VK_A                 -> selectAll()
-            ctrl && e.keyCode == KeyEvent.VK_D                 -> selectedIndices.clear()
-            e.keyCode == KeyEvent.VK_TAB && !shift             -> navigateNote(+1)
-            e.keyCode == KeyEvent.VK_TAB && shift              -> navigateNote(-1)
+            ctrl && key == Keys.A                   -> selectAll()
+            ctrl && key == Keys.D                   -> selectedIndices.clear()
+            key == Keys.TAB && !shift               -> navigateNote(+1)
+            key == Keys.TAB && shift                -> navigateNote(-1)
 
             // 편집
-            ctrl && e.keyCode == KeyEvent.VK_Z && !shift       -> undo()
-            ctrl && e.keyCode == KeyEvent.VK_Y                 -> redo()
-            ctrl && e.keyCode == KeyEvent.VK_Z && shift        -> redo()
-            ctrl && e.keyCode == KeyEvent.VK_C                 -> copy()
-            ctrl && e.keyCode == KeyEvent.VK_X                 -> cut()
-            ctrl && e.keyCode == KeyEvent.VK_V                 -> paste()
-            e.keyCode == KeyEvent.VK_DELETE || e.keyCode == KeyEvent.VK_BACK_SPACE
-                                                                -> deleteSelected()
+            ctrl && key == Keys.Z && !shift         -> undo()
+            ctrl && key == Keys.Y                   -> redo()
+            ctrl && key == Keys.Z && shift          -> redo()
+            ctrl && key == Keys.C                   -> copy()
+            ctrl && key == Keys.X                   -> cut()
+            ctrl && key == Keys.V                   -> paste()
+            key == Keys.DELETE || key == Keys.BACKSPACE -> deleteSelected()
 
             // 녹음 / 퀀타이즈
-            e.keyCode == KeyEvent.VK_N                             -> cycleNoteMode()
-            e.keyCode == KeyEvent.VK_R                         -> {
+            key == Keys.N                           -> cycleNoteMode()
+            key == Keys.R                           -> {
                 recordingMode = !recordingMode
                 heldLaneStartMs.fill(-1L)
             }
-            e.keyCode == KeyEvent.VK_Q                         -> cycleQuantize()
-            e.keyCode == KeyEvent.VK_4                         -> { quantizeEnabled = true; quantizeDivision = 4  }
-            e.keyCode == KeyEvent.VK_8                         -> { quantizeEnabled = true; quantizeDivision = 8  }
-            e.keyCode == KeyEvent.VK_6                         -> { quantizeEnabled = true; quantizeDivision = 16 }
+            key == Keys.Q                           -> cycleQuantize()
+            key == Keys.N4                          -> { quantizeEnabled = true; quantizeDivision = 4  }
+            key == Keys.N8                          -> { quantizeEnabled = true; quantizeDivision = 8  }
+            key == Keys.N6                          -> { quantizeEnabled = true; quantizeDivision = 16 }
 
             // 줌
-            e.keyCode == KeyEvent.VK_EQUALS || e.keyCode == KeyEvent.VK_PLUS -> zoomIn()
-            e.keyCode == KeyEvent.VK_MINUS                     -> zoomOut()
+            key == Keys.EQUAL || key == Keys.PLUS   -> zoomIn()
+            key == Keys.MINUS                       -> zoomOut()
 
             // 저장 / 뒤로
-            ctrl && e.keyCode == KeyEvent.VK_S                 -> if (decorMode) saveDecor() else save()
-            ctrl && e.keyCode == KeyEvent.VK_COMMA             -> openSettings()
-            ctrl && shift && e.keyCode == KeyEvent.VK_O        -> openCalibration()
-            e.keyCode == KeyEvent.VK_ESCAPE                    -> {
+            ctrl && key == Keys.S                   -> if (decorMode) saveDecor() else save()
+            ctrl && key == Keys.COMMA               -> openSettings()
+            ctrl && shift && key == Keys.O          -> openCalibration()
+            key == Keys.ESCAPE                      -> {
                 if (selectedIndices.isNotEmpty()) selectedIndices.clear()
                 else ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
             }
         }
     }
 
-    override fun keyTyped(e: KeyEvent) {
+    override fun keyTyped(codepoint: Int) {
     }
 
     // ── 재생 제어 ─────────────────────────────────────────────────────────────
@@ -645,9 +627,8 @@ class EditorState(
 
     // ── 마우스 ────────────────────────────────────────────────────────────────
 
-    override fun mousePressed(e: MouseEvent) {
-        val mx = e.x
-        val my = e.y
+    override fun mousePressed(x: Float, y: Float, button: Int, mods: Int) {
+        val mx = x.toInt(); val my = y.toInt()
         timelineDragStartX = mx
         if (decorMode) {
             val vpH = renderH - HDR_H - btmH
@@ -694,8 +675,31 @@ class EditorState(
                 }
             }
         }
-        // 노트 트래인 영역 내 좌클릭 → 노트 리사이즈 주비
-        if (javax.swing.SwingUtilities.isLeftMouseButton(e) && my >= tlY && my <= tlY + tlH && mx <= tlW) {
+
+        // 데코레이션 타임라인 영역 (하단 스트립) 클릭 → 타임 드래그
+        if (decorMode && my in decorTlY..(decorTlY + decorTlH) && mx <= mainW) {
+            val laneH = ((decorTlH - 20) / 5).coerceAtLeast(8)
+            var hitIdx = -1
+            decorations.forEachIndexed { idx, dec ->
+                val lane = idx % 5
+                val by = decorTlY + 18 + lane * laneH
+                val startPx = ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * mainW).toInt()
+                val endPx = ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * mainW).toInt()
+                if (mx in startPx.coerceAtLeast(0)..endPx.coerceAtMost(mainW) && my in by..(by + laneH - 3)) {
+                    hitIdx = idx
+                }
+            }
+            if (hitIdx >= 0) {
+                timelineDecorDragIdx = hitIdx
+                val startPx = ((decorations[hitIdx].timeMs - timelineScrollMs).toDouble() / visibleWindowMs * mainW).toInt()
+                timelineDecorDragOffsetX = (mx - startPx).toFloat()
+                selectedDecorIdx = hitIdx
+                return
+            }
+        }
+
+        // 노트 트랙 영역 내 좌클릭 → 노트 리사이즈 준비
+        if (button == Keys.MOUSE_LEFT && my >= tlY && my <= tlY + tlH && mx <= tlW) {
             val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
             val laneH = tlH / 4
             val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
@@ -706,7 +710,7 @@ class EditorState(
         }
     }
 
-    override fun mouseReleased(e: MouseEvent) {
+    override fun mouseReleased(x: Float, y: Float, button: Int, mods: Int) {
         // 노트 리사이즈 완료 시 스냅샷 저장
         if (noteResizeIdx >= 0 && noteResizeMoved) {
             saveSnapshot()
@@ -716,19 +720,20 @@ class EditorState(
         noteResizeMoved = false
         draggingDecorIdx = -1
         resizingDecorIdx = -1
+        timelineDecorDragIdx = -1
         if (pendingSeekMs >= 0L) {
             ctx.videoBackground.seek(pendingSeekMs)
             pendingSeekMs = -1L
         }
     }
 
-    override fun mouseClicked(e: MouseEvent) {
-        val mx = e.x
-        val my = e.y
+    override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
+        val mx = x.toInt()
+        val my = y.toInt()
 
         // 장식 타임라인 영역 클릭 (어떤 모드든 처리)
         if (my in unifiedTlY..(unifiedTlY + DECOR_TL_H) && mx <= mainW) {
-            handleDecorMouseClick(e); return
+            handleDecorMouseClick(mx, my, button, mods); return
         }
 
         // 노트 타임라인 영역 안에서만 처리
@@ -738,12 +743,12 @@ class EditorState(
         val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
         val laneH = tlH / 4
 
-        when (e.button) {
-            MouseEvent.BUTTON1 -> {
+        when (button) {
+            Keys.MOUSE_LEFT -> {
                 val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
                 if (hitIdx >= 0) {
                     // 노트 클릭: 선택 / 추가 선택
-                    if (e.isShiftDown) {
+                    if (Keys.isShift(mods)) {
                         if (hitIdx in selectedIndices) selectedIndices.remove(hitIdx)
                         else selectedIndices.add(hitIdx)
                     } else {
@@ -758,7 +763,7 @@ class EditorState(
                     ctx.videoBackground.seek(maxOf(0L, clickMs + mutableChart.offsetMs))
                 }
             }
-            MouseEvent.BUTTON3 -> {
+            Keys.MOUSE_RIGHT -> {
                 val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
                 if (hitIdx >= 0) {
                     // 노트 우클릭: 삭제
@@ -774,7 +779,6 @@ class EditorState(
                     val clickMs = timelineScrollMs + mx.toLong() * visibleWindowMs / tlW
                     val snapped = snapTime(clickMs.coerceAtLeast(0L))
                     val laneNames = arrayOf("D", "F", "J", "K")
-                    val comp  = e.component
                     val popup = javax.swing.JPopupMenu()
                     popup.add(javax.swing.JMenuItem("${laneNames[lane]} 레인에 노트 추가")).addActionListener {
                         saveSnapshot()
@@ -784,12 +788,7 @@ class EditorState(
                         mutableChart.notes.sortBy { it.time }
                         unsaved = true
                     }
-                    javax.swing.SwingUtilities.invokeLater {
-                        runCatching {
-                            val loc = comp.locationOnScreen
-                            popup.show(comp, e.xOnScreen - loc.x, e.yOnScreen - loc.y)
-                        }
-                    }
+                    SwingHelper.showPopup(popup, ctx.windowManager.glfwWindow)
                 }
             }
         }
@@ -810,9 +809,8 @@ class EditorState(
         return -1
     }
 
-    override fun mouseDragged(e: MouseEvent) {
-        val mx = e.x
-        val my = e.y
+    override fun mouseDragged(x: Float, y: Float, button: Int) {
+        val mx = x.toInt(); val my = y.toInt()
         // 데코레이션 코너 리사이즈
         if (resizingDecorIdx >= 0 && decorMode) {
             val vpH = renderH - HDR_H - btmH
@@ -858,8 +856,25 @@ class EditorState(
             unsaved = true
             return
         }
+        
+        // 타임라인 내 데코레이션 드래그 (시간 변경)
+        if (timelineDecorDragIdx >= 0 && decorMode) {
+            val dec = decorations.getOrNull(timelineDecorDragIdx) ?: run { timelineDecorDragIdx = -1; return }
+            val newStartPx = mx - timelineDecorDragOffsetX
+            val newTimeMs = timelineScrollMs + (newStartPx.toDouble() / mainW * visibleWindowMs).toLong()
+            val snappedTime = snapTime(newTimeMs.coerceAtLeast(0L))
+            
+            val updated = dec.copy(timeMs = snappedTime)
+            val cur = decorData.decorations.toMutableList()
+            cur[timelineDecorDragIdx] = updated
+            decorData = DecorationData(cur, decorData.screenEffects)
+            syncDecorRenderer()
+            unsaved = true
+            return
+        }
+        
         // 노트 리사이즈 (endTime 연장)
-        if (noteResizeIdx >= 0 && javax.swing.SwingUtilities.isLeftMouseButton(e)) {
+        if (noteResizeIdx >= 0 && button == Keys.MOUSE_LEFT) {
             val note = mutableChart.notes.getOrNull(noteResizeIdx)
             if (note != null) {
                 val newEndMs = (timelineScrollMs + mx.toLong() * visibleWindowMs / tlW)
@@ -878,14 +893,14 @@ class EditorState(
 
         if (my < unifiedTlY || mx > mainW) return
         
-        if (javax.swing.SwingUtilities.isMiddleMouseButton(e) || javax.swing.SwingUtilities.isRightMouseButton(e)) {
+        if (button == Keys.MOUSE_MIDDLE || button == Keys.MOUSE_RIGHT) {
             // 패닝 (Panning): 플레이헤드는 그대로 두고 뷰포트만 좌우 이동
             if (timelineDragStartX >= 0) {
                 val dx = mx - timelineDragStartX
                 timelineDragStartX = mx
                 timelineScrollMs -= (dx.toLong() * visibleWindowMs / mainW)
             }
-        } else if (javax.swing.SwingUtilities.isLeftMouseButton(e)) {
+        } else if (button == Keys.MOUSE_LEFT) {
             // 스크러빙 (Scrubbing): 클릭한 위치로 플레이헤드 이동 (VLC 과부하 방지)
             val clickMs = timelineScrollMs + mx.toLong() * visibleWindowMs / mainW
             pendingSeekMs = maxOf(0L, clickMs + mutableChart.offsetMs)
@@ -927,7 +942,6 @@ class EditorState(
 
     private fun syncDecorRenderer() {
         decorRenderer = DecorationRenderer(decorData, songEntry.songDir)
-        decorDirty = true   // 데이터 변경 → 장식 캐시 지운 후 재렌더링
     }
 
     private fun toggleDecorMode() {
@@ -940,7 +954,7 @@ class EditorState(
         // decorRenderer는 항상 유지 (통합 에디터: 장식 오버레이 항상 표시)
     }
 
-    private fun renderNoteShortcutPanel(g: Graphics2D, px: Int, py: Int, pw: Int, ph: Int) {
+    private fun renderNoteShortcutPanel(g: DrawContext, px: Int, py: Int, pw: Int, ph: Int) {
         g.font = toolFont
         var ty = py + 18
         fun section(title: String) {
@@ -971,7 +985,7 @@ class EditorState(
         shortcut("Esc", "뒤로")
     }
 
-    private fun renderDecorPropsPanel(g: Graphics2D, px: Int, py: Int, pw: Int, ph: Int) {
+    private fun renderDecorPropsPanel(g: DrawContext, px: Int, py: Int, pw: Int, ph: Int) {
         val list   = decorations
         val selDec = list.getOrNull(selectedDecorIdx)
         g.font = toolFont
@@ -1024,8 +1038,7 @@ class EditorState(
     }
 
     // ── 데코레이션 마우스 핸들러 ─────────────────────────────────────────────────
-    private fun handleDecorMouseClick(e: MouseEvent) {
-        val mx = e.x; val my = e.y
+    private fun handleDecorMouseClick(mx: Int, my: Int, button: Int, mods: Int) {
         // 하단 타임라인 영역만 처리
         if (my < decorTlY || my > decorTlY + decorTlH) return
 
@@ -1046,12 +1059,11 @@ class EditorState(
             return -1
         }
 
-        when (e.button) {
-            MouseEvent.BUTTON1 -> selectedDecorIdx = findHit()
-            MouseEvent.BUTTON3 -> {
+        when (button) {
+            Keys.MOUSE_LEFT -> selectedDecorIdx = findHit()
+            Keys.MOUSE_RIGHT -> {
                 val clickMs = currentMs + (mx - cursorPx).toLong() * visibleWindowMs / decorTlW
                 val hit     = findHit()
-                val comp    = e.component
                 val popup   = javax.swing.JPopupMenu()
                 if (hit >= 0) {
                     popup.add(javax.swing.JMenuItem("편집…")).addActionListener {
@@ -1069,12 +1081,7 @@ class EditorState(
                         javax.swing.SwingUtilities.invokeLater { openNewDecorDialog(clickMs.coerceAtLeast(0L)) }
                     }
                 }
-                javax.swing.SwingUtilities.invokeLater {
-                    runCatching {
-                        val loc = comp.locationOnScreen
-                        popup.show(comp, e.xOnScreen - loc.x, e.yOnScreen - loc.y)
-                    }
-                }
+                SwingHelper.showPopup(popup, ctx.windowManager.glfwWindow)
             }
         }
     }
