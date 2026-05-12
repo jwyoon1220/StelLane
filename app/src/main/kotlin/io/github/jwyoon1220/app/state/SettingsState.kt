@@ -3,6 +3,7 @@ package io.github.jwyoon1220.app.state
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.app.PlayRenderBackend
 import io.github.jwyoon1220.engine.WindowMode
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
@@ -15,8 +16,10 @@ import java.awt.Color
  * 항목:
  *  0 — 창 모드 (← → 순환)
  *  1 — 오디오 보정 오프셋 ms (← → ±10ms, Shift+←→ ±1ms)
+ *  2 — 프레임 제한 FPS (← → 순환)
+ *  3 — 플레이 렌더러 (NanoVG / Custom)
  *
- * Esc / Enter(보정 행) → 저장 후 이전 화면으로 돌아갑니다.
+ * Esc / Enter → 저장 후 이전 화면으로 돌아갑니다.
  */
 class SettingsState(
     private val ctx: GameContext,
@@ -30,14 +33,20 @@ class SettingsState(
     private val hintFont   = FontLoader.light(14f)
     private val descFont   = FontLoader.light(13f)
 
-    private val items = listOf("창 모드", "오디오/비디오 보정", "프레임 제한")
+    private val items = listOf("창 모드", "오디오/비디오 보정", "프레임 제한", "플레이 렌더러")
     private var cursor = 0
 
     // 로컬 편집용 (적용 전까지 AppSettings에 반영 안 함)
     private var localMode   = AppSettings.windowMode
     private var localOffset = AppSettings.calibrationOffsetMs
     private var localFps    = AppSettings.targetFps
+    private var localPlayBackend = AppSettings.playRenderBackend
     private val fpsOptions  = listOf(30, 60, 120, 144, 165, 240)
+    private val playBackendOptions = PlayRenderBackend.entries
+    private val playBackendLabel = mapOf(
+        PlayRenderBackend.NANOVG to "NanoVG (기본)",
+        PlayRenderBackend.CUSTOM to "Custom (Play 전용)"
+    )
 
     private val modes = WindowMode.entries
     private val modeLabels = mapOf(
@@ -50,6 +59,7 @@ class SettingsState(
         localMode   = AppSettings.windowMode
         localOffset = AppSettings.calibrationOffsetMs
         localFps    = AppSettings.targetFps
+        localPlayBackend = AppSettings.playRenderBackend
         cursor = startAt.coerceIn(0, items.lastIndex)
         ctx.inputManager.clearEvents()
     }
@@ -67,7 +77,7 @@ class SettingsState(
         g.fillRect(0, 0, w, h)
 
         // 패널
-        val pw = 700; val ph = 420
+        val pw = 700; val ph = 500
         val px = (w - pw) / 2; val py = (h - ph) / 2
         g.color = Color(16, 14, 30, 240)
         g.fillRoundRect(px, py, pw, ph, 18, 18)
@@ -106,6 +116,7 @@ class SettingsState(
                 0 -> "◀  ${modeLabels[localMode]}  ▶"
                 1 -> "◀  ${if (localOffset >= 0) "+$localOffset" else "$localOffset"} ms  ▶"
                 2 -> "◀  $localFps FPS  ▶"
+                3 -> "◀  ${playBackendLabel[localPlayBackend]}  ▶"
                 else -> ""
             }
             g.font  = valueFont
@@ -128,6 +139,15 @@ class SettingsState(
             val desc2 = "낮을수록 CPU 사용량 감소, 높을수록 화면이 부드럽습니다"
             val dfm2 = g.getFontMetrics(descFont)
             g.drawString(desc2, (w - dfm2.stringWidth(desc2)) / 2, py + ph - 38)
+        }
+
+        // 렌더러 부가 설명
+        if (cursor == 3) {
+            g.font  = descFont
+            g.color = Color(140, 140, 160)
+            val desc3 = "Custom은 PlayState에서만 적용되며 나머지 화면은 NanoVG를 유지합니다"
+            val dfm3 = g.getFontMetrics(descFont)
+            g.drawString(desc3, (w - dfm3.stringWidth(desc3)) / 2, py + ph - 38)
         }
 
         // 보정 부가 설명
@@ -156,6 +176,10 @@ class SettingsState(
                     val idx = (fpsOptions.indexOf(localFps) - 1 + fpsOptions.size) % fpsOptions.size
                     localFps = fpsOptions[idx]
                 }
+                3 -> {
+                    val idx = (playBackendOptions.indexOf(localPlayBackend) - 1 + playBackendOptions.size) % playBackendOptions.size
+                    localPlayBackend = playBackendOptions[idx]
+                }
             }
             Keys.RIGHT -> when (cursor) {
                 0 -> {
@@ -167,6 +191,10 @@ class SettingsState(
                     val idx = (fpsOptions.indexOf(localFps) + 1) % fpsOptions.size
                     localFps = fpsOptions[idx]
                 }
+                3 -> {
+                    val idx = (playBackendOptions.indexOf(localPlayBackend) + 1) % playBackendOptions.size
+                    localPlayBackend = playBackendOptions[idx]
+                }
             }
 
             Keys.ENTER,
@@ -176,7 +204,7 @@ class SettingsState(
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
         val w = 1280; val h = 720
-        val pw = 700; val ph = 420
+        val pw = 700; val ph = 500
         val px = (w - pw) / 2; val py = (h - ph) / 2
         val startY = py + 110; val rowH = 80
 
@@ -191,6 +219,7 @@ class SettingsState(
                     0 -> { val idx = (modes.indexOf(localMode) - 1 + modes.size) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset - 10L).coerceIn(-500L, 500L)
                     2 -> { val idx = (fpsOptions.indexOf(localFps) - 1 + fpsOptions.size) % fpsOptions.size; localFps = fpsOptions[idx] }
+                    3 -> { val idx = (playBackendOptions.indexOf(localPlayBackend) - 1 + playBackendOptions.size) % playBackendOptions.size; localPlayBackend = playBackendOptions[idx] }
                 }
             }
             // ▶ 영역 클릭
@@ -199,6 +228,7 @@ class SettingsState(
                     0 -> { val idx = (modes.indexOf(localMode) + 1) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset + 10L).coerceIn(-500L, 500L)
                     2 -> { val idx = (fpsOptions.indexOf(localFps) + 1) % fpsOptions.size; localFps = fpsOptions[idx] }
+                    3 -> { val idx = (playBackendOptions.indexOf(localPlayBackend) + 1) % playBackendOptions.size; localPlayBackend = playBackendOptions[idx] }
                 }
             }
         }
@@ -211,6 +241,7 @@ class SettingsState(
         val modeChanged = (localMode != AppSettings.windowMode)
         AppSettings.calibrationOffsetMs = localOffset
         AppSettings.targetFps = localFps
+        AppSettings.playRenderBackend = localPlayBackend
         if (ctx.gameLoop.targetFPS != localFps) ctx.gameLoop.targetFPS = localFps
         ctx.stateManager.changeState(previous)
         // 창 모드는 상태 전환 후 적용 (전환 후 frame 재구성)
