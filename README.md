@@ -17,7 +17,7 @@ StelLane은 Kotlin/JVM 기반의 리듬 게임 프로젝트입니다.
 - Kotlin `2.1.21`
 - Java Toolchain `21`
 - Gradle Wrapper `9.3.0`
-- Swing/Java2D
+- GLFW/OpenGL(LWJGL)
 - VLCJ `4.8.2`
 
 ## 요구 사항
