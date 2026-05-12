@@ -154,9 +154,9 @@ class SettingsState(
         if (cursor == 3) {
             g.font  = descFont
             g.color = Color(140, 140, 160)
-            val desc3 = "Custom은 PlayState에서만 적용되며 나머지 화면은 NanoVG를 유지합니다"
+            val rendererDesc = "Custom은 PlayState에서만 적용되며 나머지 화면은 NanoVG를 유지합니다"
             val dfm3 = g.getFontMetrics(descFont)
-            g.drawString(desc3, (w - dfm3.stringWidth(desc3)) / 2, py + ph - 38)
+            g.drawString(rendererDesc, (w - dfm3.stringWidth(rendererDesc)) / 2, py + ph - 38)
         }
     }
 
