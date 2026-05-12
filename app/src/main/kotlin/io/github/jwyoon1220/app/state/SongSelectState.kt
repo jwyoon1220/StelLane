@@ -5,16 +5,14 @@ import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.app.ui.NewSongDialog
 import io.github.jwyoon1220.app.ui.SongImportDialog
 import io.github.jwyoon1220.app.ui.SongZipUtil
-import io.github.jwyoon1220.core.GameState
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.ChartParser
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.Keys
 import org.slf4j.LoggerFactory
 import java.awt.AlphaComposite
-import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Graphics2D
-import java.awt.RenderingHints
-import java.awt.event.KeyEvent
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -115,9 +113,9 @@ class SongSelectState(
         }
     }
 
-    override fun render(g: Graphics2D) {
-        val w = g.clipBounds?.width  ?: 1280
-        val h = g.clipBounds?.height ?: 720
+    override fun render(g: DrawContext) {
+        val w = g.clipBounds.width
+        val h = g.clipBounds.height
 
         // ── 전체 배경 (비디오 위 반투명 오버레이) ───────────────────────
         val old = g.composite
@@ -160,9 +158,6 @@ class SongSelectState(
 
         // ── 왼쪽: 현재 선택된 곡 정보 ─────────────────────────────────────────
         curSong?.let { entry ->
-            val rh   = g.getRenderingHint(RenderingHints.KEY_INTERPOLATION)
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-
             val imgSize = minOf(COVER_MAX, LEFT_W - PAD * 2)
             val imgX    = (LEFT_W - imgSize) / 2
             val imgY    = 56
@@ -187,7 +182,6 @@ class SongSelectState(
                 g.drawString(note, imgX + (imgSize - nfm.stringWidth(note)) / 2,
                     imgY + imgSize / 2 + nfm.ascent / 2 - 4)
             }
-            if (rh != null) g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, rh)
 
             var ty = imgY + imgSize + 22
 
@@ -262,8 +256,6 @@ class SongSelectState(
             val thumbX = listX + 16
             val thumbY = rowY + (ROW_H - THUMB_S) / 2
             val thumb  = getCoverImage(entry)
-            val rh     = g.getRenderingHint(RenderingHints.KEY_INTERPOLATION)
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
             if (thumb != null) {
                 val oldC = g.clip
                 val rr2  = java.awt.geom.RoundRectangle2D.Float(thumbX.toFloat(), thumbY.toFloat(),
@@ -275,7 +267,6 @@ class SongSelectState(
                 g.color = Color(38, 28, 60)
                 g.fillRoundRect(thumbX, thumbY, THUMB_S, THUMB_S, 6, 6)
             }
-            if (rh != null) g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, rh)
 
             // 텍스트
             val textX = thumbX + THUMB_S + 14
@@ -293,42 +284,40 @@ class SongSelectState(
         g.clip = oldClip
     }
 
-    override fun keyPressed(e: KeyEvent) {
-        when (e.keyCode) {
-            KeyEvent.VK_UP    -> if (songs.isNotEmpty()) { songIndex = (songIndex - 1 + songs.size) % songs.size; diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
-            KeyEvent.VK_DOWN  -> if (songs.isNotEmpty()) { songIndex = (songIndex + 1) % songs.size; diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
-            KeyEvent.VK_LEFT  -> if (curDiffs.isNotEmpty()) diffIndex = (diffIndex - 1 + curDiffs.size) % curDiffs.size
-            KeyEvent.VK_RIGHT -> if (curDiffs.isNotEmpty()) diffIndex = (diffIndex + 1) % curDiffs.size
-            KeyEvent.VK_ENTER -> onConfirm()
-            KeyEvent.VK_I     -> SwingUtilities.invokeLater { SongImportDialog(ctx.songManager).show() }
-            KeyEvent.VK_N     -> if (mode == SelectMode.EDIT) SwingUtilities.invokeLater { NewSongDialog(ctx.songManager).show() }
-            KeyEvent.VK_E     -> if (mode == SelectMode.EDIT) SwingUtilities.invokeLater { exportCurrentSong() }
-            KeyEvent.VK_ESCAPE -> ctx.stateManager.changeState(MainMenuState(ctx))
+    override fun keyPressed(key: Int, mods: Int) {
+        when (key) {
+            Keys.UP     -> if (songs.isNotEmpty()) { songIndex = (songIndex - 1 + songs.size) % songs.size; diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
+            Keys.DOWN   -> if (songs.isNotEmpty()) { songIndex = (songIndex + 1) % songs.size; diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
+            Keys.LEFT   -> if (curDiffs.isNotEmpty()) diffIndex = (diffIndex - 1 + curDiffs.size) % curDiffs.size
+            Keys.RIGHT  -> if (curDiffs.isNotEmpty()) diffIndex = (diffIndex + 1) % curDiffs.size
+            Keys.ENTER  -> onConfirm()
+            Keys.I      -> SwingUtilities.invokeLater { SongImportDialog(ctx.songManager).show() }
+            Keys.N      -> if (mode == SelectMode.EDIT) SwingUtilities.invokeLater { NewSongDialog(ctx.songManager).show() }
+            Keys.E      -> if (mode == SelectMode.EDIT) SwingUtilities.invokeLater { exportCurrentSong() }
+            Keys.ESCAPE -> ctx.stateManager.changeState(MainMenuState(ctx))
         }
     }
 
-    override fun mouseClicked(e: java.awt.event.MouseEvent) {
-        val w       = g_w()
-        val h       = g_h()
+    override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
+        val mx      = x.toInt()
+        val my      = y.toInt()
+        val h       = 720
         val listX   = LEFT_W + 1
         val areaTop = 48
         val areaH   = h - areaTop - 28
         val anchorY = areaTop + areaH / 3 - ROW_H / 2
         val selOffY = anchorY - songIndex * ROW_H
 
-        if (e.x < LEFT_W) return  // 왼쪽 패널 클릭 무시
+        if (mx < LEFT_W) return  // 왼쪽 패널 클릭 무시
 
         for (i in songs.indices) {
             val rowY = selOffY + i * ROW_H
-            if (e.x in listX..(listX + w - listX) && e.y in rowY..(rowY + ROW_H)) {
+            if (mx in listX..(listX + 1280 - listX) && my in rowY..(rowY + ROW_H)) {
                 if (i == songIndex) onConfirm() else { songIndex = i; diffIndex = 0 }
                 return
             }
         }
     }
-
-    private fun g_w() = 1280
-    private fun g_h() = 720
 
     private fun onConfirm() {
         val entry      = curSong ?: run { log.warn("onConfirm: curSong null"); return }

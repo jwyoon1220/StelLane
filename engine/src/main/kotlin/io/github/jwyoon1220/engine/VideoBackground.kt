@@ -8,6 +8,13 @@ import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormat
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormatCallback
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.RenderCallback
+import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32BufferFormat
+import org.lwjgl.nanovg.NanoVGGL3.nvglCreateImageFromHandle
+import org.lwjgl.opengl.GL11.*
+import org.lwjgl.opengl.GL12.GL_BGRA
+import org.lwjgl.opengl.GL12.GL_UNSIGNED_INT_8_8_8_8_REV
+import org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE
+import org.lwjgl.system.MemoryUtil
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferInt
 import java.nio.ByteBuffer
@@ -37,6 +44,15 @@ class VideoBackground private constructor(
     // VLC 디코드 스레드가 쓰고, EDT가 읽는다. BufferedImage를 재사용해 per-frame alloc 제거.
     @Volatile private var currentFrame: BufferedImage? = null
 
+    // 디커플링 렌더링을 위한 프레임 갱신 식별자
+    @Volatile private var frameId: Long = 0L
+
+    /** RenderPanel.paintComponent 에서 최신 프레임을 가져갑니다. */
+    fun getCurrentFrame(): BufferedImage? = currentFrame
+    
+    /** 최신 프레임의 고유 ID. 캐시 갱신 여부를 판단할 때 사용합니다. */
+    fun getFrameId(): Long = frameId
+
     /**
      * VLC가 실제로 재생을 시작했을 때(loading 완료 후) 한 번 호출됩니다.
      * VLC 네이티브 스레드에서 호출되므로 구현체는 thread-safe 해야 합니다.
@@ -49,6 +65,10 @@ class VideoBackground private constructor(
     // VLC getTime() 보간용 앵커 (VLC 시간 갱신 주기가 ~33ms이므로 nanoTime으로 보간)
     private data class TimeAnchor(val vlcMs: Long, val nanoTime: Long)
     @Volatile private var timeAnchor = TimeAnchor(0L, System.nanoTime())
+
+    // VLC playing/paused/stopped/finished 이벤트로 유지되는 재생 상태 캐시.
+    // getSmoothTimeMs/Double 에서 JNI player.status().isPlaying 폴링을 대체합니다.
+    @Volatile private var isCurrentlyPlaying = false
 
     companion object {
         /**
@@ -97,47 +117,51 @@ class VideoBackground private constructor(
                  *   (I420→I420 스케일은 단일 swscale 필터로 재귀 없음)
                  */
                 override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
-                    // I420(YUV 4:2:0)을 소스 해상도 그대로 요청.
-                    // dav1d(AV1)/avcodec(H.264) 소프트웨어 디코더는 I420을
-                    // 네이티브 출력 포맷으로 처음부터 사용하므로
-                    // VLC 내부 변환 필터 체인이 전혀 필요 없음 → 재귀 오류 발생 안 함.
-                    // Java 측 스케일링은 RenderPanel.paintComponent의 drawImage가 담당.
-                    return I420Format(sourceWidth, sourceHeight)
+                    // VLC가 내부적으로 RV32(ARGB)로 변환하여 넘겨주도록 요청합니다.
+                    return RV32BufferFormat(sourceWidth, sourceHeight)
                 }
                 override fun allocatedBuffers(buffers: Array<ByteBuffer>) {}
             },
             object : RenderCallback {
-                // 해상도 변경 시에만 재할당 — per-frame 힙 할당 없음
-                private var cachedBitmap: BufferedImage? = null
-                private var cachedPixels: IntArray? = null
-                private var yBytes: ByteArray? = null
-                private var uBytes: ByteArray? = null
-                private var vBytes: ByteArray? = null
+                // 핑-퐁 더블 버퍼: VLC 디코드 스레드가 한쪽을 쓰는 동안
+                // 게임 루프가 다른 쪽을 안전하게 읽을 수 있도록 합니다.
+                // (단일 버퍼 시 VLC 쓰기와 게임 루프 drawImage가 동일 픽셀 배열에
+                //  동시 접근하여 영상 찢김이 발생하는 데이터 레이스 방지)
+                private var frameBufA: BufferedImage? = null
+                private var frameBufB: BufferedImage? = null
+                private var pixelsA: IntArray? = null
+                private var pixelsB: IntArray? = null
                 private var cachedW = 0
                 private var cachedH = 0
+                private var writeToA = true  // 현재 VLC가 쓰는 버퍼 선택자
 
                 override fun display(mp: MediaPlayer, nativeBuffers: Array<ByteBuffer>, bufferFormat: BufferFormat) {
                     val w = bufferFormat.width
                     val h = bufferFormat.height
                     if (w <= 0 || h <= 0) return
 
-                    if (cachedBitmap == null || cachedW != w || cachedH != h) {
-                        cachedBitmap = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
-                        cachedPixels = (cachedBitmap!!.raster.dataBuffer as DataBufferInt).data
-                        yBytes = ByteArray(w * h)
-                        uBytes = ByteArray((w ushr 1) * (h ushr 1))
-                        vBytes = ByteArray((w ushr 1) * (h ushr 1))
+                    if (frameBufA == null || cachedW != w || cachedH != h) {
+                        frameBufA = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+                        frameBufB = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+                        pixelsA = (frameBufA!!.raster.dataBuffer as DataBufferInt).data
+                        pixelsB = (frameBufB!!.raster.dataBuffer as DataBufferInt).data
                         cachedW = w
                         cachedH = h
                     }
 
-                    val uvSize = (w ushr 1) * (h ushr 1)
-                    nativeBuffers[0].duplicate().get(yBytes!!, 0, w * h)
-                    nativeBuffers[1].duplicate().get(uBytes!!, 0, uvSize)
-                    nativeBuffers[2].duplicate().get(vBytes!!, 0, uvSize)
-
-                    convertI420toArgb(yBytes!!, uBytes!!, vBytes!!, cachedPixels!!, w, h)
-                    currentFrame = cachedBitmap
+                    // 비활성 버퍼에 픽셀 복사 후 currentFrame을 volatile 로 교체
+                    // Java Memory Model: volatile 쓰기 이전의 모든 픽셀 쓰기가
+                    // volatile 읽기 이후의 코드에서 가시적임이 보장됩니다.
+                    if (writeToA) {
+                        nativeBuffers[0].asIntBuffer().get(pixelsA!!)
+                        currentFrame = frameBufA
+                    } else {
+                        nativeBuffers[0].asIntBuffer().get(pixelsB!!)
+                        currentFrame = frameBufB
+                    }
+                    writeToA = !writeToA
+                    frameId++
+                    frameReady = true
                 }
             },
             true
@@ -147,44 +171,56 @@ class VideoBackground private constructor(
         player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
             override fun playing(mp: MediaPlayer) {
                 log.debug("[VLC] playing 이벤트 수신")
+                isCurrentlyPlaying = true
                 onPlayingStarted?.invoke()
             }
-            override fun paused(mp: MediaPlayer)  { log.debug("[VLC] paused") }
-            override fun stopped(mp: MediaPlayer)  { log.debug("[VLC] stopped") }
-            override fun finished(mp: MediaPlayer) { log.debug("[VLC] finished"); onFinished?.invoke() }
-            override fun error(mp: MediaPlayer)    { log.warn("[VLC] 미디어 오류 발생") }
+            override fun paused(mp: MediaPlayer)   { log.debug("[VLC] paused");   isCurrentlyPlaying = false }
+            override fun stopped(mp: MediaPlayer)  { log.debug("[VLC] stopped");  isCurrentlyPlaying = false }
+            override fun finished(mp: MediaPlayer) { log.debug("[VLC] finished"); isCurrentlyPlaying = false; onFinished?.invoke() }
+            override fun error(mp: MediaPlayer)    { log.warn("[VLC] 미디어 오류 발생"); isCurrentlyPlaying = false }
+            // VLC가 내부 클록을 갱신할 때마다 호출 (디코딩 주기, 보통 ~30fps).
+            // 이 이벤트로 timeAnchor를 갱신하면 getSmoothTimeMs/Double이
+            // 게임 루프 핫패스에서 JNI를 전혀 호출하지 않아도 됩니다.
+            override fun timeChanged(mp: MediaPlayer, newTime: Long) {
+                if (newTime >= 0) timeAnchor = TimeAnchor(newTime, System.nanoTime())
+            }
         })
 
         log.info("[VideoBackground] 초기화 완료 (isAvailable=true)")
     }
-
-    /** RenderPanel.paintComponent 에서 최신 프레임을 가져갑니다. */
-    fun getCurrentFrame(): BufferedImage? = currentFrame
-
     /**
      * VLC 네이티브 로그 핸들을 생성합니다. 주로 테스트에서 에러 감지용으로 사용.
      * 반환값은 사용 후 반드시 [uk.co.caprica.vlcj.log.NativeLog.release]로 해제해야 합니다.
      */
     fun createNativeLog() = factory?.application()?.newLog()
 
+    /**
+     * 현재 재생 위치를 밀리초로 반환합니다. JNI 호출 없음.
+     *
+     * timeAnchor는 VLC의 timeChanged 이벤트(VLC 내부 스레드)가 갱신하고,
+     * isCurrentlyPlaying은 playing/paused/stopped 이벤트가 갱신합니다.
+     * 두 값 모두 @Volatile이므로 게임 루프 스레드에서 안전하게 읽을 수 있습니다.
+     */
     fun getSmoothTimeMs(): Long {
-        val player = mediaPlayer ?: return 0L
-        val vlcMs  = player.status().time()
-        if (vlcMs < 0) return 0L
-        val nowNano = System.nanoTime()
-        val anchor  = timeAnchor
-        return if (vlcMs != anchor.vlcMs) {
-            timeAnchor = TimeAnchor(vlcMs, nowNano)
-            vlcMs
-        } else if (player.status().isPlaying) {
-            vlcMs + (nowNano - anchor.nanoTime) / 1_000_000L
-        } else {
-            vlcMs
-        }
+        val anchor = timeAnchor
+        if (anchor.vlcMs < 0) return 0L
+        if (!isCurrentlyPlaying) return anchor.vlcMs
+        return anchor.vlcMs + (System.nanoTime() - anchor.nanoTime) / 1_000_000L
+    }
+
+    /**
+     * [getSmoothTimeMs]와 동일하지만 나노초 보간을 서브-밀리초(Double) 정밀도로 반환합니다.
+     * 렌더링에서 노트 위치 계산 시 사용하면 정수 ms 양자화로 인한 뚝뚝 끊김을 방지합니다.
+     */
+    fun getSmoothTimeDouble(): Double {
+        val anchor = timeAnchor
+        if (!isCurrentlyPlaying) return anchor.vlcMs.toDouble()
+        return anchor.vlcMs + (System.nanoTime() - anchor.nanoTime) / 1_000_000.0
     }
 
     fun play(path: String) {
         log.info("[VLC] play 요청: {}", path)
+        isCurrentlyPlaying = false  // playing 이벤트 수신 전까지 보간 억제
         timeAnchor = TimeAnchor(0L, System.nanoTime())
         // ":avcodec-hw=none" — 미디어별 소프트웨어 디코딩 강제 (팩토리 옵션과 이중 보호).
         // 하드웨어 디코더(D3D11VA 등)가 켜지면 GPU 메모리 프레임을 콜백 서피스(CPU)로
@@ -232,6 +268,74 @@ class VideoBackground private constructor(
     /** 미디어가 로드되어 재생 가능한 상태이면 true. */
     fun isPlayable(): Boolean = mediaPlayer?.status()?.isPlayable ?: false
 
+    // ── GL 텍스처 레이어 ─────────────────────────────────────────────────────
+    /** OpenGL 텍스처 ID. initGLTexture() 호출 후 유효합니다. */
+    private var glTexId: Int = 0
+    /** NanoVG 이미지 핸들 (-1 = 미초기화). */
+    private var nvgImgHandle: Int = -1
+    /** VLC display 콜백에서 true 로 설정, 메인 스레드에서 uploadPendingFrame() 이 소비합니다. */
+    @Volatile private var frameReady = false
+
+    /**
+     * OpenGL 컨텍스트 생성 후(메인 스레드에서) 한 번만 호출합니다.
+     * GL 텍스처를 생성하고 초기 필터를 설정합니다.
+     */
+    fun initGLTexture() {
+        if (!isAvailable) return
+        glTexId = glGenTextures()
+        glBindTexture(GL_TEXTURE_2D, glTexId)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glBindTexture(GL_TEXTURE_2D, 0)
+        log.debug("[VideoBackground] GL 텍스처 생성: id={}", glTexId)
+    }
+
+    /**
+     * 메인 스레드(렌더 루프)에서 매 프레임 호출합니다.
+     * VLC 새 프레임이 있을 때만 GL 텍스처를 업로드합니다.
+     */
+    fun uploadPendingFrame() {
+        if (!isAvailable || !frameReady) return
+        val frame = currentFrame ?: return
+        frameReady = false  // consume
+
+        val w = frame.width; val h = frame.height
+        if (w <= 0 || h <= 0) return
+
+        // TYPE_INT_ARGB 픽셀 데이터를 GL 에 직접 업로드 (BGRA 포맷 = ARGB little-endian)
+        val pixels = (frame.raster.dataBuffer as DataBufferInt).data
+        val buf: ByteBuffer = MemoryUtil.memAlloc(pixels.size * 4)
+        val intBuf = buf.asIntBuffer()
+        intBuf.put(pixels)
+        buf.rewind()
+
+        glBindTexture(GL_TEXTURE_2D, glTexId)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
+        glBindTexture(GL_TEXTURE_2D, 0)
+        MemoryUtil.memFree(buf)
+
+        // NVG 핸들 무효화 (크기가 바뀌었을 수 있으므로)
+        if (nvgImgHandle >= 0) { nvgImgHandle = -1 }
+    }
+
+    /**
+     * NanoVG 이미지 핸들을 반환합니다. 아직 초기화되지 않았으면 생성합니다.
+     * [vg] 는 유효한 NanoVG 컨텍스트여야 합니다.
+     * @return NanoVG 이미지 핸들, 비디오가 없으면 -1
+     */
+    fun getNvgImageHandle(vg: Long): Int {
+        if (!isAvailable || glTexId == 0) return -1
+        val frame = currentFrame ?: return -1
+        if (nvgImgHandle < 0) {
+            nvgImgHandle = nvglCreateImageFromHandle(vg, glTexId,
+                frame.width, frame.height, 0)
+            log.debug("[VideoBackground] NVG 이미지 핸들 생성: {}", nvgImgHandle)
+        }
+        return nvgImgHandle
+    }
+
     fun release() {
         log.info("[VideoBackground] release 시작")
         vlcExecutor.submit {
@@ -246,51 +350,5 @@ class VideoBackground private constructor(
     }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// 내부 헬퍼
-// ────────────────────────────────────────────────────────────────────────────
 
-/**
- * I420 (YUV 4:2:0) 콜백 버퍼 포맷.
- * - 평면 3개: Y(w×h), U(w/2 × h/2), V(w/2 × h/2)
- * - pitches = 각 평면의 줄당 바이트 수 (= 평면 너비)
- * - lines   = 각 평면의 줄 수 (= 평면 높이)
- */
-private class I420Format(width: Int, height: Int) : BufferFormat(
-    "I420", width, height,
-    intArrayOf(width, width ushr 1, width ushr 1),
-    intArrayOf(height, height ushr 1, height ushr 1)
-)
-
-/**
- * BT.601 YUV420(I420) → TYPE_INT_ARGB 변환.
- *
- * VLC 디코드 스레드에서 호출되며 per-frame 힙 할당 없음(미리 할당해둔 배열 재사용).
- * 공식 (ITU-R BT.601, 정수 근사):
- *   R = clamp((298·(Y-16) + 409·(V-128) + 128) >> 8, 0, 255)
- *   G = clamp((298·(Y-16) - 100·(U-128) - 208·(V-128) + 128) >> 8, 0, 255)
- *   B = clamp((298·(Y-16) + 516·(U-128) + 128) >> 8, 0, 255)
- */
-private fun convertI420toArgb(
-    y: ByteArray, u: ByteArray, v: ByteArray,
-    argb: IntArray, w: Int, h: Int
-) {
-    val uvStride = w ushr 1
-    var idx = 0
-    for (row in 0 until h) {
-        val uvOff = (row ushr 1) * uvStride
-        for (col in 0 until w) {
-            val yy = (y[idx].toInt() and 0xFF) - 16
-            val uu = (u[uvOff + (col ushr 1)].toInt() and 0xFF) - 128
-            val vv = (v[uvOff + (col ushr 1)].toInt() and 0xFF) - 128
-
-            val c = 298 * yy + 128
-            val r = ((c + 409 * vv) shr 8).coerceIn(0, 255)
-            val g = ((c - 100 * uu - 208 * vv) shr 8).coerceIn(0, 255)
-            val b = ((c + 516 * uu) shr 8).coerceIn(0, 255)
-
-            argb[idx++] = 0xFF000000.toInt() or (r shl 16) or (g shl 8) or b
-        }
-    }
-}
 

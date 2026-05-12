@@ -1,12 +1,14 @@
 package io.github.jwyoon1220.app
 
 import io.github.jwyoon1220.app.state.MainMenuState
-import io.github.jwyoon1220.core.StateManager
 import io.github.jwyoon1220.core.song.SongManager
+import io.github.jwyoon1220.engine.GLFWWindow
 import io.github.jwyoon1220.engine.GameLoop
 import io.github.jwyoon1220.engine.InputManager
-import io.github.jwyoon1220.engine.RenderPanel
+import io.github.jwyoon1220.engine.Renderer
+import io.github.jwyoon1220.engine.StateManager
 import io.github.jwyoon1220.engine.VideoBackground
+import io.github.jwyoon1220.engine.WindowMode
 import io.github.jwyoon1220.engine.data.pool.ObjectPool
 import io.github.jwyoon1220.engine.data.pool.VisualNote
 import org.apache.commons.cli.DefaultParser
@@ -14,16 +16,7 @@ import org.apache.commons.cli.HelpFormatter
 import org.apache.commons.cli.Options
 import org.apache.commons.cli.ParseException
 import org.slf4j.LoggerFactory
-import java.awt.BorderLayout
-import java.awt.event.KeyAdapter
-import java.awt.event.KeyEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
-import java.awt.event.WindowAdapter
-import java.awt.event.WindowEvent
 import java.io.File
-import javax.swing.JFrame
-import javax.swing.SwingUtilities
 
 private val log = LoggerFactory.getLogger("io.github.jwyoon1220.app.Main")
 
@@ -47,122 +40,63 @@ fun main(args: Array<String>) {
 
     log.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
 
-    // ── Java2D 극한 튜닝 (순수 CPU 소프트웨어 렌더링 극대화) ──
-    // VLC 영상 프레임(Memory)을 GPU(VRAM)로 업로드하는 과정에서 생기는 병목을 원천 차단하고
-    // CPU 버스 대역폭을 100% 활용하는 고속 소프트웨어 블리팅(Blitting)을 강제합니다.
-    System.setProperty("sun.java2d.opengl", "false")
-    System.setProperty("sun.java2d.d3d", "false")
-    System.setProperty("sun.java2d.noddraw", "true")
+    // ── GLFW 윈도우 생성 (메인 스레드) ────────────────────────────────────────
+    val window = GLFWWindow.create(
+        title  = "StelLane",
+        width  = 1280,
+        height = 720,
+        mode   = AppSettings.windowMode,
+        vSync  = false   // 직접 프레임 대기로 FPS 제어
+    )
 
-    SwingUtilities.invokeLater {
-        val frame = JFrame("StelLane")
-        frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
+    // ── 공유 의존성 생성 ──────────────────────────────────────────────────────
+    val stateManager    = StateManager()
+    val videoBackground = VideoBackground.create()
 
-        // 저장된 창 모드 적용 (기본 BORDERLESS)
-        when (AppSettings.windowMode) {
-            WindowMode.WINDOWED -> {
-                frame.isUndecorated = false
-                frame.setSize(1280, 720)
-                frame.setLocationRelativeTo(null)
-            }
-            WindowMode.BORDERLESS, WindowMode.EXCLUSIVE -> {
-                frame.isUndecorated = true
-                frame.extendedState = JFrame.MAXIMIZED_BOTH
-            }
-        }
-        frame.layout = BorderLayout()
+    val notePool = ObjectPool(
+        initialCapacity = 2048,
+        factory = { VisualNote() },
+        reset   = { vn -> vn.active = false; vn.held = false }
+    )
+    notePool.preAllocate(2048)
 
-        // ── 공유 의존성 생성 ─────────────────────────────────────────────────
-        val stateManager    = StateManager()
+    val renderer     = Renderer(window, stateManager, videoBackground)
+    val inputManager = InputManager(window, renderer)
 
-        // VLC 콜백 방식 (Canvas 없음 → heavyweight/lightweight 충돌 없음)
-        // VLC가 1280×720으로 디코딩하므로 Java2D 스케일링 부하 없음
-        val videoBackground = VideoBackground.create()
+    val workingDir   = File(System.getProperty("user.dir"))
+    val songManager  = SongManager(workingDir)
 
-        // RenderPanel: 비디오 프레임 + 게임 UI를 하나의 Swing 컴포넌트에서 처리
-        val renderPanel = RenderPanel(stateManager, videoBackground)
+    val windowManager = WindowManager(window)
+    val ctx = GameContext(stateManager, songManager, videoBackground, notePool, inputManager, windowManager)
 
-        val notePool = ObjectPool(
-            initialCapacity = 2048,
-            factory = { VisualNote() },
-            reset   = { vn -> vn.active = false; vn.held = false }
-        )
-        // 게임 도중 할당 렉을 완벽히 제거하기 위해 시작 시 최대 온스크린 노트 개수를 여유있게 미리 생성
-        notePool.preAllocate(2048)
+    // ── OpenGL / NanoVG 초기화 (메인 스레드, GL 컨텍스트 바인딩 후) ────────────
+    renderer.init()
+    ctx.renderer = renderer
 
-        val inputManager = InputManager(renderPanel)
+    // ── InputManager → State 콜백 연결 ───────────────────────────────────────
+    inputManager.stateKeyPressed  = { key, mods -> stateManager.currentState?.keyPressed(key, mods) }
+    inputManager.stateKeyReleased = { key, mods -> stateManager.currentState?.keyReleased(key, mods) }
+    inputManager.stateKeyTyped    = { cp          -> stateManager.currentState?.keyTyped(cp) }
+    inputManager.stateMousePressed  = { x, y, btn, mods -> stateManager.currentState?.mousePressed(x, y, btn, mods) }
+    inputManager.stateMouseReleased = { x, y, btn, mods -> stateManager.currentState?.mouseReleased(x, y, btn, mods) }
+    inputManager.stateMouseClicked  = { x, y, btn, mods -> stateManager.currentState?.mouseClicked(x, y, btn, mods) }
+    inputManager.stateMouseDragged  = { x, y, btn       -> stateManager.currentState?.mouseDragged(x, y, btn) }
+    inputManager.stateScroll        = { dy              -> stateManager.currentState?.mouseScrolled(dy) }
 
-        val workingDir  = File(System.getProperty("user.dir"))
-        val songManager = SongManager(workingDir)
+    // ── 초기 화면: MainMenu ──────────────────────────────────────────────────
+    songManager.load()
+    stateManager.changeState(MainMenuState(ctx))
 
-        val windowManager = WindowManager(frame, renderPanel)
-        val ctx = GameContext(stateManager, songManager, videoBackground, notePool, inputManager, windowManager)
+    // ── 게임 루프 시작 (블로킹, 창이 닫힐 때까지 반환되지 않음) ─────────────────
+    val gameLoop = GameLoop(window, stateManager, renderer)
+    ctx.gameLoop = gameLoop
+    gameLoop.onFpsUpdate = { fps -> window.title = "StelLane  |  $fps FPS" }
+    gameLoop.targetFPS = AppSettings.targetFps
+    gameLoop.start()   // ← 블로킹
 
-        // ── 화면 구성 ────────────────────────────────────────────────────────
-        // RenderPanel 하나가 전체 콘텐츠 영역을 담당 (GlassPane / Canvas 불필요)
-        frame.add(renderPanel, BorderLayout.CENTER)
-
-        // 비레인 키(Esc, Enter, Space, 화살표 등)를 현재 State 에 전달
-        renderPanel.addKeyListener(object : KeyAdapter() {
-            override fun keyPressed(e: KeyEvent)  { stateManager.currentState?.keyPressed(e)  }
-            override fun keyReleased(e: KeyEvent) { stateManager.currentState?.keyReleased(e) }
-            override fun keyTyped(e: KeyEvent)    { stateManager.currentState?.keyTyped(e)    }
-        })
-
-        // 마우스 이벤트를 현재 State 에 전달 (화면→논리 좌표 역변환 포함)
-        renderPanel.addMouseListener(object : MouseAdapter() {
-            private fun remap(e: MouseEvent): MouseEvent {
-                val p = renderPanel.toLogical(e.x, e.y)
-                return MouseEvent(e.component, e.id, e.`when`, e.modifiersEx,
-                    p.x, p.y, e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger, e.button)
-            }
-            override fun mousePressed(e: MouseEvent)  { stateManager.currentState?.mousePressed(remap(e))  }
-            override fun mouseClicked(e: MouseEvent)  { stateManager.currentState?.mouseClicked(remap(e))  }
-            override fun mouseReleased(e: MouseEvent) { stateManager.currentState?.mouseReleased(remap(e)) }
-        })
-        renderPanel.addMouseMotionListener(object : java.awt.event.MouseMotionAdapter() {
-            override fun mouseDragged(e: MouseEvent) {
-                val p = renderPanel.toLogical(e.x, e.y)
-                val remapped = MouseEvent(e.component, e.id, e.`when`, e.modifiersEx,
-                    p.x, p.y, e.xOnScreen, e.yOnScreen, e.clickCount, e.isPopupTrigger, e.button)
-                stateManager.currentState?.mouseDragged(remapped)
-            }
-        })
-
-        // ── 초기 화면: MainMenu ───────────────────────────────────────────────
-        songManager.load()
-        stateManager.changeState(MainMenuState(ctx))
-
-        // ── 게임 루프 시작 ────────────────────────────────────────────────────
-        val gameLoop = GameLoop(stateManager, renderPanel)
-        ctx.gameLoop = gameLoop
-        gameLoop.onFpsUpdate = { fps ->
-            javax.swing.SwingUtilities.invokeLater { frame.title = "StelLane  |  $fps FPS" }
-        }
-        gameLoop.targetFPS = AppSettings.targetFps
-        gameLoop.start()
-
-        frame.isVisible = true
-        renderPanel.requestFocusInWindow()
-
-        // 창 포커스를 얻을 때마다 renderPanel 에 키 포커스 재요청 (창 모드에서 타이틀바 클릭 후 키 입력 복구)
-        frame.addWindowFocusListener(object : WindowAdapter() {
-            override fun windowGainedFocus(e: WindowEvent) {
-                renderPanel.requestFocusInWindow()
-            }
-        })
-
-        // 독점 전체화면은 창이 표시된 후 적용
-        if (AppSettings.windowMode == WindowMode.EXCLUSIVE) {
-            val gd = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice
-            if (gd.isFullScreenSupported) gd.fullScreenWindow = frame
-        }
-
-        // ── 종료 시 리소스 해제 ───────────────────────────────────────────────
-        Runtime.getRuntime().addShutdownHook(Thread {
-            gameLoop.stop()
-            videoBackground.release()  // 최대 2초 대기
-            Runtime.getRuntime().halt(0)  // VLC 네이티브 스레드 hang 방어: 강제 종료
-        })
-    }
+    // ── 종료 시 리소스 해제 ───────────────────────────────────────────────────
+    renderer.destroy()
+    window.destroy()
+    videoBackground.release()
+    Runtime.getRuntime().halt(0)   // VLC 네이티브 스레드 hang 방어
 }

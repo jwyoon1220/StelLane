@@ -3,11 +3,11 @@ package io.github.jwyoon1220.app.state
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.WindowMode
-import io.github.jwyoon1220.core.GameState
+import io.github.jwyoon1220.engine.WindowMode
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.Keys
 import java.awt.Color
-import java.awt.Graphics2D
-import java.awt.event.KeyEvent
 
 /**
  * 인게임 설정 화면.
@@ -58,9 +58,9 @@ class SettingsState(
 
     override fun update(deltaTime: Double) {}
 
-    override fun render(g: Graphics2D) {
-        val w = g.clipBounds?.width  ?: 1280
-        val h = g.clipBounds?.height ?: 720
+    override fun render(g: DrawContext) {
+        val w = g.clipBounds.width
+        val h = g.clipBounds.height
 
         // 반투명 배경
         g.color = Color(0, 0, 0, 210)
@@ -140,13 +140,13 @@ class SettingsState(
         }
     }
 
-    override fun keyPressed(e: KeyEvent) {
-        val shift = e.isShiftDown
-        when (e.keyCode) {
-            KeyEvent.VK_UP   -> cursor = (cursor - 1 + items.size) % items.size
-            KeyEvent.VK_DOWN -> cursor = (cursor + 1) % items.size
+    override fun keyPressed(key: Int, mods: Int) {
+        val shift = Keys.isShift(mods)
+        when (key) {
+            Keys.UP   -> cursor = (cursor - 1 + items.size) % items.size
+            Keys.DOWN -> cursor = (cursor + 1) % items.size
 
-            KeyEvent.VK_LEFT -> when (cursor) {
+            Keys.LEFT -> when (cursor) {
                 0 -> {
                     val idx = (modes.indexOf(localMode) - 1 + modes.size) % modes.size
                     localMode = modes[idx]
@@ -157,7 +157,7 @@ class SettingsState(
                     localFps = fpsOptions[idx]
                 }
             }
-            KeyEvent.VK_RIGHT -> when (cursor) {
+            Keys.RIGHT -> when (cursor) {
                 0 -> {
                     val idx = (modes.indexOf(localMode) + 1) % modes.size
                     localMode = modes[idx]
@@ -169,12 +169,12 @@ class SettingsState(
                 }
             }
 
-            KeyEvent.VK_ENTER,
-            KeyEvent.VK_ESCAPE -> applyAndBack()
+            Keys.ENTER,
+            Keys.ESCAPE -> applyAndBack()
         }
     }
 
-    override fun mouseClicked(e: java.awt.event.MouseEvent) {
+    override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
         val w = 1280; val h = 720
         val pw = 700; val ph = 420
         val px = (w - pw) / 2; val py = (h - ph) / 2
@@ -183,10 +183,10 @@ class SettingsState(
         items.forEachIndexed { i, _ ->
             val rowTop = startY + i * rowH - 30
             val rowBot = startY + i * rowH + 18
-            if (e.y !in rowTop..rowBot) return@forEachIndexed
+            if (y.toInt() !in rowTop..rowBot) return@forEachIndexed
             cursor = i
             // ◀ 영역 클릭
-            if (e.x < w / 2 - 60) {
+            if (x < w / 2 - 60) {
                 when (i) {
                     0 -> { val idx = (modes.indexOf(localMode) - 1 + modes.size) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset - 10L).coerceIn(-500L, 500L)
@@ -194,7 +194,7 @@ class SettingsState(
                 }
             }
             // ▶ 영역 클릭
-            else if (e.x > w / 2 + 60) {
+            else if (x > w / 2 + 60) {
                 when (i) {
                     0 -> { val idx = (modes.indexOf(localMode) + 1) % modes.size; localMode = modes[idx] }
                     1 -> localOffset = (localOffset + 10L).coerceIn(-500L, 500L)
@@ -204,7 +204,7 @@ class SettingsState(
         }
 
         // 패널 밖 클릭 → 저장 후 닫기
-        if (e.x < px || e.x > px + pw || e.y < py || e.y > py + ph) applyAndBack()
+        if (x < px || x > px + pw || y < py || y > py + ph) applyAndBack()
     }
 
     private fun applyAndBack() {

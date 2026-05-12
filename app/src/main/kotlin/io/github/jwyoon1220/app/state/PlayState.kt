@@ -3,7 +3,6 @@ package io.github.jwyoon1220.app.state
 import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.core.GameState
 import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Note
@@ -12,15 +11,16 @@ import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.judgment.Judgment
 import io.github.jwyoon1220.core.judgment.JudgmentSystem
 import io.github.jwyoon1220.core.scoring.ScoreEngine
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.HitSound
 import io.github.jwyoon1220.engine.LaneEventType
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Graphics2D
-import java.awt.RenderingHints
-import java.awt.event.KeyEvent
-import java.awt.image.BufferedImage
+import java.awt.geom.Rectangle2D
+import java.awt.geom.RoundRectangle2D
 import java.io.File
 import java.util.ArrayDeque
 import kotlin.math.abs
@@ -108,14 +108,8 @@ class PlayState(
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
     private var decorationRenderer: DecorationRenderer? = null
 
-    // ── 장식 레이어 캐시 ─────────────────────────────────────────────────────
-    // 장식은 매 프레임 렌더링이 불필요 → decorTargetFps 속도로만 갱신
-    /** 장식 레이어 렌더 FPS (기본 30). 변경하면 즉시 반영. */
-    var decorTargetFps: Int = 30
-    private var decorDirty = true
-    private var decorLastRenderNs = 0L
-    private var decorCacheBefore: BufferedImage? = null  // depth < 0 레이어
-    private var decorCacheAfter:  BufferedImage? = null  // depth ≥ 0 + 화면 효과
+    // ── 장식 렌더러 ──────────────────────────────────────────────────────────
+    // DrawContext (NanoVG) 는 GPU 가속이므로 CPU-side 캐시 불필요 — 매 프레임 직접 렌더링
 
     private val comboFont      = FontLoader.bold(56f)
     private val judgeFont      = FontLoader.bold(48f)
@@ -171,8 +165,6 @@ class PlayState(
         // 장식 데이터 로드 (decoration.json 없으면 null → 렌더링 건너뜀)
         decorationRenderer = DecorationParser.parseOrNull(songEntry.songDir)
             ?.let { DecorationRenderer(it, songEntry.songDir) }
-        decorDirty = true
-        decorCacheBefore = null; decorCacheAfter = null
 
         // 미디어는 READY → PLAYING 전환 시 재생
         ctx.videoBackground.onFinished = { phase = Phase.RESULT }
@@ -254,60 +246,17 @@ class PlayState(
         judgmentFadeMs -= (deltaTime * 1000).toLong()
     }
 
-    /**
-     * 장식 레이어 캐시를 필요할 때만 갱신합니다.
-     * decorDirty=true 이거나 decorTargetFps 주기가 경과하면 두 레이어(before/after)를 재렌더링.
-     * 렌더링 비용이 있는 DecorationRenderer.render() 호출 횟수를 줄여 CPU 사용량 감소.
-     */
-    private fun tickDecorCache(timeMs: Long, w: Int, h: Int) {
-        val renderer = decorationRenderer ?: return
-        val now = System.nanoTime()
-        val intervalNs = 1_000_000_000L / decorTargetFps.coerceAtLeast(1)
-        if (!decorDirty && (now - decorLastRenderNs) < intervalNs) return
-
-        fun layer(existing: BufferedImage?): BufferedImage =
-            if (existing != null && existing.width == w && existing.height == h) existing
-            else BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
-
-        val before = layer(decorCacheBefore).also { decorCacheBefore = it }
-        val after  = layer(decorCacheAfter) .also { decorCacheAfter  = it }
-
-        // before 레이어 (depth < 0)
-        before.createGraphics().also { cg ->
-            val origCmp = cg.composite
-            cg.composite = AlphaComposite.Clear
-            cg.fillRect(0, 0, w, h)
-            cg.composite = origCmp
-            cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            renderer.render(cg, timeMs, beforeNotes = true)
-            cg.dispose()
-        }
-        // after 레이어 (depth ≥ 0 + 화면 효과)
-        after.createGraphics().also { cg ->
-            val origCmp = cg.composite
-            cg.composite = AlphaComposite.Clear
-            cg.fillRect(0, 0, w, h)
-            cg.composite = origCmp
-            cg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            renderer.render(cg, timeMs, beforeNotes = false)
-            renderer.renderScreenEffects(cg, timeMs)
-            cg.dispose()
-        }
-
-        decorDirty = false
-        decorLastRenderNs = now
-    }
-
-    override fun render(g: Graphics2D) {
-        val w = g.clipBounds?.width  ?: 1280
-        val h = g.clipBounds?.height ?: 720
+    override fun render(g: DrawContext) {
+        val w = g.clipBounds.width
+        val h = g.clipBounds.height
 
         if (phase == Phase.READY) { renderReady(g, w, h); return }
 
         val hl      = (h * HIT_LINE_RATIO).toInt()
         hitLineY    = hl
         val lanesL  = (w - TOTAL_WIDTH) / 2
-        val now     = currentTimeMs   // update()에서 이미 보간된 값 재사용
+        // 노트 위치 계산에는 나노초 보간 서브-ms 정밀도를 사용해 끊김 없는 스크롤 구현
+        val nowD    = ctx.videoBackground.getSmoothTimeDouble() - chart.offsetMs
 
         // 반투명 배경 오버레이
         g.color = COLOR_OVERLAY
@@ -341,44 +290,51 @@ class PlayState(
         }
 
         // 장식 (depth < 0: 노트 이전)
-        tickDecorCache(currentTimeMs, w, h)
-        decorCacheBefore?.let { g.drawImage(it, 0, 0, null) }
+        decorationRenderer?.render(g, currentTimeMs, beforeNotes = true)
 
         // 노트 렌더링 (SoA — 원시 타입 배열 순회, 객체 참조 없음)
         synchronized(notesLock) {
             val count = soaSize
             for (i in 0 until count) {
                 if (!soaActive[i] && !soaHeld[i]) continue
-                val lx       = lanesL + soaLane[i] * LANE_WIDTH
-                val noteTopY = hl - ((soaTimeMs[i] - now) * SCROLL_SPEED / 1000f).toInt()
+                val lx        = lanesL + soaLane[i] * LANE_WIDTH
+                val lxF       = lx.toFloat()
+                val hlF       = hl.toFloat()
+                // 서브픽셀 정밀도 — roundToInt() 없이 float 좌표 그대로 사용
+                // AA가 켜진 상태에서 RoundRectangle2D.Float을 쓰면 소수점 y 위치가 안티앨리어싱으로
+                // 표현되어, 정수 픽셀 점프(11~12px/frame) 없이 부드럽게 스크롤됩니다.
+                val noteTopYF = hlF - ((soaTimeMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
 
                 if (!soaIsLong[i]) {
                     // SHORT 노트: 금색
+                    val shape = RoundRectangle2D.Float(lxF + 5f, noteTopYF - 18f, (LANE_WIDTH - 10).toFloat(), 18f, 6f, 6f)
                     g.color = COLOR_SHORT_FILL
-                    g.fillRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
+                    g.fill(shape)
                     g.color = COLOR_SHORT_BORDER
-                    g.drawRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
+                    g.draw(shape)
                 } else {
                     // LONG 노트: 보라색
-                    val endTopY = hl - ((soaEndMs[i] - now) * SCROLL_SPEED / 1000f).toInt()
-                    val bodyTop = min(noteTopY - 18, endTopY)
-                    val bodyBtm = if (soaHeld[i]) hl else max(noteTopY, endTopY)
-                    val bodyH   = bodyBtm - bodyTop
-                    if (bodyH > 0) {
+                    val endTopYF = hlF - ((soaEndMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
+                    val bodyTopF = min(noteTopYF - 18f, endTopYF)
+                    val bodyBtmF = if (soaHeld[i]) hlF else max(noteTopYF, endTopYF)
+                    val bodyHF   = bodyBtmF - bodyTopF
+                    if (bodyHF > 0f) {
                         g.color = COLOR_LONG_BODY
-                        g.fillRect(lx + 14, bodyTop, LANE_WIDTH - 28, bodyH)
+                        g.fill(Rectangle2D.Float(lxF + 14f, bodyTopF, (LANE_WIDTH - 28).toFloat(), bodyHF))
                     }
                     // 헤드 / 테일
+                    val headShape = RoundRectangle2D.Float(lxF + 5f, noteTopYF - 18f, (LANE_WIDTH - 10).toFloat(), 18f, 6f, 6f)
                     g.color = COLOR_LONG_FILL
-                    g.fillRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
+                    g.fill(headShape)
                     g.color = COLOR_LONG_BORDER
-                    g.drawRoundRect(lx + 5, noteTopY - 18, LANE_WIDTH - 10, 18, 6, 6)
+                    g.draw(headShape)
                 }
             }
         }
 
-        // 장식 (depth ≥0: 노트 위) + 화면 효과 — 위에서 tickDecorCache 이미 호출됨
-        decorCacheAfter?.let { g.drawImage(it, 0, 0, null) }
+        // 장식 (depth ≥0: 노트 위) + 화면 효과
+        decorationRenderer?.render(g, currentTimeMs, beforeNotes = false)
+        decorationRenderer?.renderScreenEffects(g, currentTimeMs)
 
         // 콤보
         if (combo > 0) {
@@ -448,7 +404,7 @@ class PlayState(
         if (phase == Phase.RESULT) renderResult(g, w, h)
     }
 
-    private fun renderResult(g: Graphics2D, w: Int, h: Int) {
+    private fun renderResult(g: DrawContext, w: Int, h: Int) {
         // 반투명 어두운 배경
         g.color = Color(0, 0, 0, 200)
         g.fillRect(0, 0, w, h)
@@ -470,13 +426,13 @@ class PlayState(
         // RESULT 타이틀
         g.font  = resultTitle
         g.color = Color(200, 200, 220)
-        drawCenter(g, resultTitle, "RESULT", cx, y)
+        drawCenter(g, "RESULT", cx, y)
         y += 70
 
         // 점수
         g.font  = resultScore
         g.color = Color.WHITE
-        drawCenter(g, resultScore, "%07d".format(score), cx, y)
+        drawCenter(g, "%07d".format(score), cx, y)
         y += 20
 
         // 랭크
@@ -490,7 +446,7 @@ class PlayState(
         }
         g.font  = resultScore
         g.color = rankColor
-        drawCenter(g, resultScore, rank, cx, y + 75)
+        drawCenter(g, rank, cx, y + 75)
         y += 140
 
         // 판정 카운트
@@ -500,22 +456,22 @@ class PlayState(
                    "MISS ${counts[3]}"
         g.font  = resultStat
         g.color = Color(180, 180, 200)
-        drawCenter(g, resultStat, line, cx, y)
+        drawCenter(g, line, cx, y)
         y += 40
 
         // 최대 콤보
         g.font  = resultStat
         g.color = Color(150, 150, 170)
-        drawCenter(g, resultStat, "MAX COMBO  ${scoreEngine.maxCombo}", cx, y)
+        drawCenter(g, "MAX COMBO  ${scoreEngine.maxCombo}", cx, y)
         y += 60
 
         // 힌트
         g.font  = resultHint
         g.color = Color(120, 120, 140)
-        drawCenter(g, resultHint, "Enter : 곡 선택으로", cx, y)
+        drawCenter(g, "Enter : 곡 선택으로", cx, y)
     }
 
-    private fun renderReady(g: Graphics2D, w: Int, h: Int) {
+    private fun renderReady(g: DrawContext, w: Int, h: Int) {
         // Dark background
         g.color = Color(10, 5, 20)
         g.fillRect(0, 0, w, h)
@@ -553,17 +509,17 @@ class PlayState(
         g.drawString(countStr, (w - cfm.stringWidth(countStr)) / 2, h / 2 + cfm.ascent - 20)
     }
 
-    private fun drawCenter(g: Graphics2D, font: java.awt.Font, text: String, cx: Int, y: Int) {
-        val fm = g.getFontMetrics(font)
+    private fun drawCenter(g: DrawContext, text: String, cx: Int, y: Int) {
+        val fm = g.fontMetrics
         g.drawString(text, cx - fm.stringWidth(text) / 2, y)
     }
 
-    override fun keyPressed(e: KeyEvent) {
-        if (e.keyCode == KeyEvent.VK_ESCAPE) {
+    override fun keyPressed(key: Int, mods: Int) {
+        if (key == Keys.ESCAPE) {
             ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.PLAY))
             return
         }
-        if (phase == Phase.RESULT && e.keyCode == KeyEvent.VK_ENTER) {
+        if (phase == Phase.RESULT && key == Keys.ENTER) {
             ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.PLAY))
         }
     }

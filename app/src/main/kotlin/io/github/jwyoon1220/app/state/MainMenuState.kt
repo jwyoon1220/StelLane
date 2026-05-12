@@ -2,11 +2,11 @@ package io.github.jwyoon1220.app.state
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.core.GameState
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.Keys
 import org.slf4j.LoggerFactory
 import java.awt.Color
-import java.awt.Graphics2D
-import java.awt.event.KeyEvent
 import java.io.File
 import kotlin.random.Random
 import kotlin.system.exitProcess
@@ -79,9 +79,9 @@ class MainMenuState(private val ctx: GameContext) : GameState {
         ctx.videoBackground.play(videoFile.absolutePath)
     }
 
-    override fun render(g: Graphics2D) {
-        val w = g.clipBounds?.width  ?: 1280
-        val h = g.clipBounds?.height ?: 720
+    override fun render(g: DrawContext) {
+        val w = g.clipBounds.width
+        val h = g.clipBounds.height
 
         // 영상 위 반투명 어두운 오버레이
         g.color = Color(0, 0, 0, 160)
@@ -106,7 +106,7 @@ class MainMenuState(private val ctx: GameContext) : GameState {
         menuItems.forEachIndexed { i, item ->
             val selected = i == selectedIndex
             g.font  = if (selected) selFont else menuFont
-            val fm  = g.getFontMetrics(g.font)
+            val fm  = g.getFontMetrics(g.font!!)
             g.color = if (selected) Color(255, 220, 80) else Color(200, 200, 200)
             if (selected) {
                 val ix = (w - fm.stringWidth(item)) / 2
@@ -125,21 +125,21 @@ class MainMenuState(private val ctx: GameContext) : GameState {
         g.drawString(hint, (w - hfm.stringWidth(hint)) / 2, h - 30)
     }
 
-    override fun keyPressed(e: KeyEvent) {
-        when (e.keyCode) {
-            KeyEvent.VK_UP    -> selectedIndex = (selectedIndex - 1 + menuItems.size) % menuItems.size
-            KeyEvent.VK_DOWN  -> selectedIndex = (selectedIndex + 1) % menuItems.size
-            KeyEvent.VK_ENTER -> onSelect()
+    override fun keyPressed(key: Int, mods: Int) {
+        when (key) {
+            Keys.UP    -> selectedIndex = (selectedIndex - 1 + menuItems.size) % menuItems.size
+            Keys.DOWN  -> selectedIndex = (selectedIndex + 1) % menuItems.size
+            Keys.ENTER -> onSelect()
         }
     }
 
-    override fun mouseClicked(e: java.awt.event.MouseEvent) {
-        val w = 1280; val h = 720
+    override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
+        val h = 720
         val startY = h / 2 - 20
         menuItems.forEachIndexed { i, _ ->
             val rowTop = startY + i * 58 - 36
             val rowBot = startY + i * 58 + 10
-            if (e.y in rowTop..rowBot) {
+            if (y.toInt() in rowTop..rowBot) {
                 selectedIndex = i
                 onSelect()
             }

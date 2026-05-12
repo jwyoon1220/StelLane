@@ -1,8 +1,7 @@
 package io.github.jwyoon1220.app
 
+import io.github.jwyoon1220.engine.WindowMode
 import java.util.prefs.Preferences
-
-enum class WindowMode { WINDOWED, BORDERLESS, EXCLUSIVE }
 
 /** 앱 전역 설정 — java.util.prefs 를 통해 OS 레지스트리/파일에 자동 저장됩니다. */
 object AppSettings {

@@ -2,10 +2,10 @@ package io.github.jwyoon1220.app.state
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.core.GameState
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.Keys
 import java.awt.Color
-import java.awt.Graphics2D
-import java.awt.event.KeyEvent
 
 class LicenseState(private val ctx: GameContext) : GameState {
 
@@ -37,9 +37,9 @@ class LicenseState(private val ctx: GameContext) : GameState {
 
     override fun update(deltaTime: Double) {}
 
-    override fun render(g: Graphics2D) {
-        val w = g.clipBounds?.width  ?: 1280
-        val h = g.clipBounds?.height ?: 720
+    override fun render(g: DrawContext) {
+        val w = g.clipBounds.width
+        val h = g.clipBounds.height
 
         // 배경
         g.color = Color(10, 10, 22)
@@ -82,7 +82,7 @@ class LicenseState(private val ctx: GameContext) : GameState {
                 else -> Color(200, 200, 210)
             }
             if (!line.isBlank()) {
-                g.drawString(line.take((w - 48) / maxOf(1, fm.charWidth('m'))), 24, paddingTop + i * lineHeight)
+                g.drawString(line.take((w - 48) / maxOf(1, fm.stringWidth("m"))), 24, paddingTop + i * lineHeight)
             }
         }
 
@@ -103,16 +103,15 @@ class LicenseState(private val ctx: GameContext) : GameState {
         g.drawString("${scrollOffset + 1} / ${lines.size} lines", 24, h - 16)
     }
 
-    override fun keyPressed(e: KeyEvent) {
-        val visibleLines = 1   // recalculated lazily; use a rough value for scrolling
-        when (e.keyCode) {
-            KeyEvent.VK_UP        -> scrollOffset = maxOf(0, scrollOffset - 1)
-            KeyEvent.VK_DOWN      -> scrollOffset++
-            KeyEvent.VK_PAGE_UP   -> scrollOffset = maxOf(0, scrollOffset - 30)
-            KeyEvent.VK_PAGE_DOWN -> scrollOffset += 30
-            KeyEvent.VK_HOME      -> scrollOffset = 0
-            KeyEvent.VK_END       -> scrollOffset = lines.size
-            KeyEvent.VK_ESCAPE    -> ctx.stateManager.changeState(MainMenuState(ctx))
+    override fun keyPressed(key: Int, mods: Int) {
+        when (key) {
+            Keys.UP        -> scrollOffset = maxOf(0, scrollOffset - 1)
+            Keys.DOWN      -> scrollOffset++
+            Keys.PAGE_UP   -> scrollOffset = maxOf(0, scrollOffset - 30)
+            Keys.PAGE_DOWN -> scrollOffset += 30
+            Keys.HOME      -> scrollOffset = 0
+            Keys.END       -> scrollOffset = lines.size
+            Keys.ESCAPE    -> ctx.stateManager.changeState(MainMenuState(ctx))
         }
     }
 }

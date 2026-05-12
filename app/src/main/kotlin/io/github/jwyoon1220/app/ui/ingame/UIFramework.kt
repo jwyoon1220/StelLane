@@ -1,20 +1,21 @@
 package io.github.jwyoon1220.app.ui.ingame
 
-import java.awt.*
-import java.awt.event.KeyEvent
-import java.awt.event.MouseEvent
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.DrawFont
+import io.github.jwyoon1220.engine.Keys
+import java.awt.Color
 
 abstract class UIComponent(var x: Int, var y: Int, var width: Int, var height: Int) {
     var isVisible = true
     var isFocused = false
 
-    abstract fun render(g: Graphics2D, parentX: Int, parentY: Int)
+    abstract fun render(g: DrawContext, parentX: Int, parentY: Int)
     open fun update(deltaTime: Double) {}
     open fun onMousePressed(mx: Int, my: Int, button: Int): Boolean = false
     open fun onMouseReleased(mx: Int, my: Int, button: Int): Boolean = false
     open fun onMouseDragged(mx: Int, my: Int): Boolean = false
-    open fun onKeyPressed(e: KeyEvent): Boolean = false
-    open fun onKeyTyped(e: KeyEvent): Boolean = false
+    open fun onKeyPressed(key: Int, mods: Int): Boolean = false
+    open fun onKeyTyped(codepoint: Int): Boolean = false
 
     fun contains(mx: Int, my: Int, parentX: Int, parentY: Int): Boolean {
         return mx in (parentX + x)..(parentX + x + width) && my in (parentY + y)..(parentY + y + height)
@@ -24,9 +25,9 @@ abstract class UIComponent(var x: Int, var y: Int, var width: Int, var height: I
 class UILabel(
     x: Int, y: Int, var text: String,
     var color: Color = Color.WHITE,
-    var font: Font = io.github.jwyoon1220.app.FontLoader.regular.deriveFont(12f)
+    var font: DrawFont = io.github.jwyoon1220.app.FontLoader.regular(12f)
 ) : UIComponent(x, y, 0, 0) {
-    override fun render(g: Graphics2D, parentX: Int, parentY: Int) {
+    override fun render(g: DrawContext, parentX: Int, parentY: Int) {
         g.font = font
         g.color = color
         g.drawString(text, parentX + x, parentY + y + g.fontMetrics.ascent)
@@ -41,7 +42,7 @@ class UIButton(
     private var isHovered = false
     private var isPressed = false
 
-    override fun render(g: Graphics2D, parentX: Int, parentY: Int) {
+    override fun render(g: DrawContext, parentX: Int, parentY: Int) {
         g.color = when {
             isPressed -> Color(80, 80, 120)
             isHovered -> Color(100, 100, 150)
@@ -49,7 +50,7 @@ class UIButton(
         }
         g.fillRoundRect(parentX + x, parentY + y, width, height, 8, 8)
         g.color = Color.WHITE
-        g.font = io.github.jwyoon1220.app.FontLoader.bold.deriveFont(12f)
+        g.font = io.github.jwyoon1220.app.FontLoader.bold(12f)
         val fm = g.fontMetrics
         val tx = parentX + x + (width - fm.stringWidth(text)) / 2
         val ty = parentY + y + (height - fm.height) / 2 + fm.ascent
@@ -77,31 +78,30 @@ class UITextField(
     x: Int, y: Int, width: Int, height: Int,
     var text: String = ""
 ) : UIComponent(x, y, width, height) {
-    override fun render(g: Graphics2D, parentX: Int, parentY: Int) {
+    override fun render(g: DrawContext, parentX: Int, parentY: Int) {
         g.color = if (isFocused) Color(40, 40, 60) else Color(20, 20, 30)
         g.fillRect(parentX + x, parentY + y, width, height)
         g.color = if (isFocused) Color(150, 150, 255) else Color(100, 100, 150)
         g.drawRect(parentX + x, parentY + y, width, height)
 
         g.color = Color.WHITE
-        g.font = io.github.jwyoon1220.app.FontLoader.regular.deriveFont(12f)
+        g.font = io.github.jwyoon1220.app.FontLoader.regular(12f)
         val fm = g.fontMetrics
         g.drawString(text + (if (isFocused && System.currentTimeMillis() % 1000 < 500) "|" else ""), parentX + x + 4, parentY + y + fm.ascent + (height - fm.height) / 2)
     }
 
-    override fun onKeyPressed(e: KeyEvent): Boolean {
+    override fun onKeyPressed(key: Int, mods: Int): Boolean {
         if (!isFocused) return false
-        if (e.keyCode == KeyEvent.VK_BACK_SPACE && text.isNotEmpty()) {
+        if (key == Keys.BACKSPACE && text.isNotEmpty()) {
             text = text.dropLast(1)
         }
         return true
     }
 
-    override fun onKeyTyped(e: KeyEvent): Boolean {
+    override fun onKeyTyped(codepoint: Int): Boolean {
         if (!isFocused) return false
-        val c = e.keyChar
-        if (c >= ' ' && c != KeyEvent.CHAR_UNDEFINED && c.code != 127) {
-            text += c
+        if (codepoint >= 32 && codepoint != 127) {
+            text += codepoint.toChar()
         }
         return true
     }
@@ -118,7 +118,7 @@ open class UIWindow(
     private var dragOffsetX = 0
     private var dragOffsetY = 0
 
-    override fun render(g: Graphics2D, parentX: Int, parentY: Int) {
+    override fun render(g: DrawContext, parentX: Int, parentY: Int) {
         if (!isVisible) return
         val px = parentX + x
         val py = parentY + y
@@ -137,7 +137,7 @@ open class UIWindow(
         g.drawRoundRect(px, py, width, height, 10, 10)
         
         g.color = Color.WHITE
-        g.font = io.github.jwyoon1220.app.FontLoader.bold.deriveFont(12f)
+        g.font = io.github.jwyoon1220.app.FontLoader.bold(12f)
         g.drawString(title, px + 8, py + 16)
         
         // 닫기 버튼 (가상)
@@ -217,16 +217,16 @@ open class UIWindow(
         return false
     }
 
-    override fun onKeyPressed(e: KeyEvent): Boolean {
+    override fun onKeyPressed(key: Int, mods: Int): Boolean {
         for (comp in components) {
-            if (comp.isVisible && comp.isFocused && comp.onKeyPressed(e)) return true
+            if (comp.isVisible && comp.isFocused && comp.onKeyPressed(key, mods)) return true
         }
         return false
     }
 
-    override fun onKeyTyped(e: KeyEvent): Boolean {
+    override fun onKeyTyped(codepoint: Int): Boolean {
         for (comp in components) {
-            if (comp.isVisible && comp.isFocused && comp.onKeyTyped(e)) return true
+            if (comp.isVisible && comp.isFocused && comp.onKeyTyped(codepoint)) return true
         }
         return false
     }
@@ -248,41 +248,41 @@ object UIManager {
         windows.clear()
     }
 
-    fun render(g: Graphics2D) {
+    fun render(g: DrawContext) {
         for (window in windows) {
             window.render(g, 0, 0)
         }
     }
 
-    fun onMousePressed(e: MouseEvent): Boolean {
+    fun onMousePressed(x: Int, y: Int, button: Int): Boolean {
         for (window in windows.asReversed()) {
-            if (window.contains(e.x, e.y, 0, 0)) {
+            if (window.contains(x, y, 0, 0)) {
                 windows.remove(window)
                 windows.add(window) // Bring to front
-                window.onMousePressed(e.x, e.y, e.button)
+                window.onMousePressed(x, y, button)
                 return true
             }
         }
         return false
     }
 
-    fun onMouseDragged(e: MouseEvent): Boolean {
+    fun onMouseDragged(x: Int, y: Int): Boolean {
         val front = windows.lastOrNull() ?: return false
-        return front.onMouseDragged(e.x, e.y)
+        return front.onMouseDragged(x, y)
     }
 
-    fun onMouseReleased(e: MouseEvent): Boolean {
+    fun onMouseReleased(x: Int, y: Int, button: Int): Boolean {
         val front = windows.lastOrNull() ?: return false
-        return front.onMouseReleased(e.x, e.y, e.button)
+        return front.onMouseReleased(x, y, button)
     }
 
-    fun onKeyPressed(e: KeyEvent): Boolean {
+    fun onKeyPressed(key: Int, mods: Int): Boolean {
         val front = windows.lastOrNull() ?: return false
-        return front.onKeyPressed(e)
+        return front.onKeyPressed(key, mods)
     }
 
-    fun onKeyTyped(e: KeyEvent): Boolean {
+    fun onKeyTyped(codepoint: Int): Boolean {
         val front = windows.lastOrNull() ?: return false
-        return front.onKeyTyped(e)
+        return front.onKeyTyped(codepoint)
     }
 }

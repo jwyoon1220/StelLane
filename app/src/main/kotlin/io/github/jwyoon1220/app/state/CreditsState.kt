@@ -2,10 +2,10 @@ package io.github.jwyoon1220.app.state
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.core.GameState
+import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.Keys
 import java.awt.Color
-import java.awt.Graphics2D
-import java.awt.event.KeyEvent
 
 class CreditsState(private val ctx: GameContext) : GameState {
 
@@ -49,9 +49,9 @@ class CreditsState(private val ctx: GameContext) : GameState {
     override fun exit()  {}
     override fun update(deltaTime: Double) {}
 
-    override fun render(g: Graphics2D) {
-        val w = g.clipBounds?.width  ?: 1280
-        val h = g.clipBounds?.height ?: 720
+    override fun render(g: DrawContext) {
+        val w = g.clipBounds.width
+        val h = g.clipBounds.height
 
         // 배경 그라디언트
         g.color = Color(8, 8, 20)
@@ -116,9 +116,9 @@ class CreditsState(private val ctx: GameContext) : GameState {
         g.drawString(hint, (w - hfm.stringWidth(hint)) / 2, h - 20)
     }
 
-    override fun keyPressed(e: KeyEvent) {
-        when (e.keyCode) {
-            KeyEvent.VK_ESCAPE, KeyEvent.VK_ENTER ->
+    override fun keyPressed(key: Int, mods: Int) {
+        when (key) {
+            Keys.ESCAPE, Keys.ENTER ->
                 ctx.stateManager.changeState(MainMenuState(ctx))
         }
     }
