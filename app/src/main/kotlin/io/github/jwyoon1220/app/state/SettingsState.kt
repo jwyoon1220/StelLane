@@ -14,10 +14,10 @@ import java.awt.Color
  * 인게임 설정 화면.
  *
  * 항목:
- *  0 — 창 모드 (← → 순환)
- *  1 — 오디오 보정 오프셋 ms (← → ±10ms, Shift+←→ ±1ms)
- *  2 — 프레임 제한 FPS (← → 순환)
- *  3 — 플레이 렌더러 (NanoVG / Custom)
+ *  0 — 창 모드
+ *  1 — 오디오 보정 오프셋
+ *  2 — 프레임 제한
+ *  3 — 플레이 렌더러
  *
  * Esc / Enter → 저장 후 이전 화면으로 돌아갑니다.
  */
@@ -132,6 +132,15 @@ class SettingsState(
         val hfm = g.getFontMetrics(hintFont)
         g.drawString(hint, (w - hfm.stringWidth(hint)) / 2, py + ph - 18)
 
+        // 보정 부가 설명
+        if (cursor == 1) {
+            g.font  = descFont
+            g.color = Color(140, 140, 160)
+            val desc = "양수: 오디오가 늦게 들릴 때 (+)   음수: 오디오가 빠르게 들릴 때 (−)"
+            val dfm = g.getFontMetrics(descFont)
+            g.drawString(desc, (w - dfm.stringWidth(desc)) / 2, py + ph - 38)
+        }
+
         // FPS 부가 설명
         if (cursor == 2) {
             g.font  = descFont
@@ -148,15 +157,6 @@ class SettingsState(
             val desc3 = "Custom은 PlayState에서만 적용되며 나머지 화면은 NanoVG를 유지합니다"
             val dfm3 = g.getFontMetrics(descFont)
             g.drawString(desc3, (w - dfm3.stringWidth(desc3)) / 2, py + ph - 38)
-        }
-
-        // 보정 부가 설명
-        if (cursor == 1) {
-            g.font  = descFont
-            g.color = Color(140, 140, 160)
-            val desc = "양수: 오디오가 늦게 들릴 때 (+)   음수: 오디오가 빠르게 들릴 때 (−)"
-            val dfm = g.getFontMetrics(descFont)
-            g.drawString(desc, (w - dfm.stringWidth(desc)) / 2, py + ph - 38)
         }
     }
 

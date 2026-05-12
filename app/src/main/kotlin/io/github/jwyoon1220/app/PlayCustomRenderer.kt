@@ -69,29 +69,28 @@ class PlayCustomRenderer(
                 )
                 g.color = COLOR_SHORT_BORDER
                 g.drawRoundRect(noteX, noteY, headW, 18f, 6f)
-                continue
-            }
+            } else {
+                val endTopYF = hlF - ((soaEndMs[i] - nowMs) * scrollSpeed / 1000.0).toFloat()
+                val bodyTopF = min(noteTopYF - 18f, endTopYF)
+                val bodyBtmF = if (soaHeld[i]) hlF else max(noteTopYF, endTopYF)
+                val bodyHF = bodyBtmF - bodyTopF
+                if (bodyHF > 0f) {
+                    val bodyX = lxF + 14f
+                    g.fillLinearGradient(
+                        x = bodyX, y = bodyTopF, w = bodyW, h = bodyHF,
+                        x0 = bodyX, y0 = bodyTopF, x1 = bodyX, y1 = bodyTopF + bodyHF,
+                        startColor = COLOR_LONG_BODY_TOP,
+                        endColor = COLOR_LONG_BODY_BOTTOM
+                    )
+                }
 
-            val endTopYF = hlF - ((soaEndMs[i] - nowMs) * scrollSpeed / 1000.0).toFloat()
-            val bodyTopF = min(noteTopYF - 18f, endTopYF)
-            val bodyBtmF = if (soaHeld[i]) hlF else max(noteTopYF, endTopYF)
-            val bodyHF = bodyBtmF - bodyTopF
-            if (bodyHF > 0f) {
-                val bodyX = lxF + 14f
-                g.fillLinearGradient(
-                    x = bodyX, y = bodyTopF, w = bodyW, h = bodyHF,
-                    x0 = bodyX, y0 = bodyTopF, x1 = bodyX, y1 = bodyTopF + bodyHF,
-                    startColor = COLOR_LONG_BODY_TOP,
-                    endColor = COLOR_LONG_BODY_BOTTOM
-                )
+                val headX = lxF + 5f
+                val headY = noteTopYF - 18f
+                g.color = COLOR_LONG_HEAD
+                g.fillRoundRect(headX, headY, headW, 18f, 6f)
+                g.color = COLOR_LONG_BORDER
+                g.drawRoundRect(headX, headY, headW, 18f, 6f)
             }
-
-            val headX = lxF + 5f
-            val headY = noteTopYF - 18f
-            g.color = COLOR_LONG_HEAD
-            g.fillRoundRect(headX, headY, headW, 18f, 6f)
-            g.color = COLOR_LONG_BORDER
-            g.drawRoundRect(headX, headY, headW, 18f, 6f)
         }
     }
 
