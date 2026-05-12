@@ -3,6 +3,9 @@ package io.github.jwyoon1220.app.state
 import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.app.PlayCustomRenderer
+import io.github.jwyoon1220.app.AppSettings
+import io.github.jwyoon1220.app.PlayRenderBackend
 import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Note
@@ -107,6 +110,7 @@ class PlayState(
     // ── 폰트 ──────────────────────────────────────────────────────────────────
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
     private var decorationRenderer: DecorationRenderer? = null
+    private val customRenderer = PlayCustomRenderer()
 
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
     // DrawContext (NanoVG) 는 GPU 가속이므로 CPU-side 캐시 불필요 — 매 프레임 직접 렌더링
@@ -289,45 +293,75 @@ class PlayState(
             g.drawString(KEY_LABELS[i], lx + (LANE_WIDTH - keyFm.stringWidth(KEY_LABELS[i])) / 2, hl + 28)
         }
 
+        val useCustomRenderer = AppSettings.playRenderBackend == PlayRenderBackend.CUSTOM
+        if (useCustomRenderer) {
+            customRenderer.renderLaneEffects(
+                g = g,
+                lanesL = lanesL,
+                laneWidth = LANE_WIDTH,
+                laneCount = LANE_COUNT,
+                screenH = h,
+                laneHeld = laneHeld
+            )
+        }
+
         // 장식 (depth < 0: 노트 이전)
         decorationRenderer?.render(g, currentTimeMs, beforeNotes = true)
 
         // 노트 렌더링 (SoA — 원시 타입 배열 순회, 객체 참조 없음)
         synchronized(notesLock) {
             val count = soaSize
-            for (i in 0 until count) {
-                if (!soaActive[i] && !soaHeld[i]) continue
-                val lx        = lanesL + soaLane[i] * LANE_WIDTH
-                val lxF       = lx.toFloat()
-                val hlF       = hl.toFloat()
-                // 서브픽셀 정밀도 — roundToInt() 없이 float 좌표 그대로 사용
-                // AA가 켜진 상태에서 RoundRectangle2D.Float을 쓰면 소수점 y 위치가 안티앨리어싱으로
-                // 표현되어, 정수 픽셀 점프(11~12px/frame) 없이 부드럽게 스크롤됩니다.
-                val noteTopYF = hlF - ((soaTimeMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
+            if (useCustomRenderer) {
+                customRenderer.renderNotes(
+                    g = g,
+                    lanesL = lanesL,
+                    laneWidth = LANE_WIDTH,
+                    hitLineY = hl,
+                    scrollSpeed = SCROLL_SPEED,
+                    nowMs = nowD,
+                    count = count,
+                    soaLane = soaLane,
+                    soaTimeMs = soaTimeMs,
+                    soaEndMs = soaEndMs,
+                    soaIsLong = soaIsLong,
+                    soaActive = soaActive,
+                    soaHeld = soaHeld
+                )
+            } else {
+                for (i in 0 until count) {
+                    if (!soaActive[i] && !soaHeld[i]) continue
+                    val lx        = lanesL + soaLane[i] * LANE_WIDTH
+                    val lxF       = lx.toFloat()
+                    val hlF       = hl.toFloat()
+                    // 서브픽셀 정밀도 — roundToInt() 없이 float 좌표 그대로 사용
+                    // AA가 켜진 상태에서 RoundRectangle2D.Float을 쓰면 소수점 y 위치가 안티앨리어싱으로
+                    // 표현되어, 정수 픽셀 점프(11~12px/frame) 없이 부드럽게 스크롤됩니다.
+                    val noteTopYF = hlF - ((soaTimeMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
 
-                if (!soaIsLong[i]) {
-                    // SHORT 노트: 금색
-                    val shape = RoundRectangle2D.Float(lxF + 5f, noteTopYF - 18f, (LANE_WIDTH - 10).toFloat(), 18f, 6f, 6f)
-                    g.color = COLOR_SHORT_FILL
-                    g.fill(shape)
-                    g.color = COLOR_SHORT_BORDER
-                    g.draw(shape)
-                } else {
-                    // LONG 노트: 보라색
-                    val endTopYF = hlF - ((soaEndMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
-                    val bodyTopF = min(noteTopYF - 18f, endTopYF)
-                    val bodyBtmF = if (soaHeld[i]) hlF else max(noteTopYF, endTopYF)
-                    val bodyHF   = bodyBtmF - bodyTopF
-                    if (bodyHF > 0f) {
-                        g.color = COLOR_LONG_BODY
-                        g.fill(Rectangle2D.Float(lxF + 14f, bodyTopF, (LANE_WIDTH - 28).toFloat(), bodyHF))
+                    if (!soaIsLong[i]) {
+                        // SHORT 노트: 금색
+                        val shape = RoundRectangle2D.Float(lxF + 5f, noteTopYF - 18f, (LANE_WIDTH - 10).toFloat(), 18f, 6f, 6f)
+                        g.color = COLOR_SHORT_FILL
+                        g.fill(shape)
+                        g.color = COLOR_SHORT_BORDER
+                        g.draw(shape)
+                    } else {
+                        // LONG 노트: 보라색
+                        val endTopYF = hlF - ((soaEndMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
+                        val bodyTopF = min(noteTopYF - 18f, endTopYF)
+                        val bodyBtmF = if (soaHeld[i]) hlF else max(noteTopYF, endTopYF)
+                        val bodyHF   = bodyBtmF - bodyTopF
+                        if (bodyHF > 0f) {
+                            g.color = COLOR_LONG_BODY
+                            g.fill(Rectangle2D.Float(lxF + 14f, bodyTopF, (LANE_WIDTH - 28).toFloat(), bodyHF))
+                        }
+                        // 헤드 / 테일
+                        val headShape = RoundRectangle2D.Float(lxF + 5f, noteTopYF - 18f, (LANE_WIDTH - 10).toFloat(), 18f, 6f, 6f)
+                        g.color = COLOR_LONG_FILL
+                        g.fill(headShape)
+                        g.color = COLOR_LONG_BORDER
+                        g.draw(headShape)
                     }
-                    // 헤드 / 테일
-                    val headShape = RoundRectangle2D.Float(lxF + 5f, noteTopYF - 18f, (LANE_WIDTH - 10).toFloat(), 18f, 6f, 6f)
-                    g.color = COLOR_LONG_FILL
-                    g.fill(headShape)
-                    g.color = COLOR_LONG_BORDER
-                    g.draw(headShape)
                 }
             }
         }
@@ -335,6 +369,17 @@ class PlayState(
         // 장식 (depth ≥0: 노트 위) + 화면 효과
         decorationRenderer?.render(g, currentTimeMs, beforeNotes = false)
         decorationRenderer?.renderScreenEffects(g, currentTimeMs)
+        if (useCustomRenderer) {
+            customRenderer.renderJudgmentEffect(
+                g = g,
+                lanesL = lanesL,
+                totalWidth = TOTAL_WIDTH,
+                hitLineY = hl,
+                fadeMs = judgmentFadeMs,
+                maxFadeMs = JUDGE_FADE_MS,
+                judgmentColor = judgmentColor
+            )
+        }
 
         // 콤보
         if (combo > 0) {

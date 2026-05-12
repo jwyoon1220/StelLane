@@ -21,4 +21,15 @@ object AppSettings {
     var targetFps: Int
         get() = prefs.getInt("targetFps", 60).coerceIn(30, 240)
         set(v) { prefs.putInt("targetFps", v.coerceIn(30, 240)) }
+
+    /** PlayState 전용 렌더 백엔드 선택. */
+    var playRenderBackend: PlayRenderBackend
+        get() = try { PlayRenderBackend.valueOf(prefs.get("playRenderBackend", PlayRenderBackend.NANOVG.name)) }
+        catch (_: Exception) { PlayRenderBackend.NANOVG }
+        set(v) { prefs.put("playRenderBackend", v.name) }
+}
+
+enum class PlayRenderBackend {
+    NANOVG,
+    CUSTOM
 }
