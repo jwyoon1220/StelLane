@@ -1290,6 +1290,7 @@ class EditorState(
             if (decorPopupHitIdx >= 0) {
                 if (ImGui.menuItem("편집…")) {
                     val idx = decorPopupHitIdx
+                    // 장식 편집 다이얼로그는 아직 Swing 기반 (향후 ImGui로 마이그레이션 예정)
                     javax.swing.SwingUtilities.invokeLater { openDecorEditDialog(idx) }
                 }
                 if (ImGui.menuItem("삭제")) {
@@ -1302,6 +1303,7 @@ class EditorState(
             } else {
                 val ms = decorPopupClickMs
                 if (ImGui.menuItem("여기에 장식 추가 (${ms}ms)")) {
+                    // 새 장식 다이얼로그는 아직 Swing 기반 (향후 ImGui로 마이그레이션 예정)
                     javax.swing.SwingUtilities.invokeLater { openNewDecorDialog(ms) }
                 }
             }

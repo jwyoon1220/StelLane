@@ -387,7 +387,7 @@ class BuilderApp {
         val url  = tfVideo.get().trim()
         val slug = makeSlug(tfTitle.get().trim()).ifEmpty { "video" }
         val dir  = File(tfSongsDir.get().trim()).also { if (!it.exists()) it.mkdirs() }
-        val songDir = File(dir, slug.ifEmpty { "song" }).also { it.mkdirs() }
+        val songDir = File(dir, slug).also { it.mkdirs() }
         val outTemplate = File(songDir, "$slug.%(ext)s").absolutePath
 
         ytdlpRunning = true
@@ -416,7 +416,8 @@ class BuilderApp {
                 }
             } catch (e: Exception) {
                 log("❌ yt-dlp 실행 실패: ${e.message}")
-                log("   yt-dlp 가 PATH 에 있는지 확인하세요.")
+                log("   → yt-dlp 가 설치되어 있고 PATH에 있는지 확인하세요.")
+                log("     설치: pip install yt-dlp  또는  https://github.com/yt-dlp/yt-dlp")
             } finally {
                 ytdlpRunning = false
             }
