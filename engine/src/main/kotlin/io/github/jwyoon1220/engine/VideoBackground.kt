@@ -318,7 +318,10 @@ class VideoBackground private constructor(
         val needed = w * h * 4
         var buf = uploadBuf
         if (buf == null || buf.capacity() < needed) {
-            buf?.let { MemoryUtil.memFree(it) }
+            if (buf != null) {
+                uploadBuf = null
+                MemoryUtil.memFree(buf)
+            }
             buf = MemoryUtil.memAlloc(needed)
             uploadBuf = buf
         }
@@ -378,5 +381,4 @@ class VideoBackground private constructor(
         runCatching { vlcExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS) }
     }
 }
-
 
