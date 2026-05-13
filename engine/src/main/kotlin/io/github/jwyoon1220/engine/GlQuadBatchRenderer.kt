@@ -135,16 +135,26 @@ class GlQuadBatchRenderer(
             }
         """.trimIndent()
 
-        val vertexShader = compileShader(GL_VERTEX_SHADER, vs)
-        val fragmentShader = compileShader(GL_FRAGMENT_SHADER, fs)
-
-        program = glCreateProgram()
-        glAttachShader(program, vertexShader)
-        glAttachShader(program, fragmentShader)
-        glLinkProgram(program)
-        check(glGetProgrami(program, GL_LINK_STATUS) != 0) { "OpenGL program link failed: ${glGetProgramInfoLog(program)}" }
-        glDeleteShader(vertexShader)
-        glDeleteShader(fragmentShader)
+        var vertexShader = 0
+        var fragmentShader = 0
+        val programId = glCreateProgram()
+        try {
+            vertexShader = compileShader(GL_VERTEX_SHADER, vs)
+            fragmentShader = compileShader(GL_FRAGMENT_SHADER, fs)
+            glAttachShader(programId, vertexShader)
+            glAttachShader(programId, fragmentShader)
+            glLinkProgram(programId)
+            check(glGetProgrami(programId, GL_LINK_STATUS) != 0) {
+                "OpenGL program link failed: ${glGetProgramInfoLog(programId)}"
+            }
+        } catch (e: Exception) {
+            glDeleteProgram(programId)
+            throw e
+        } finally {
+            if (vertexShader != 0) glDeleteShader(vertexShader)
+            if (fragmentShader != 0) glDeleteShader(fragmentShader)
+        }
+        program = programId
 
         vao = glGenVertexArrays()
         vbo = glGenBuffers()

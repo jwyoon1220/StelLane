@@ -523,6 +523,7 @@ class PlayState(
     }
 
     override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
+        // Renderer 훅 외 직접 호출 가능성을 고려한 방어 코드
         if (!useCustomGlRenderer || phase == Phase.READY) return
 
         val h = Renderer.DESIGN_H
