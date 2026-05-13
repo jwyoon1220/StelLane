@@ -198,6 +198,7 @@ class GlQuadBatchRenderer(
 
     fun begin(framebufferWidth: Int, framebufferHeight: Int, offsetX: Float, offsetY: Float, drawW: Float, drawH: Float) {
         if (program == 0) init()
+        if (frameBegun) end()
         if (framebufferWidth <= 0 || framebufferHeight <= 0 || drawW <= 0f || drawH <= 0f) {
             frameBegun = false
             return
