@@ -4,6 +4,7 @@ import io.github.jwyoon1220.app.state.MainMenuState
 import io.github.jwyoon1220.core.song.SongManager
 import io.github.jwyoon1220.engine.GLFWWindow
 import io.github.jwyoon1220.engine.GameLoop
+import io.github.jwyoon1220.engine.ImGuiManager
 import io.github.jwyoon1220.engine.InputManager
 import io.github.jwyoon1220.engine.Renderer
 import io.github.jwyoon1220.engine.StateManager
@@ -73,6 +74,12 @@ fun main(args: Array<String>) {
     renderer.init()
     ctx.renderer = renderer
 
+    // ── Dear ImGui 초기화 (GL 컨텍스트 활성화 후) ──────────────────────────────
+    val imGuiManager = ImGuiManager(window.handle)
+    imGuiManager.init()
+    renderer.imGuiManager   = imGuiManager
+    inputManager.imGuiManager = imGuiManager
+
     // ── InputManager → State 콜백 연결 ───────────────────────────────────────
     inputManager.stateKeyPressed  = { key, mods -> stateManager.currentState?.keyPressed(key, mods) }
     inputManager.stateKeyReleased = { key, mods -> stateManager.currentState?.keyReleased(key, mods) }
@@ -95,6 +102,7 @@ fun main(args: Array<String>) {
     gameLoop.start()   // ← 블로킹
 
     // ── 종료 시 리소스 해제 ───────────────────────────────────────────────────
+    imGuiManager.dispose()
     renderer.destroy()
     window.destroy()
     videoBackground.release()
