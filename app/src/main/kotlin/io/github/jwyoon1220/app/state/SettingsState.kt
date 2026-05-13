@@ -44,16 +44,16 @@ class SettingsState(
     private var localFps    = AppSettings.targetFps
     private var localPlayRenderBackend = AppSettings.playRenderBackend
     private var localEditorRenderBackend = AppSettings.editorRenderBackend
-    private val fpsOptions  = listOf(30, 60, 120, 144, 165, 240)
+    private val fpsOptions  = arrayOf(30, 60, 120, 144, 165, 240, 360, 480, 720)
     private val playBackendOptions = PlayRenderBackend.entries
     private val editorBackendOptions = EditorRenderBackend.entries
     private val playBackendLabel = mapOf(
-        PlayRenderBackend.NANOVG to "NanoVG (CPU 경로)",
-        PlayRenderBackend.CUSTOM to "Custom OpenGL (GPU 권장)"
+        PlayRenderBackend.NANOVG to "NanoVG",
+        PlayRenderBackend.CUSTOM to "OpenGL (권장)"
     )
     private val editorBackendLabel = mapOf(
-        EditorRenderBackend.NANOVG to "NanoVG (CPU 경로)",
-        EditorRenderBackend.CUSTOM to "Custom OpenGL (GPU 권장)"
+        EditorRenderBackend.NANOVG to "NanoVG",
+        EditorRenderBackend.CUSTOM to "OpenGL (권장)"
     )
 
     private val modes = WindowMode.entries
@@ -132,7 +132,7 @@ class SettingsState(
             g.font  = valueFont
             g.color = if (selected) Color(200, 255, 200) else Color(120, 130, 150)
             val vfm = g.getFontMetrics(valueFont)
-            g.drawString(valueStr, (w - vfm.stringWidth(valueStr)) / 2, rowY)
+            g.drawString(valueStr, px + pw - 36 - vfm.stringWidth(valueStr), rowY)
         }
 
         // 하단 힌트
@@ -188,7 +188,8 @@ class SettingsState(
                     val idx = (modes.indexOf(localMode) - 1 + modes.size) % modes.size
                     localMode = modes[idx]
                 }
-                1 -> localOffset = (localOffset - if (shift) 1L else 10L).coerceIn(-500L, 500L)
+                // 세터에서 최소/최대 제한을 하므로 단순히 값만 감소
+                1 -> localOffset -= if (shift) 1L else 10L
                 2 -> {
                     val idx = (fpsOptions.indexOf(localFps) - 1 + fpsOptions.size) % fpsOptions.size
                     localFps = fpsOptions[idx]
@@ -207,7 +208,8 @@ class SettingsState(
                     val idx = (modes.indexOf(localMode) + 1) % modes.size
                     localMode = modes[idx]
                 }
-                1 -> localOffset = (localOffset + if (shift) 1L else 10L).coerceIn(-500L, 500L)
+                // 세터에서 최소/최대 제한을 하므로 단순히 값만 증가
+                1 -> localOffset += if (shift) 1L else 10L
                 2 -> {
                     val idx = (fpsOptions.indexOf(localFps) + 1) % fpsOptions.size
                     localFps = fpsOptions[idx]
