@@ -51,6 +51,7 @@ class PlayState(
         private val COLOR_LONG_BODY = Color(160, 80, 255, 150)
         private val COLOR_LONG_FILL = Color(190, 120, 255)
         private val COLOR_LONG_BORDER = Color(225, 185, 255)
+        // 엔진 커스텀 GL 패스(renderCustomGl)에서 노트 헤드 테두리에 사용
         private const val NOTE_BORDER_THICKNESS = 1.5f
         private val KEY_LABELS = arrayOf("D", "F", "J", "K")
     }

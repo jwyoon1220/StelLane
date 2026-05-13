@@ -7,4 +7,3 @@ interface CustomGLRenderable {
     val useCustomGlRenderer: Boolean get() = false
     fun renderCustomGl(renderer: GlQuadBatchRenderer) {}
 }
-
