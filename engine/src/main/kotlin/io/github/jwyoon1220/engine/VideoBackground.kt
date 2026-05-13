@@ -331,7 +331,8 @@ class VideoBackground private constructor(
         if (w != lastUploadW || h != lastUploadH) {
             // 해상도 변경 → 텍스처 스토리지 재할당
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
-            lastUploadW = w; lastUploadH = h
+            lastUploadW = w
+            lastUploadH = h
             // NVG 핸들 무효화 (해상도가 바뀌었으므로)
             if (nvgImgHandle >= 0) { nvgImgHandle = -1 }
         } else {
