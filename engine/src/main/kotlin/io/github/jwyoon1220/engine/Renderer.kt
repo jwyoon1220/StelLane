@@ -28,10 +28,17 @@ class Renderer(
         private set
     private val glQuadBatchRenderer = GlQuadBatchRenderer(DESIGN_W.toFloat(), DESIGN_H.toFloat())
 
+    /** 옵션: Main 에서 ImGuiManager 를 생성 후 주입합니다. null 이면 ImGui 패스 건너뜀. */
+    var imGuiManager: ImGuiManager? = null
+
     // letterbox/pillarbox 계산 결과 (toLogical 에서도 사용)
     @Volatile private var scale   = 1f
     @Volatile private var offsetX = 0f
     @Volatile private var offsetY = 0f
+
+    val renderScale:   Float get() = scale
+    val renderOffsetX: Float get() = offsetX
+    val renderOffsetY: Float get() = offsetY
 
     fun init() {
         vg = nvgCreate(NVG_ANTIALIAS or NVG_STENCIL_STROKES)
@@ -111,6 +118,14 @@ class Renderer(
             )
             current.renderCustomGl(glQuadBatchRenderer)
             glQuadBatchRenderer.end()
+        }
+
+        // 9. Dear ImGui 패스 (ImGuiRenderable 구현 State 에서만, 또는 빈 프레임)
+        val imgui = imGuiManager
+        if (imgui != null) {
+            imgui.newFrame()
+            if (current is ImGuiRenderable) current.renderImGui()
+            imgui.render()
         }
     }
 
