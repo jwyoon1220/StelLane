@@ -245,6 +245,23 @@ class GlQuadBatchRenderer(
         drawGradientRect(x, y, w, h, color, color, color, color, textureId)
     }
 
+    /**
+     * GL 텍스처를 지정한 사각형 영역에 있는 그대로(불투명 흰색 곱) 렌더링합니다.
+     * 비디오 프레임 등 텍스처를 색 보정 없이 그릴 때 사용하세요.
+     */
+    fun drawTexturedRect(x: Float, y: Float, w: Float, h: Float, textureId: Int) {
+        if (!frameBegun || w <= 0f || h <= 0f) return
+        ensureTexture(textureId)
+        ensureCapacity(VERTS_PER_QUAD)
+        val x1 = x + w; val y1 = y + h
+        putVertexF(x,  y,  0f, 0f, 1f, 1f, 1f, 1f)
+        putVertexF(x1, y,  1f, 0f, 1f, 1f, 1f, 1f)
+        putVertexF(x1, y1, 1f, 1f, 1f, 1f, 1f, 1f)
+        putVertexF(x,  y,  0f, 0f, 1f, 1f, 1f, 1f)
+        putVertexF(x1, y1, 1f, 1f, 1f, 1f, 1f, 1f)
+        putVertexF(x,  y1, 0f, 1f, 1f, 1f, 1f, 1f)
+    }
+
     /** 텍스처 샘플 결과와 정점 색상을 곱해 그립니다(기본: whiteTexture). */
     fun drawGradientRect(
         x: Float, y: Float, w: Float, h: Float,
@@ -260,13 +277,23 @@ class GlQuadBatchRenderer(
         val x1 = x + w
         val y1 = y + h
 
-        putVertex(x0, y0, 0f, 0f, topLeft)
-        putVertex(x1, y0, 1f, 0f, topRight)
-        putVertex(x1, y1, 1f, 1f, bottomRight)
+        // 4개 코너 색상을 미리 정규화 (int→float 변환을 6 정점 × 4채널 24회 → 4 × 4채널 16회로 감소)
+        val tlR = topLeft.red   / COLOR_DIV; val tlG = topLeft.green   / COLOR_DIV
+        val tlB = topLeft.blue  / COLOR_DIV; val tlA = topLeft.alpha   / COLOR_DIV
+        val trR = topRight.red  / COLOR_DIV; val trG = topRight.green  / COLOR_DIV
+        val trB = topRight.blue / COLOR_DIV; val trA = topRight.alpha  / COLOR_DIV
+        val brR = bottomRight.red  / COLOR_DIV; val brG = bottomRight.green  / COLOR_DIV
+        val brB = bottomRight.blue / COLOR_DIV; val brA = bottomRight.alpha  / COLOR_DIV
+        val blR = bottomLeft.red   / COLOR_DIV; val blG = bottomLeft.green   / COLOR_DIV
+        val blB = bottomLeft.blue  / COLOR_DIV; val blA = bottomLeft.alpha   / COLOR_DIV
 
-        putVertex(x0, y0, 0f, 0f, topLeft)
-        putVertex(x1, y1, 1f, 1f, bottomRight)
-        putVertex(x0, y1, 0f, 1f, bottomLeft)
+        putVertexF(x0, y0, 0f, 0f, tlR, tlG, tlB, tlA)
+        putVertexF(x1, y0, 1f, 0f, trR, trG, trB, trA)
+        putVertexF(x1, y1, 1f, 1f, brR, brG, brB, brA)
+
+        putVertexF(x0, y0, 0f, 0f, tlR, tlG, tlB, tlA)
+        putVertexF(x1, y1, 1f, 1f, brR, brG, brB, brA)
+        putVertexF(x0, y1, 0f, 1f, blR, blG, blB, blA)
     }
 
     private fun ensureTexture(textureId: Int) {
@@ -281,17 +308,16 @@ class GlQuadBatchRenderer(
         flush()
     }
 
-    private fun putVertex(x: Float, y: Float, u: Float, v: Float, c: Color) {
-        val base = vertexCount * STRIDE_FLOATS
-        vertexData[base] = x
+    private fun putVertexF(x: Float, y: Float, u: Float, v: Float, r: Float, g: Float, b: Float, a: Float) {
+        val base = vertexCount++ * STRIDE_FLOATS
+        vertexData[base]     = x
         vertexData[base + 1] = y
         vertexData[base + 2] = u
         vertexData[base + 3] = v
-        vertexData[base + 4] = c.red / COLOR_DIV
-        vertexData[base + 5] = c.green / COLOR_DIV
-        vertexData[base + 6] = c.blue / COLOR_DIV
-        vertexData[base + 7] = c.alpha / COLOR_DIV
-        vertexCount++
+        vertexData[base + 4] = r
+        vertexData[base + 5] = g
+        vertexData[base + 6] = b
+        vertexData[base + 7] = a
     }
 
     private fun flush() {
