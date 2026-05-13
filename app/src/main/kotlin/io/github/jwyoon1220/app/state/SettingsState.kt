@@ -1,6 +1,7 @@
 package io.github.jwyoon1220.app.state
 
 import io.github.jwyoon1220.app.AppSettings
+import io.github.jwyoon1220.app.EditorRenderBackend
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.app.PlayRenderBackend
@@ -18,6 +19,7 @@ import java.awt.Color
  *  1 — 오디오 보정 오프셋
  *  2 — 프레임 제한
  *  3 — 플레이 렌더러
+ *  4 — 에디터 렌더러
  *
  * Esc / Enter → 저장 후 이전 화면으로 돌아갑니다.
  */
@@ -33,7 +35,7 @@ class SettingsState(
     private val hintFont   = FontLoader.light(14f)
     private val descFont   = FontLoader.light(13f)
 
-    private val items = listOf("창 모드", "오디오/비디오 보정", "프레임 제한", "플레이 렌더러")
+    private val items = listOf("창 모드", "오디오/비디오 보정", "프레임 제한", "플레이 렌더러", "에디터 렌더러")
     private var cursor = 0
 
     // 로컬 편집용 (적용 전까지 AppSettings에 반영 안 함)
@@ -41,11 +43,17 @@ class SettingsState(
     private var localOffset = AppSettings.calibrationOffsetMs
     private var localFps    = AppSettings.targetFps
     private var localPlayRenderBackend = AppSettings.playRenderBackend
+    private var localEditorRenderBackend = AppSettings.editorRenderBackend
     private val fpsOptions  = listOf(30, 60, 120, 144, 165, 240)
     private val playBackendOptions = PlayRenderBackend.entries
+    private val editorBackendOptions = EditorRenderBackend.entries
     private val playBackendLabel = mapOf(
-        PlayRenderBackend.NANOVG to "NanoVG (기본)",
-        PlayRenderBackend.CUSTOM to "Custom (Play 전용)"
+        PlayRenderBackend.NANOVG to "NanoVG (CPU 경로)",
+        PlayRenderBackend.CUSTOM to "Custom OpenGL (GPU 권장)"
+    )
+    private val editorBackendLabel = mapOf(
+        EditorRenderBackend.NANOVG to "NanoVG (CPU 경로)",
+        EditorRenderBackend.CUSTOM to "Custom OpenGL (GPU 권장)"
     )
 
     private val modes = WindowMode.entries
@@ -60,6 +68,7 @@ class SettingsState(
         localOffset = AppSettings.calibrationOffsetMs
         localFps    = AppSettings.targetFps
         localPlayRenderBackend = AppSettings.playRenderBackend
+        localEditorRenderBackend = AppSettings.editorRenderBackend
         cursor = startAt.coerceIn(0, items.lastIndex)
         ctx.inputManager.clearEvents()
     }
@@ -117,6 +126,7 @@ class SettingsState(
                 1 -> "◀  ${if (localOffset >= 0) "+$localOffset" else "$localOffset"} ms  ▶"
                 2 -> "◀  $localFps FPS  ▶"
                 3 -> "◀  ${playBackendLabel[localPlayRenderBackend]}  ▶"
+                4 -> "◀  ${editorBackendLabel[localEditorRenderBackend]}  ▶"
                 else -> ""
             }
             g.font  = valueFont
@@ -154,9 +164,16 @@ class SettingsState(
         if (cursor == 3) {
             g.font  = descFont
             g.color = Color(140, 140, 160)
-            val rendererDesc = "Custom은 PlayState에서만 적용되며 나머지 화면은 NanoVG를 유지합니다"
+            val rendererDesc = "플레이 렌더는 Custom OpenGL(GPU) 사용을 권장합니다"
             val dfm3 = g.getFontMetrics(descFont)
             g.drawString(rendererDesc, (w - dfm3.stringWidth(rendererDesc)) / 2, py + ph - 38)
+        }
+        if (cursor == 4) {
+            g.font  = descFont
+            g.color = Color(140, 140, 160)
+            val rendererDesc = "에디터 렌더도 Custom OpenGL(GPU) 사용을 권장합니다"
+            val dfm4 = g.getFontMetrics(descFont)
+            g.drawString(rendererDesc, (w - dfm4.stringWidth(rendererDesc)) / 2, py + ph - 38)
         }
     }
 
@@ -180,6 +197,10 @@ class SettingsState(
                     val idx = (playBackendOptions.indexOf(localPlayRenderBackend) - 1 + playBackendOptions.size) % playBackendOptions.size
                     localPlayRenderBackend = playBackendOptions[idx]
                 }
+                4 -> {
+                    val idx = (editorBackendOptions.indexOf(localEditorRenderBackend) - 1 + editorBackendOptions.size) % editorBackendOptions.size
+                    localEditorRenderBackend = editorBackendOptions[idx]
+                }
             }
             Keys.RIGHT -> when (cursor) {
                 0 -> {
@@ -194,6 +215,10 @@ class SettingsState(
                 3 -> {
                     val idx = (playBackendOptions.indexOf(localPlayRenderBackend) + 1) % playBackendOptions.size
                     localPlayRenderBackend = playBackendOptions[idx]
+                }
+                4 -> {
+                    val idx = (editorBackendOptions.indexOf(localEditorRenderBackend) + 1) % editorBackendOptions.size
+                    localEditorRenderBackend = editorBackendOptions[idx]
                 }
             }
 
@@ -220,6 +245,7 @@ class SettingsState(
                     1 -> localOffset = (localOffset - 10L).coerceIn(-500L, 500L)
                     2 -> { val idx = (fpsOptions.indexOf(localFps) - 1 + fpsOptions.size) % fpsOptions.size; localFps = fpsOptions[idx] }
                     3 -> { val idx = (playBackendOptions.indexOf(localPlayRenderBackend) - 1 + playBackendOptions.size) % playBackendOptions.size; localPlayRenderBackend = playBackendOptions[idx] }
+                    4 -> { val idx = (editorBackendOptions.indexOf(localEditorRenderBackend) - 1 + editorBackendOptions.size) % editorBackendOptions.size; localEditorRenderBackend = editorBackendOptions[idx] }
                 }
             }
             // ▶ 영역 클릭
@@ -229,6 +255,7 @@ class SettingsState(
                     1 -> localOffset = (localOffset + 10L).coerceIn(-500L, 500L)
                     2 -> { val idx = (fpsOptions.indexOf(localFps) + 1) % fpsOptions.size; localFps = fpsOptions[idx] }
                     3 -> { val idx = (playBackendOptions.indexOf(localPlayRenderBackend) + 1) % playBackendOptions.size; localPlayRenderBackend = playBackendOptions[idx] }
+                    4 -> { val idx = (editorBackendOptions.indexOf(localEditorRenderBackend) + 1) % editorBackendOptions.size; localEditorRenderBackend = editorBackendOptions[idx] }
                 }
             }
         }
@@ -242,6 +269,7 @@ class SettingsState(
         AppSettings.calibrationOffsetMs = localOffset
         AppSettings.targetFps = localFps
         AppSettings.playRenderBackend = localPlayRenderBackend
+        AppSettings.editorRenderBackend = localEditorRenderBackend
         if (ctx.gameLoop.targetFPS != localFps) ctx.gameLoop.targetFPS = localFps
         ctx.stateManager.changeState(previous)
         // 창 모드는 상태 전환 후 적용 (전환 후 frame 재구성)

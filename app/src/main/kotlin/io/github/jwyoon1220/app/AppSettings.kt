@@ -24,14 +24,14 @@ object AppSettings {
 
     /** PlayState 전용 렌더 백엔드 선택. */
     var playRenderBackend: PlayRenderBackend
-        get() = try { PlayRenderBackend.valueOf(prefs.get("playRenderBackend", PlayRenderBackend.NANOVG.name)) }
-        catch (_: Exception) { PlayRenderBackend.NANOVG }
+        get() = try { PlayRenderBackend.valueOf(prefs.get("playRenderBackend", PlayRenderBackend.CUSTOM.name)) }
+        catch (_: Exception) { PlayRenderBackend.CUSTOM }
         set(v) { prefs.put("playRenderBackend", v.name) }
 
     /** EditorState 전용 렌더 백엔드 선택. */
     var editorRenderBackend: EditorRenderBackend
-        get() = try { EditorRenderBackend.valueOf(prefs.get("editorRenderBackend", EditorRenderBackend.NANOVG.name)) }
-        catch (_: Exception) { EditorRenderBackend.NANOVG }
+        get() = try { EditorRenderBackend.valueOf(prefs.get("editorRenderBackend", EditorRenderBackend.CUSTOM.name)) }
+        catch (_: Exception) { EditorRenderBackend.CUSTOM }
         set(v) { prefs.put("editorRenderBackend", v.name) }
 }
 
