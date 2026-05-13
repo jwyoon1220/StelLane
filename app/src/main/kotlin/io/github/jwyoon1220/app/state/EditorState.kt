@@ -1,6 +1,8 @@
 package io.github.jwyoon1220.app.state
 
+import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.DecorationRenderer
+import io.github.jwyoon1220.app.EditorRenderBackend
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.core.data.Chart
@@ -15,8 +17,10 @@ import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.editor.Quantizer
 import io.github.jwyoon1220.editor.Timeline
 import io.github.jwyoon1220.app.SwingHelper
+import io.github.jwyoon1220.engine.CustomGLRenderable
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.LaneEventType
 import it.unimi.dsi.fastutil.ints.IntArraySet
@@ -30,8 +34,10 @@ class EditorState(
     private val songEntry: SongEntry,
     private val chartFile: File,
     chart: Chart
-) : GameState {
+) : GameState, CustomGLRenderable {
     override val rendersBackground = true
+    override val useCustomGlRenderer: Boolean
+        get() = AppSettings.editorRenderBackend == EditorRenderBackend.CUSTOM
 
     // ── 노트 모드 ──────────────────────────────────────────────────────────────
     private enum class NoteMode { NORMAL, LONG }
@@ -133,6 +139,19 @@ class EditorState(
     private val infoFont   = FontLoader.regular(15f)
     private val hintFont   = FontLoader.light(12f)
     private val toolFont   = FontLoader.regular(13f)
+
+    // ── 컴패니언 — 매 프레임 Color 할당 방지 ─────────────────────────────────────
+    companion object {
+        // 타임라인 노트 색상 (Custom GL 패스)
+        private val TL_LANE_COLORS = arrayOf(
+            Color(100, 180, 255, 200),
+            Color(100, 255, 160, 200),
+            Color(255, 200, 80,  200),
+            Color(255, 120, 120, 200)
+        )
+        private val TL_SELECTED_COLOR  = Color(255, 255, 80, 230)
+        private val TL_LONG_BODY_ALPHA = Color(0, 0, 0, 0)  // placeholder; body 는 alpha 버전 필요
+    }
 
     // ── GameState ─────────────────────────────────────────────────────────────
 
@@ -236,9 +255,17 @@ class EditorState(
         val vpX = (mainW - vpW) / 2
         val vpY = HDR_H
 
-        val frame = ctx.videoBackground.getCurrentFrame()
-        if (frame != null) {
-            g.drawImage(frame, vpX, vpY, vpW, vpH, null)
+        // 비디오 프레임 렌더링: GL 텍스처 핸들 우선(uploadPendingFrame이 이미 최신 상태 보장),
+        // 없으면 BufferedImage 폴백. CUSTOM GL 모드에서는 renderCustomGl()에서 직접 GL 텍스처를
+        // 그리므로 NanoVG 비디오 패스를 건너뜀.
+        if (!useCustomGlRenderer) {
+            val nvgHandle = ctx.videoBackground.getNvgImageHandle(g.vg)
+            if (nvgHandle >= 0) {
+                g.drawNvgImage(nvgHandle, vpX.toFloat(), vpY.toFloat(), vpW.toFloat(), vpH.toFloat())
+            } else {
+                val frame = ctx.videoBackground.getCurrentFrame()
+                if (frame != null) g.drawImage(frame, vpX, vpY, vpW, vpH, null)
+            }
         }
 
         // ── 2. 장식 오버레이 (뷰포트 스케일 적용) ────────────────────────────────
@@ -324,7 +351,8 @@ class EditorState(
             g, chartSnapshot, timelineScrollMs, currentTimeMs,
             0, noteY, mainW, NOTE_TL_H,
             visibleWindowMs, selectedIndices,
-            songEntry.song.bpm?.toDouble()
+            songEntry.song.bpm?.toDouble(),
+            drawNotes = !useCustomGlRenderer  // CUSTOM GL 모드: renderCustomGl()에서 GL로 렌더
         )
         g.font = hintFont; g.color = Color(90, 75, 125)
         g.drawString("♩ NOTES", 4, noteY - 3)
@@ -1105,6 +1133,72 @@ class EditorState(
             decorData = DecorationData(cur, decorData.screenEffects)
             syncDecorRenderer()
             selectedDecorIdx = cur.indexOfFirst { it.id == newDec.id }
+        }
+    }
+
+    /**
+     * CustomGLRenderable — NanoVG 프레임 이후 실행됩니다.
+     * CUSTOM 모드에서:
+     *   1. 비디오 프레임을 에디터 뷰포트 위치에 GL 텍스처로 직접 렌더
+     *   2. 타임라인 노트 아이템을 GlQuadBatchRenderer로 렌더 (NanoVG보다 빠름)
+     *
+     * 비디오는 NanoVG 배경(검은 사각형)이 있는 자리에 그려지므로 UI가 위로 올라오는
+     * 레이어 순서: NanoVG(검은 배경, UI 패널, 텍스트) → GL(비디오, 노트 아이템)
+     */
+    override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
+        if (!useCustomGlRenderer) return
+
+        // ── 1. 비디오 프레임 ─────────────────────────────────────────────────
+        val glTex = ctx.videoBackground.getGlTextureId()
+        if (glTex > 0 && ctx.videoBackground.getCurrentFrame() != null) {
+            val vpH = renderH - HDR_H - btmH
+            val vpW = vpH * 16 / 9
+            val vpX = (mainW - vpW) / 2
+            renderer.drawTexturedRect(
+                x = vpX.toFloat(),
+                y = HDR_H.toFloat(),
+                w = vpW.toFloat(),
+                h = vpH.toFloat(),
+                textureId = glTex
+            )
+        }
+
+        // ── 2. 타임라인 노트 아이템 ──────────────────────────────────────────
+        val tlH   = NOTE_TL_H
+        val laneH = tlH / 4
+        val noteY = noteTrackY
+        val viewMs = visibleWindowMs.toDouble()
+        val w = mainW
+
+        val notes = synchronized(notesLock) { mutableChart.notes.toList() }
+        for ((idx, note) in notes.withIndex()) {
+            val nx = ((note.time - timelineScrollMs).toDouble() / viewMs * w).toFloat()
+            if (nx < -20f || nx > w + 20f) continue
+
+            val isSelected = idx in selectedIndices
+            val baseColor  = if (isSelected) TL_SELECTED_COLOR else TL_LANE_COLORS[note.lane % 4]
+            val ly         = (noteY + note.lane * laneH).toFloat()
+
+            if (note.type == NoteType.SHORT) {
+                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), baseColor)
+                val bright = Color(
+                    (baseColor.red * 1.2f).toInt().coerceAtMost(255),
+                    (baseColor.green * 1.2f).toInt().coerceAtMost(255),
+                    (baseColor.blue * 1.2f).toInt().coerceAtMost(255),
+                    baseColor.alpha
+                )
+                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), bright)
+            } else {
+                val endMs  = note.endTime ?: note.time
+                val ex     = ((endMs - timelineScrollMs).toDouble() / viewMs * w).toFloat()
+                val left   = minOf(nx, ex)
+                val bw     = kotlin.math.abs(ex - nx).coerceAtLeast(4f)
+                val bodyAlpha = if (isSelected) 200 else 120
+                val bodyColor = Color(baseColor.red, baseColor.green, baseColor.blue, bodyAlpha)
+                renderer.drawRect(left, ly + laneH / 3f, bw, laneH / 3f, bodyColor)
+                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), baseColor)
+                renderer.drawRect(ex - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), baseColor)
+            }
         }
     }
 

@@ -32,7 +32,8 @@ object Timeline {
         x: Int, y: Int, width: Int, height: Int,
         visibleWindowMs: Long = 6_000L,
         selectedIndices: Set<Int> = emptySet(),
-        bpm: Double? = null
+        bpm: Double? = null,
+        drawNotes: Boolean = true
     ) {
         val laneCount  = 4
         val laneH      = height / laneCount
@@ -96,7 +97,7 @@ object Timeline {
         }
 
         // 노트 (선택 여부에 따라 강조)
-        chart.notes.forEachIndexed { idx, note ->
+        if (drawNotes) chart.notes.forEachIndexed { idx, note ->
             val nx = x + ((note.time - timelineScrollMs).toDouble() / visibleWindowMs * width).toInt()
             if (nx < x - 20 || nx > x + width + 20) return@forEachIndexed
 

@@ -45,7 +45,7 @@ class PlayState(
         private val COLOR_LANE_LINE = Color(70, 70, 100, 180)
         private val COLOR_JUDGE_LINE = Color(230, 230, 255)
         private val STROKE_JUDGE = BasicStroke(3f)
-        
+
         private val COLOR_SHORT_FILL = Color(255, 210, 80)
         private val COLOR_SHORT_BORDER = Color(255, 245, 170)
         private val COLOR_LONG_BODY = Color(160, 80, 255, 150)
@@ -54,6 +54,38 @@ class PlayState(
         // 엔진 커스텀 GL 패스(renderCustomGl)에서 노트 헤드 테두리에 사용
         private const val NOTE_BORDER_THICKNESS = 1.5f
         private val KEY_LABELS = arrayOf("D", "F", "J", "K")
+
+        // 재사용 Color 상수 — renderCustomGl() 호출마다 객체 생성하지 않도록 미리 캐시
+        private val COLOR_KEY_NORMAL   = Color(150, 150, 150)
+        private val COLOR_COMBO_LABEL  = Color(180, 180, 180)
+        private val COLOR_STAT_TEXT    = Color(160, 160, 160)
+        private val COLOR_HINT_TEXT    = Color(100, 100, 110)
+
+        // renderCustomGl: 레인 글로우 색상 (alpha 값은 held/normal 두 가지)
+        private val COLOR_GL_LANE_FADE_TOP   = Color(96, 70, 210, 0)
+        private val COLOR_GL_LANE_GLOW_HELD  = Color(128, 98, 255, 90)
+        private val COLOR_GL_LANE_GLOW_NORM  = Color(128, 98, 255, 42)
+
+        // renderCustomGl: 단노트 색상
+        private val COLOR_GL_SHORT_TOP    = Color(255, 248, 190, 255)
+        private val COLOR_GL_SHORT_BTM    = Color(255, 210, 80, 255)
+        private val COLOR_GL_SHORT_BORDER = Color(255, 252, 220, 255)
+        private val COLOR_GL_SHORT_BORDER2 = Color(255, 230, 140, 220)
+
+        // renderCustomGl: 롱노트 색상
+        private val COLOR_GL_LONG_BODY_TOP  = Color(190, 130, 255, 185)
+        private val COLOR_GL_LONG_BODY_BTM  = Color(120, 60, 220, 185)
+        private val COLOR_GL_LONG_HEAD_TOP  = Color(218, 165, 255, 255)
+        private val COLOR_GL_LONG_HEAD_BTM  = Color(175, 110, 250, 255)
+        private val COLOR_GL_LONG_BORDER    = Color(238, 220, 255, 255)
+
+        // 판정 색상 배열 (Judgment 순서와 일치)
+        private val JUDGMENT_COLORS = arrayOf(
+            Color(100, 220, 255),  // PERFECT
+            Color(255, 220, 80),   // GREAT
+            Color(100, 255, 130),  // GOOD
+            Color(255, 80, 80)     // MISS
+        )
     }
 
     private var cachedScore = -1
@@ -150,12 +182,7 @@ class PlayState(
     }
 
     // ── 판정 색상 ─────────────────────────────────────────────────────────────
-    private fun judgColor(j: Judgment) = when (j) {
-        Judgment.PERFECT -> Color(100, 220, 255)
-        Judgment.GREAT   -> Color(255, 220, 80)
-        Judgment.GOOD    -> Color(100, 255, 130)
-        Judgment.MISS    -> Color(255, 80, 80)
-    }
+    private fun judgColor(j: Judgment) = JUDGMENT_COLORS[j.ordinal]
 
     // ── GameState 구현 ────────────────────────────────────────────────────────
 
@@ -294,7 +321,7 @@ class PlayState(
         val keyFm = g.getFontMetrics(statFont)  // 루프 외부에서 1회만 획득
         for (i in 0 until LANE_COUNT) {
             val lx = lanesL + i * LANE_WIDTH
-            g.color = if (laneHeld[i]) Color.WHITE else Color(150, 150, 150)
+            g.color = if (laneHeld[i]) Color.WHITE else COLOR_KEY_NORMAL
             g.drawString(KEY_LABELS[i], lx + (LANE_WIDTH - keyFm.stringWidth(KEY_LABELS[i])) / 2, hl + 28)
         }
 
@@ -358,7 +385,7 @@ class PlayState(
             g.drawString(cachedComboStr, (w - cfm.stringWidth(cachedComboStr)) / 2, 96)
 
             g.font  = statFont
-            g.color = Color(180, 180, 180)
+            g.color = COLOR_COMBO_LABEL
             val cl  = "COMBO"
             val sfm = g.getFontMetrics(statFont)
             g.drawString(cl, (w - sfm.stringWidth(cl)) / 2, 116)
@@ -388,7 +415,7 @@ class PlayState(
 
         // 판정 카운트 (좌상단)
         g.font  = statFont
-        g.color = Color(160, 160, 160)
+        g.color = COLOR_STAT_TEXT
         val counts = scoreEngine.counts
         
         var countsDirty = false
@@ -410,7 +437,7 @@ class PlayState(
 
         // ESC 힌트
         g.font  = hintFont
-        g.color = Color(100, 100, 110)
+        g.color = COLOR_HINT_TEXT
         g.drawString("ESC: Back", 10, h - 10)
 
         // 결과 화면 오버레이
@@ -531,19 +558,19 @@ class PlayState(
         val lanesL = (Renderer.DESIGN_W - TOTAL_WIDTH) / 2
         val nowD = ctx.videoBackground.getSmoothTimeDouble() - chart.offsetMs
 
-        // 레인 글로우
+        // 레인 글로우 (사전 캐시된 Color 상수 사용, 매 프레임 객체 생성 없음)
         for (i in 0 until LANE_COUNT) {
             val laneX = (lanesL + i * LANE_WIDTH).toFloat()
-            val alpha = if (laneHeld[i]) 90 else 42
+            val glowColor = if (laneHeld[i]) COLOR_GL_LANE_GLOW_HELD else COLOR_GL_LANE_GLOW_NORM
             renderer.drawGradientRect(
                 x = laneX,
                 y = 0f,
                 w = LANE_WIDTH.toFloat(),
                 h = Renderer.DESIGN_H.toFloat(),
-                topLeft = Color(96, 70, 210, 0),
-                topRight = Color(96, 70, 210, 0),
-                bottomRight = Color(128, 98, 255, alpha),
-                bottomLeft = Color(128, 98, 255, alpha)
+                topLeft     = COLOR_GL_LANE_FADE_TOP,
+                topRight    = COLOR_GL_LANE_FADE_TOP,
+                bottomRight = glowColor,
+                bottomLeft  = glowColor
             )
         }
 
@@ -561,72 +588,58 @@ class PlayState(
 
                 if (!soaIsLong[i]) {
                     renderer.drawGradientRect(
-                        x = headX,
-                        y = headY,
-                        w = headW,
-                        h = headH,
-                        topLeft = Color(255, 248, 190, 255),
-                        topRight = Color(255, 248, 190, 255),
-                        bottomRight = Color(255, 210, 80, 255),
-                        bottomLeft = Color(255, 210, 80, 255)
+                        x = headX, y = headY, w = headW, h = headH,
+                        topLeft     = COLOR_GL_SHORT_TOP,
+                        topRight    = COLOR_GL_SHORT_TOP,
+                        bottomRight = COLOR_GL_SHORT_BTM,
+                        bottomLeft  = COLOR_GL_SHORT_BTM
                     )
-                    renderer.drawRect(headX, headY, headW, NOTE_BORDER_THICKNESS, Color(255, 252, 220, 255))
-                    renderer.drawRect(
-                        headX,
-                        headY + headH - NOTE_BORDER_THICKNESS,
-                        headW,
-                        NOTE_BORDER_THICKNESS,
-                        Color(255, 230, 140, 220)
-                    )
+                    renderer.drawRect(headX, headY, headW, NOTE_BORDER_THICKNESS, COLOR_GL_SHORT_BORDER)
+                    renderer.drawRect(headX, headY + headH - NOTE_BORDER_THICKNESS,
+                        headW, NOTE_BORDER_THICKNESS, COLOR_GL_SHORT_BORDER2)
                 } else {
                     val endTop = hl - ((soaEndMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
                     val bodyTop = min(headY, endTop)
                     val bodyBottom = if (soaHeld[i]) hl.toFloat() else max(noteTop, endTop)
                     val bodyH = bodyBottom - bodyTop
                     if (bodyH > 0f) {
-                        val bodyX = laneX + 14f
-                        val bodyW = (LANE_WIDTH - 28).toFloat()
                         renderer.drawGradientRect(
-                            x = bodyX,
-                            y = bodyTop,
-                            w = bodyW,
-                            h = bodyH,
-                            topLeft = Color(190, 130, 255, 185),
-                            topRight = Color(190, 130, 255, 185),
-                            bottomRight = Color(120, 60, 220, 185),
-                            bottomLeft = Color(120, 60, 220, 185)
+                            x = laneX + 14f, y = bodyTop,
+                            w = (LANE_WIDTH - 28).toFloat(), h = bodyH,
+                            topLeft     = COLOR_GL_LONG_BODY_TOP,
+                            topRight    = COLOR_GL_LONG_BODY_TOP,
+                            bottomRight = COLOR_GL_LONG_BODY_BTM,
+                            bottomLeft  = COLOR_GL_LONG_BODY_BTM
                         )
                     }
 
                     renderer.drawGradientRect(
-                        x = headX,
-                        y = headY,
-                        w = headW,
-                        h = headH,
-                        topLeft = Color(218, 165, 255, 255),
-                        topRight = Color(218, 165, 255, 255),
-                        bottomRight = Color(175, 110, 250, 255),
-                        bottomLeft = Color(175, 110, 250, 255)
+                        x = headX, y = headY, w = headW, h = headH,
+                        topLeft     = COLOR_GL_LONG_HEAD_TOP,
+                        topRight    = COLOR_GL_LONG_HEAD_TOP,
+                        bottomRight = COLOR_GL_LONG_HEAD_BTM,
+                        bottomLeft  = COLOR_GL_LONG_HEAD_BTM
                     )
-                    renderer.drawRect(headX, headY, headW, NOTE_BORDER_THICKNESS, Color(238, 220, 255, 255))
+                    renderer.drawRect(headX, headY, headW, NOTE_BORDER_THICKNESS, COLOR_GL_LONG_BORDER)
                 }
             }
         }
 
-        // 판정 펄스
+        // 판정 펄스 (불투명도가 0인 경우 Color 재사용, 달라지면 fade Color를 임시 생성)
         if (judgmentFadeMs > 0 && JUDGE_FADE_MS > 0L) {
             val t = (judgmentFadeMs.toFloat() / JUDGE_FADE_MS.toFloat()).coerceIn(0f, 1f)
             val pulseAlpha = (110f * t).toInt().coerceIn(0, 255)
+            val jc = judgmentColor
+            val fadeColor = Color(jc.red, jc.green, jc.blue, pulseAlpha)
+            val fadeZero  = Color(jc.red, jc.green, jc.blue, 0)
             val centerY = hl.toFloat() - 16f
             renderer.drawGradientRect(
-                x = lanesL.toFloat(),
-                y = centerY - 90f,
-                w = TOTAL_WIDTH.toFloat(),
-                h = 180f,
-                topLeft = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, 0),
-                topRight = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, 0),
-                bottomRight = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, pulseAlpha),
-                bottomLeft = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, pulseAlpha)
+                x = lanesL.toFloat(), y = centerY - 90f,
+                w = TOTAL_WIDTH.toFloat(), h = 180f,
+                topLeft     = fadeZero,
+                topRight    = fadeZero,
+                bottomRight = fadeColor,
+                bottomLeft  = fadeColor
             )
         }
     }
