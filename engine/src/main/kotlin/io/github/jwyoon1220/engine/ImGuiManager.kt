@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.engine
 
+import imgui.ImFontConfig
 import imgui.ImGui
 import imgui.gl3.ImGuiImplGl3
 import imgui.glfw.ImGuiImplGlfw
@@ -28,7 +29,27 @@ class ImGuiManager(private val windowHandle: Long) {
 
     fun init() {
         ImGui.createContext()
-        ImGui.getIO().apply {
+
+        // ── 마루 부리 폰트 (한국어 + ASCII) ─────────────────────────────────
+        val io = ImGui.getIO()
+        val fontBytes = runCatching {
+            ImGuiManager::class.java.classLoader
+                .getResourceAsStream("fonts/MaruBuri-Regular.ttf")
+                ?.readBytes()
+        }.getOrNull()
+        if (fontBytes != null) {
+            val cfg = ImFontConfig()
+            cfg.oversampleH = 2
+            cfg.oversampleV = 2
+            io.fonts.addFontFromMemoryTTF(fontBytes, 16f, cfg, io.fonts.glyphRangesKorean)
+            cfg.destroy()
+            log.info("[ImGuiManager] MaruBuri 폰트 로드 완료")
+        } else {
+            io.fonts.addFontDefault()
+            log.warn("[ImGuiManager] MaruBuri 폰트를 찾을 수 없음, 기본 폰트 사용")
+        }
+
+        io.apply {
             iniFilename = null                                   // imgui.ini 비활성화
             addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard)
         }

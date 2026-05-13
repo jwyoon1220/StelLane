@@ -2,7 +2,9 @@ package io.github.jwyoon1220.app.state
 
 import imgui.ImGui
 import imgui.flag.ImGuiCond
+import imgui.flag.ImGuiTableFlags
 import imgui.flag.ImGuiWindowFlags
+import imgui.type.ImString
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.EditorRenderBackend
@@ -147,6 +149,39 @@ class EditorState(
     private var decorTlH = 0
     // ── 장식 레이어 캐시 (decorMode) ───────────────────────────────────────
     // DrawContext (NanoVG) GPU 가속이므로 CPU-side 캐시 불필요 — 매 프레임 직접 렌더링
+    // ── 뷰포트 크기 조절 ─────────────────────────────────────────────────────
+    private var vpHeightPct = 100   // 사용 가능한 높이의 %
+    // 캐시된 뷰포트 좌표 (render→mouse/renderCustomGl 공유, 1프레임 지연 무해)
+    private var cachedVpH = 0
+    private var cachedVpW = 0
+    private var cachedVpX = 0
+    private var cachedVpY = HDR_H
+
+    // ── ImGui 장식 편집 모달 ──────────────────────────────────────────────────
+    private var showDecorModal    = false
+    private var decorModalIsNew   = false
+    private var decorModalEditIdx = -1
+    private val bufDecId       = ImString(64)
+    private val bufDecImage    = ImString(256)
+    private val bufDecTimeMs   = IntArray(1)
+    private val bufDecDurMs    = IntArray(1)
+    private val bufDecXY       = FloatArray(2)   // [x, y]
+    private val bufDecWH       = FloatArray(2)   // [width, height]
+    private val bufDecPivot    = FloatArray(2)   // [pivotX, pivotY]
+    private val bufDecOpacity  = FloatArray(1)
+    private val bufDecRotation = FloatArray(1)
+    private val bufDecScale    = FloatArray(2)   // [scaleX, scaleY]
+    private val bufDecDepth    = IntArray(1)
+    private val modalEffects   = mutableListOf<DecEffect>()
+    private var effectSelectedRow  = -1
+    private var showAddEffPopup    = false
+    private val newEffTypeIdxArr   = intArrayOf(0)
+    private val newEffEasingIdxArr = intArrayOf(0)
+    private val newEffStartMs      = IntArray(1)
+    private val newEffDurMs        = intArrayOf(500)
+    private val effectTypeNames    = arrayOf("fadeIn", "fadeOut", "opacityTo", "moveTo", "rotateTo", "scaleTo", "colorFilter", "shake")
+    private val easingTypeNames    = arrayOf("linear", "easeIn", "easeOut", "easeInOut")
+
     // ── 폰트 ─────────────────────────────────────────────────────────────────
     private val headerFont = FontLoader.semiBold(20f)
     private val infoFont   = FontLoader.regular(15f)
@@ -287,10 +322,11 @@ class EditorState(
         g.fillRect(0, 0, w, h)
 
         // ── 1. 16:9 뷰포트 계산 및 비디오/장식 렌더링 ────────────────────────
-        val vpH = h - HDR_H - btmH
-        val vpW = (vpH * 16 / 9)
-        val vpX = (mainW - vpW) / 2
-        val vpY = HDR_H
+        cachedVpH = ((h - HDR_H - btmH) * vpHeightPct / 100.0).toInt()
+        cachedVpW = cachedVpH * 16 / 9
+        cachedVpX = (mainW - cachedVpW) / 2
+        cachedVpY = HDR_H
+        val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
 
         // 비디오 프레임 렌더링: GL 텍스처 핸들 우선(uploadPendingFrame이 이미 최신 상태 보장),
         // 없으면 BufferedImage 폴백. CUSTOM GL 모드에서는 renderCustomGl()에서 직접 GL 텍스처를
@@ -430,8 +466,7 @@ class EditorState(
             when {
                 ctrl && shift && key == Keys.D -> toggleDecorMode()
                 ctrl && key == Keys.S          -> saveDecor()
-                key == Keys.E && selectedDecorIdx >= 0 ->
-                    javax.swing.SwingUtilities.invokeLater { openDecorEditDialog(selectedDecorIdx) }
+                key == Keys.E && selectedDecorIdx >= 0 -> openDecorModalForEdit(selectedDecorIdx)
                 key == Keys.DELETE || key == Keys.BACKSPACE -> {
                     val idx = selectedDecorIdx
                     if (idx >= 0) {
@@ -668,10 +703,7 @@ class EditorState(
         val mx = x.toInt(); val my = y.toInt()
         timelineDragStartX = mx
         if (decorMode) {
-            val vpH = renderH - HDR_H - btmH
-            val vpW = (vpH * 16 / 9)
-            val vpX = (mainW - vpW) / 2
-            val vpY = HDR_H
+            val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
             if (mx in vpX..(vpX+vpW) && my in vpY..(vpY+vpH)) {
                 val scaleRatioX = vpW / 1280f
                 val scaleRatioY = vpH / 720f
@@ -840,8 +872,7 @@ class EditorState(
         val mx = x.toInt(); val my = y.toInt()
         // 데코레이션 코너 리사이즈
         if (resizingDecorIdx >= 0 && decorMode) {
-            val vpH = renderH - HDR_H - btmH
-            val vpW = (vpH * 16 / 9)
+            val vpH = cachedVpH; val vpW = cachedVpW
             val dx = (mx - decorResizePressX).toFloat()
             val dy = (my - decorResizePressY).toFloat()
             val dec = decorations.getOrNull(resizingDecorIdx) ?: run { resizingDecorIdx = -1; return }
@@ -864,10 +895,7 @@ class EditorState(
             return
         }
         if (draggingDecorIdx >= 0 && decorMode) {
-            val vpH = renderH - HDR_H - btmH
-            val vpW = (vpH * 16 / 9)
-            val vpX = (mainW - vpW) / 2
-            val vpY = HDR_H
+            val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
             val scaleRatioX = vpW / 1280f
             val scaleRatioY = vpH / 720f
             
@@ -1096,25 +1124,46 @@ class EditorState(
     }
 
     private fun openDecorEditDialog(idx: Int) {
-        val dec = decorations.getOrNull(idx) ?: return
-        io.github.jwyoon1220.app.ui.DecorEditDialog(dec, songEntry.songDir).showAndGet()?.let { updated ->
-            val cur = decorations
-            cur[idx] = updated
-            decorData = DecorationData(cur, decorData.screenEffects)
-            syncDecorRenderer()
-        }
+        openDecorModalForEdit(idx)
     }
 
     private fun openNewDecorDialog(timeMs: Long) {
-        val blank = Decoration(id = "dec_${timeMs}", timeMs = timeMs, durationMs = 1000L)
-        io.github.jwyoon1220.app.ui.DecorEditDialog(blank, songEntry.songDir).showAndGet()?.let { newDec ->
-            val cur = decorations
-            cur.add(newDec)
-            cur.sortBy { it.timeMs }
-            decorData = DecorationData(cur, decorData.screenEffects)
-            syncDecorRenderer()
-            selectedDecorIdx = cur.indexOfFirst { it.id == newDec.id }
-        }
+        openDecorModalForNew(timeMs)
+    }
+
+    private fun openDecorModalForEdit(idx: Int) {
+        val dec = decorations.getOrNull(idx) ?: return
+        populateDecorModalBuffers(dec)
+        decorModalIsNew   = false
+        decorModalEditIdx = idx
+        modalEffects.clear()
+        modalEffects.addAll(dec.effects)
+        effectSelectedRow = -1
+        showDecorModal    = true
+    }
+
+    private fun openDecorModalForNew(timeMs: Long) {
+        val dec = Decoration(id = "dec_${timeMs}", timeMs = timeMs, durationMs = 1000L)
+        populateDecorModalBuffers(dec)
+        decorModalIsNew   = true
+        decorModalEditIdx = -1
+        modalEffects.clear()
+        effectSelectedRow = -1
+        showDecorModal    = true
+    }
+
+    private fun populateDecorModalBuffers(dec: Decoration) {
+        bufDecId.set(dec.id)
+        bufDecImage.set(dec.image)
+        bufDecTimeMs[0]   = dec.timeMs.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
+        bufDecDurMs[0]    = dec.durationMs.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
+        bufDecXY[0]       = dec.x;       bufDecXY[1]    = dec.y
+        bufDecWH[0]       = dec.width;   bufDecWH[1]    = dec.height
+        bufDecPivot[0]    = dec.pivotX;  bufDecPivot[1] = dec.pivotY
+        bufDecOpacity[0]  = dec.opacity
+        bufDecRotation[0] = dec.rotation
+        bufDecScale[0]    = dec.scaleX;  bufDecScale[1] = dec.scaleY
+        bufDecDepth[0]    = dec.depth
     }
 
     /**
@@ -1132,9 +1181,7 @@ class EditorState(
         // ── 1. 비디오 프레임 ─────────────────────────────────────────────────
         val glTex = ctx.videoBackground.getGlTextureId()
         if (glTex > 0 && ctx.videoBackground.getCurrentFrame() != null) {
-            val vpH = renderH - HDR_H - btmH
-            val vpW = vpH * 16 / 9
-            val vpX = (mainW - vpW) / 2
+            val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX
             renderer.drawTexturedRect(
                 x = vpX.toFloat(),
                 y = HDR_H.toFloat(),
