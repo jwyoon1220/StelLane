@@ -334,7 +334,7 @@ class VideoBackground private constructor(
             lastUploadW = w
             lastUploadH = h
             // NVG 핸들 무효화 (해상도가 바뀌었으므로)
-            if (nvgImgHandle >= 0) { nvgImgHandle = -1 }
+            nvgImgHandle = -1
         } else {
             // 동일 해상도 → 스토리지 재사용, NVG 핸들 유지
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
@@ -378,6 +378,5 @@ class VideoBackground private constructor(
         runCatching { vlcExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS) }
     }
 }
-
 
 
