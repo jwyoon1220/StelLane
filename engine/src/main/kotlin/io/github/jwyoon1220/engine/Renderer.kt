@@ -26,6 +26,7 @@ class Renderer(
     private var vg: Long = 0L
     lateinit var drawContext: DrawContext
         private set
+    private val glQuadBatchRenderer = GlQuadBatchRenderer(DESIGN_W.toFloat(), DESIGN_H.toFloat())
 
     // letterbox/pillarbox 계산 결과 (toLogical 에서도 사용)
     @Volatile private var scale   = 1f
@@ -38,12 +39,14 @@ class Renderer(
 
         FontRegistry.loadAll(vg)
         videoBackground.initGLTexture()
+        glQuadBatchRenderer.init()
 
         drawContext = DrawContext(vg, DESIGN_W, DESIGN_H)
         log.info("[Renderer] 초기화 완료 vg=0x{}", java.lang.Long.toHexString(vg))
     }
 
     fun destroy() {
+        glQuadBatchRenderer.destroy()
         if (vg != 0L) { nvgDelete(vg); vg = 0L }
     }
 
@@ -55,6 +58,7 @@ class Renderer(
         val fbW = window.framebufferWidth
         val fbH = window.framebufferHeight
         if (fbW <= 0 || fbH <= 0) return
+        val current = stateManager.currentState
 
         // 1. 비디오 프레임 GL 텍스처 업로드 (새 프레임 있을 때만)
         videoBackground.uploadPendingFrame()
@@ -78,7 +82,7 @@ class Renderer(
         drawContext.beginFrame(fbW, fbH)
 
         // 5. 비디오 배경 렌더 (State 가 자체 배경을 처리하지 않는 경우)
-        val rendersBg = stateManager.currentState?.rendersBackground == true
+        val rendersBg = current?.rendersBackground == true
         val videoNvgHandle = videoBackground.getNvgImageHandle(vg)
         if (!rendersBg && videoNvgHandle >= 0) {
             drawContext.drawNvgImage(videoNvgHandle, ox, oy, dw.toFloat(), dh.toFloat())
@@ -94,6 +98,20 @@ class Renderer(
 
         // 7. NanoVG 프레임 끝
         drawContext.endFrame()
+
+        // 8. 선택적 커스텀 OpenGL 패스 (State 구현 시)
+        if (current is CustomGLRenderable && current.useCustomGlRenderer) {
+            glQuadBatchRenderer.begin(
+                framebufferWidth = fbW,
+                framebufferHeight = fbH,
+                offsetX = ox,
+                offsetY = oy,
+                drawW = dw.toFloat(),
+                drawH = dh.toFloat()
+            )
+            current.renderCustomGl(glQuadBatchRenderer)
+            glQuadBatchRenderer.end()
+        }
     }
 
     /**

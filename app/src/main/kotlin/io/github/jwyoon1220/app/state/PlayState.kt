@@ -3,7 +3,6 @@ package io.github.jwyoon1220.app.state
 import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.PlayCustomRenderer
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.PlayRenderBackend
 import io.github.jwyoon1220.core.song.DecorationParser
@@ -19,6 +18,9 @@ import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.HitSound
 import io.github.jwyoon1220.engine.LaneEventType
+import io.github.jwyoon1220.engine.CustomGLRenderable
+import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.Renderer
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
@@ -34,7 +36,7 @@ class PlayState(
     private val ctx: GameContext,
     private val songEntry: SongEntry,
     private val chart: Chart
-) : GameState {
+) : GameState, CustomGLRenderable {
 
     companion object {
         private val COLOR_OVERLAY = Color(0, 0, 0, 130)
@@ -110,7 +112,6 @@ class PlayState(
     // ── 폰트 ──────────────────────────────────────────────────────────────────
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
     private var decorationRenderer: DecorationRenderer? = null
-    private val customRenderer = PlayCustomRenderer()
 
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
     // DrawContext (NanoVG) 는 GPU 가속이므로 CPU-side 캐시 불필요 — 매 프레임 직접 렌더링
@@ -130,6 +131,8 @@ class PlayState(
     // ── 렌더링 동기화 잠금 ────────────────────────────────────────────────────
     // SoA 배열은 GameLoopThread(update)와 EDT(render)에서 동시 접근 → lock
     private val notesLock = Any()
+    override val useCustomGlRenderer: Boolean
+        get() = AppSettings.playRenderBackend == PlayRenderBackend.CUSTOM
 
     // ── SoA 슬롯 제거 (swap-and-shrink, O(1)) ────────────────────────────────
     private fun soaRemoveAt(i: Int) {
@@ -293,17 +296,7 @@ class PlayState(
             g.drawString(KEY_LABELS[i], lx + (LANE_WIDTH - keyFm.stringWidth(KEY_LABELS[i])) / 2, hl + 28)
         }
 
-        val useCustomRenderer = AppSettings.playRenderBackend == PlayRenderBackend.CUSTOM
-        if (useCustomRenderer) {
-            customRenderer.renderLaneEffects(
-                g = g,
-                lanesL = lanesL,
-                laneWidth = LANE_WIDTH,
-                laneCount = LANE_COUNT,
-                screenH = h,
-                laneHeld = laneHeld
-            )
-        }
+        val useCustomRenderer = useCustomGlRenderer
 
         // 장식 (depth < 0: 노트 이전)
         decorationRenderer?.render(g, currentTimeMs, beforeNotes = true)
@@ -312,21 +305,7 @@ class PlayState(
         synchronized(notesLock) {
             val count = soaSize
             if (useCustomRenderer) {
-                customRenderer.renderNotes(
-                    g = g,
-                    lanesL = lanesL,
-                    laneWidth = LANE_WIDTH,
-                    hitLineY = hl,
-                    scrollSpeed = SCROLL_SPEED,
-                    nowMs = nowD,
-                    count = count,
-                    soaLane = soaLane,
-                    soaTimeMs = soaTimeMs,
-                    soaEndMs = soaEndMs,
-                    soaIsLong = soaIsLong,
-                    soaActive = soaActive,
-                    soaHeld = soaHeld
-                )
+                // 커스텀 GL 백엔드에서는 엔진 레벨 OpenGL 패스에서 노트를 렌더합니다.
             } else {
                 for (i in 0 until count) {
                     if (!soaActive[i] && !soaHeld[i]) continue
@@ -369,17 +348,6 @@ class PlayState(
         // 장식 (depth ≥0: 노트 위) + 화면 효과
         decorationRenderer?.render(g, currentTimeMs, beforeNotes = false)
         decorationRenderer?.renderScreenEffects(g, currentTimeMs)
-        if (useCustomRenderer) {
-            customRenderer.renderJudgmentEffect(
-                g = g,
-                lanesL = lanesL,
-                totalWidth = TOTAL_WIDTH,
-                hitLineY = hl,
-                fadeMs = judgmentFadeMs,
-                maxFadeMs = JUDGE_FADE_MS,
-                judgmentColor = judgmentColor
-            )
-        }
 
         // 콤보
         if (combo > 0) {
@@ -552,6 +520,108 @@ class PlayState(
         val countStr = countNum.toString()
         val cfm = g.getFontMetrics(countdownFont)
         g.drawString(countStr, (w - cfm.stringWidth(countStr)) / 2, h / 2 + cfm.ascent - 20)
+    }
+
+    override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
+        if (!useCustomGlRenderer || phase == Phase.READY) return
+
+        val h = Renderer.DESIGN_H
+        val hl = (h * HIT_LINE_RATIO).toInt()
+        val lanesL = (Renderer.DESIGN_W - TOTAL_WIDTH) / 2
+        val nowD = ctx.videoBackground.getSmoothTimeDouble() - chart.offsetMs
+
+        // 레인 글로우
+        for (i in 0 until LANE_COUNT) {
+            val laneX = (lanesL + i * LANE_WIDTH).toFloat()
+            val alpha = if (laneHeld[i]) 90 else 42
+            renderer.drawGradientRect(
+                x = laneX,
+                y = 0f,
+                w = LANE_WIDTH.toFloat(),
+                h = Renderer.DESIGN_H.toFloat(),
+                topLeft = Color(96, 70, 210, 0),
+                topRight = Color(96, 70, 210, 0),
+                bottomRight = Color(128, 98, 255, alpha),
+                bottomLeft = Color(128, 98, 255, alpha)
+            )
+        }
+
+        synchronized(notesLock) {
+            val count = soaSize
+            for (i in 0 until count) {
+                if (!soaActive[i] && !soaHeld[i]) continue
+
+                val laneX = (lanesL + soaLane[i] * LANE_WIDTH).toFloat()
+                val noteTop = hl - ((soaTimeMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
+                val headX = laneX + 5f
+                val headY = noteTop - 18f
+                val headW = (LANE_WIDTH - 10).toFloat()
+                val headH = 18f
+
+                if (!soaIsLong[i]) {
+                    renderer.drawGradientRect(
+                        x = headX,
+                        y = headY,
+                        w = headW,
+                        h = headH,
+                        topLeft = Color(255, 248, 190, 255),
+                        topRight = Color(255, 248, 190, 255),
+                        bottomRight = Color(255, 210, 80, 255),
+                        bottomLeft = Color(255, 210, 80, 255)
+                    )
+                    renderer.drawRect(headX, headY, headW, 1.5f, Color(255, 252, 220, 255))
+                    renderer.drawRect(headX, headY + headH - 1.5f, headW, 1.5f, Color(255, 230, 140, 220))
+                } else {
+                    val endTop = hl - ((soaEndMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
+                    val bodyTop = min(headY, endTop)
+                    val bodyBottom = if (soaHeld[i]) hl.toFloat() else max(noteTop, endTop)
+                    val bodyH = bodyBottom - bodyTop
+                    if (bodyH > 0f) {
+                        val bodyX = laneX + 14f
+                        val bodyW = (LANE_WIDTH - 28).toFloat()
+                        renderer.drawGradientRect(
+                            x = bodyX,
+                            y = bodyTop,
+                            w = bodyW,
+                            h = bodyH,
+                            topLeft = Color(190, 130, 255, 185),
+                            topRight = Color(190, 130, 255, 185),
+                            bottomRight = Color(120, 60, 220, 185),
+                            bottomLeft = Color(120, 60, 220, 185)
+                        )
+                    }
+
+                    renderer.drawGradientRect(
+                        x = headX,
+                        y = headY,
+                        w = headW,
+                        h = headH,
+                        topLeft = Color(218, 165, 255, 255),
+                        topRight = Color(218, 165, 255, 255),
+                        bottomRight = Color(175, 110, 250, 255),
+                        bottomLeft = Color(175, 110, 250, 255)
+                    )
+                    renderer.drawRect(headX, headY, headW, 1.5f, Color(238, 220, 255, 255))
+                }
+            }
+        }
+
+        // 판정 펄스
+        if (judgmentFadeMs > 0 && JUDGE_FADE_MS > 0L) {
+            val t = (judgmentFadeMs.toFloat() / JUDGE_FADE_MS.toFloat()).coerceIn(0f, 1f)
+            val pulseAlpha = (110f * t).toInt().coerceIn(0, 255)
+            val centerY = hl.toFloat() - 16f
+            renderer.drawGradientRect(
+                x = lanesL.toFloat(),
+                y = centerY - 90f,
+                w = TOTAL_WIDTH.toFloat(),
+                h = 180f,
+                topLeft = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, 0),
+                topRight = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, 0),
+                bottomRight = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, pulseAlpha),
+                bottomLeft = Color(judgmentColor.red, judgmentColor.green, judgmentColor.blue, pulseAlpha)
+            )
+        }
     }
 
     private fun drawCenter(g: DrawContext, text: String, cx: Int, y: Int) {
