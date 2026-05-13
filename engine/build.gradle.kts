@@ -1,6 +1,12 @@
 dependencies {
     implementation(project(":core"))
     implementation("uk.co.caprica:vlcj:4.8.2")
+
+    // ── Dear ImGui ──────────────────────────────────────────────────────────
+    val imguiVersion = "1.86.11"
+    api("io.github.spair:imgui-java-binding:$imguiVersion")
+    implementation("io.github.spair:imgui-java-lwjgl3:$imguiVersion")
+    runtimeOnly("io.github.spair:imgui-java-natives-windows:$imguiVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.0")
     implementation("it.unimi.dsi:fastutil:8.5.15")
     implementation("org.jctools:jctools-core:4.0.5")

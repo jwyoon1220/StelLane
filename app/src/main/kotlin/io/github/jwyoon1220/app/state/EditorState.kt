@@ -1,5 +1,8 @@
 package io.github.jwyoon1220.app.state
 
+import imgui.ImGui
+import imgui.flag.ImGuiCond
+import imgui.flag.ImGuiWindowFlags
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.EditorRenderBackend
@@ -21,6 +24,7 @@ import io.github.jwyoon1220.engine.CustomGLRenderable
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.LaneEventType
 import it.unimi.dsi.fastutil.ints.IntArraySet
@@ -35,7 +39,7 @@ class EditorState(
     private val songEntry: SongEntry,
     private val chartFile: File,
     chart: Chart
-) : GameState, CustomGLRenderable {
+) : GameState, CustomGLRenderable, ImGuiRenderable {
     override val rendersBackground = true
     override val useCustomGlRenderer: Boolean
         get() = AppSettings.editorRenderBackend == EditorRenderBackend.CUSTOM
@@ -119,6 +123,14 @@ class EditorState(
     private val heldLaneStartMs  = LongArray(4) { -1L }
     // GameLoopThread(update) ↔ EDT(render) 동시 접근 목적: mutableChart.notes 보호
     private val notesLock = Any()
+
+    // ── ImGui 팝업 상태 ──────────────────────────────────────────────────────
+    private var pendingNoteAdd      = false
+    private var addNotePopupLane    = 0
+    private var addNotePopupMs      = 0L
+    private var pendingDecorPopup   = false
+    private var decorPopupHitIdx    = -1
+    private var decorPopupClickMs   = 0L
 
     // ── 데코레이션 편집 모드 ──────────────────────────────────────────────────
     private var decorMode = false
@@ -338,35 +350,9 @@ class EditorState(
             }
         }
 
-        // ── 4. UI 영역 반투명 배경 ────────────────────────────────────────────
-        val origCmp = g.composite
-        g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.90f)
-        g.color = Color(8, 5, 20)
-        g.fillRect(0, 0, w, HDR_H)
-        g.fillRect(0, tl0Y, w, h - tl0Y)
-        g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.82f)
-        g.fillRect(propsX, HDR_H, PROPS_W, tl0Y - HDR_H)
-        g.composite = origCmp
+        // ── 4. (ImGui가 UI 배경 처리) ─────────────────────────────────────────
 
-        // ── 5. 헤더 ────────────────────────────────────────────────────────────
-        g.color = Color(70, 42, 112, 200)
-        g.drawLine(0, HDR_H, w, HDR_H)
-        g.font  = headerFont
-        g.color = Color(200, 160, 255)
-        g.drawString("✏  ${songEntry.song.title}", 14, HDR_H - 28)
-        g.font  = infoFont
-        g.color = Color.WHITE
-        val modeTag  = if (decorMode) "田 DECOR" else "♩ NOTE"
-        val stateStr = buildString {
-            append(timeStr)
-            append(if (isPlaying) "   ▶" else "   ⏸")
-            append("   $modeTag")
-            if (recordingMode) append("   ⏺REC")
-            append(if (quantizeEnabled) "   Snap 1/$quantizeDivision" else "   Free")
-            append("   ${visibleWindowMs / 1000}s")
-            if (unsaved) append("   ●")
-        }
-        g.drawString(stateStr, 14, HDR_H - 10)
+        // ── 5. (ImGui 메뉴바가 헤더 처리) ────────────────────────────────────
 
         // ── 6. 노트 타임라인 ─────────────────────────────────────────────────
         val chartSnapshot = synchronized(notesLock) {
@@ -430,11 +416,9 @@ class EditorState(
             g.fillPolygon(intArrayOf(phX - 5, phX + 5, phX), intArrayOf(tl0Y, tl0Y, tl0Y + 9), 3)
         }
 
-        // ── 8. 우측 패널 ────────────────────────────────────────────────────
+        // ── 8. (ImGui 우측 패널이 프로퍼티 처리) ─────────────────────────────
         g.color = Color(60, 42, 90, 180)
         g.drawLine(propsX, HDR_H, propsX, h)
-        if (decorMode) renderDecorPropsPanel(g, propsX, HDR_H, PROPS_W, tl0Y - HDR_H)
-        else           renderNoteShortcutPanel(g, propsX, HDR_H, PROPS_W, tl0Y - HDR_H)
     }
 
     override fun keyPressed(key: Int, mods: Int) {
@@ -827,21 +811,11 @@ class EditorState(
                     selectedIndices.addAll(above.map { it - 1 })
                     unsaved = true
                 } else {
-                    // 빈 공간 우클릭: 노트 추가 팝업
-                    val lane    = ((my - tlY).coerceIn(0, tlH - 1) / laneH).coerceIn(0, 3)
+                    // 빈 공간 우클릭: ImGui 팝업으로 노트 추가
+                    addNotePopupLane = ((my - tlY).coerceIn(0, tlH - 1) / laneH).coerceIn(0, 3)
                     val clickMs = timelineScrollMs + mx.toLong() * visibleWindowMs / tlW
-                    val snapped = snapTime(clickMs.coerceAtLeast(0L))
-                    val laneNames = arrayOf("D", "F", "J", "K")
-                    val popup = javax.swing.JPopupMenu()
-                    popup.add(javax.swing.JMenuItem("${laneNames[lane]} 레인에 노트 추가")).addActionListener {
-                        saveSnapshot()
-                        val type    = if (noteMode == NoteMode.LONG) NoteType.LONG else NoteType.SHORT
-                        val endTime = if (type == NoteType.LONG) snapped + 500L else null
-                        mutableChart.notes.add(MutableNote(snapped, lane, type, endTime))
-                        mutableChart.notes.sortBy { it.time }
-                        unsaved = true
-                    }
-                    SwingHelper.showPopup(popup, ctx.windowManager.glfwWindow)
+                    addNotePopupMs  = snapTime(clickMs.coerceAtLeast(0L))
+                    pendingNoteAdd  = true
                 }
             }
         }
@@ -987,10 +961,6 @@ class EditorState(
         decorData = DecorationData(decorations = list, screenEffects = decorData.screenEffects)
         syncDecorRenderer()
         runCatching { DecorationParser.serialize(decorData, songEntry.songDir) }
-            .onSuccess {
-                javax.swing.JOptionPane.showMessageDialog(null,
-                    "decoration.json 저장 완료", "저장", javax.swing.JOptionPane.INFORMATION_MESSAGE)
-            }
     }
 
     private fun syncDecorRenderer() {
@@ -1117,24 +1087,10 @@ class EditorState(
             Keys.MOUSE_RIGHT -> {
                 val clickMs = currentMs + (mx - cursorPx).toLong() * visibleWindowMs / decorTlW
                 val hit     = findHit()
-                val popup   = javax.swing.JPopupMenu()
-                if (hit >= 0) {
-                    popup.add(javax.swing.JMenuItem("편집…")).addActionListener {
-                        javax.swing.SwingUtilities.invokeLater { openDecorEditDialog(hit) }
-                    }
-                    popup.add(javax.swing.JMenuItem("삭제")).addActionListener {
-                        val cur = decorations
-                        cur.removeAt(hit)
-                        decorData = DecorationData(cur, decorData.screenEffects)
-                        syncDecorRenderer()
-                        if (selectedDecorIdx >= cur.size) selectedDecorIdx = cur.size - 1
-                    }
-                } else {
-                    popup.add(javax.swing.JMenuItem("여기에 장식 추가 (${clickMs}ms)")).addActionListener {
-                        javax.swing.SwingUtilities.invokeLater { openNewDecorDialog(clickMs.coerceAtLeast(0L)) }
-                    }
-                }
-                SwingHelper.showPopup(popup, ctx.windowManager.glfwWindow)
+                // ImGui 팝업으로 처리 (장식 추가/편집/삭제)
+                decorPopupHitIdx  = hit
+                decorPopupClickMs = clickMs.coerceAtLeast(0L)
+                pendingDecorPopup = true
             }
         }
     }
@@ -1231,5 +1187,213 @@ class EditorState(
             song.audioPath != null -> File(songEntry.songDir, song.audioPath).absolutePath
             else                   -> null
         }
+    }
+
+    // ── Dear ImGui 오버레이 ──────────────────────────────────────────────────
+
+    override fun renderImGui() {
+        val io      = ImGui.getIO()
+        val screenW = io.displaySizeX
+        val screenH = io.displaySizeY
+
+        // ── 메인 메뉴바 ───────────────────────────────────────────────────────
+        if (ImGui.beginMainMenuBar()) {
+            // 곡 제목 (강조색)
+            ImGui.textColored(0.78f, 0.63f, 1.00f, 1.00f, "✏  ${songEntry.song.title}")
+            ImGui.sameLine()
+
+            // 현재 재생 위치 및 상태
+            val pos     = maxOf(ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs, 0L)
+            val timeStr = "%d:%02d.%03d".format(pos / 60_000, (pos % 60_000) / 1000, pos % 1000)
+            val playIcon = if (isPlaying) " ▶" else " ⏸"
+            val modeTag  = if (decorMode) "  田 DECOR" else "  ♩ NOTE"
+            val recStr   = if (recordingMode) "  ⏺REC" else ""
+            val snapStr  = if (quantizeEnabled) "  Snap 1/$quantizeDivision" else "  Free"
+            val zoomStr  = "  ${visibleWindowMs / 1000}s"
+            val dotStr   = if (unsaved) "  ●" else ""
+            ImGui.text("$timeStr$playIcon$modeTag$recStr$snapStr$zoomStr$dotStr")
+
+            // 메뉴
+            if (ImGui.beginMenu("파일")) {
+                if (ImGui.menuItem("저장", "Ctrl+S")) { if (decorMode) saveDecor() else save() }
+                if (ImGui.menuItem("캘리브레이션", "Ctrl+Shift+O")) openCalibration()
+                if (ImGui.menuItem("설정", "Ctrl+,")) openSettings()
+                ImGui.separator()
+                if (ImGui.menuItem("목록으로", "Esc")) {
+                    ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
+                }
+                ImGui.endMenu()
+            }
+            if (ImGui.beginMenu("편집")) {
+                if (ImGui.menuItem("실행 취소", "Ctrl+Z")) undo()
+                if (ImGui.menuItem("다시 실행", "Ctrl+Y")) redo()
+                ImGui.separator()
+                if (ImGui.menuItem("복사", "Ctrl+C")) copy()
+                if (ImGui.menuItem("잘라내기", "Ctrl+X")) cut()
+                if (ImGui.menuItem("붙여넣기", "Ctrl+V")) paste()
+                ImGui.separator()
+                if (ImGui.menuItem("전체 선택", "Ctrl+A")) selectAll()
+                if (ImGui.menuItem("선택 해제", "Ctrl+D")) selectedIndices.clear()
+                if (ImGui.menuItem("삭제", "Delete")) deleteSelected()
+                ImGui.endMenu()
+            }
+            if (ImGui.beginMenu("보기")) {
+                val decChecked = decorMode
+                if (ImGui.menuItem("장식 모드", "Ctrl+Shift+D", decChecked)) toggleDecorMode()
+                ImGui.separator()
+                if (ImGui.menuItem("줌 인", "=")) zoomIn()
+                if (ImGui.menuItem("줌 아웃", "-")) zoomOut()
+                ImGui.endMenu()
+            }
+            ImGui.endMainMenuBar()
+        }
+
+        val menuBarH = ImGui.getFrameHeight()
+
+        // ── 우측 프로퍼티 패널 ─────────────────────────────────────────────────
+        val panelFlags = ImGuiWindowFlags.NoMove         or
+                         ImGuiWindowFlags.NoResize       or
+                         ImGuiWindowFlags.NoCollapse     or
+                         ImGuiWindowFlags.NoTitleBar     or
+                         ImGuiWindowFlags.NoBringToFrontOnFocus
+        ImGui.setNextWindowPos(screenW - PROPS_W, menuBarH, ImGuiCond.Always)
+        ImGui.setNextWindowSize(PROPS_W.toFloat(), screenH - menuBarH - btmH, ImGuiCond.Always)
+        ImGui.begin("##props", panelFlags)
+        if (decorMode) renderDecorPropsPanelImGui()
+        else           renderNoteShortcutPanelImGui()
+        ImGui.end()
+
+        // ── 노트 추가 팝업 ────────────────────────────────────────────────────
+        if (pendingNoteAdd) {
+            ImGui.openPopup("##add_note")
+            pendingNoteAdd = false
+        }
+        if (ImGui.beginPopup("##add_note")) {
+            val laneNames = arrayOf("D", "F", "J", "K")
+            if (ImGui.menuItem("${laneNames[addNotePopupLane]} 레인에 노트 추가")) {
+                saveSnapshot()
+                val type    = if (noteMode == NoteMode.LONG) NoteType.LONG else NoteType.SHORT
+                val endTime = if (type == NoteType.LONG) addNotePopupMs + 500L else null
+                mutableChart.notes.add(MutableNote(addNotePopupMs, addNotePopupLane, type, endTime))
+                mutableChart.notes.sortBy { it.time }
+                unsaved = true
+            }
+            ImGui.endPopup()
+        }
+
+        // ── 장식 팝업 ─────────────────────────────────────────────────────────
+        if (pendingDecorPopup) {
+            ImGui.openPopup("##decor_popup")
+            pendingDecorPopup = false
+        }
+        if (ImGui.beginPopup("##decor_popup")) {
+            if (decorPopupHitIdx >= 0) {
+                if (ImGui.menuItem("편집…")) {
+                    val idx = decorPopupHitIdx
+                    // 장식 편집 다이얼로그는 아직 Swing 기반 (향후 ImGui로 마이그레이션 예정)
+                    javax.swing.SwingUtilities.invokeLater { openDecorEditDialog(idx) }
+                }
+                if (ImGui.menuItem("삭제")) {
+                    val cur = decorations
+                    cur.removeAt(decorPopupHitIdx)
+                    decorData = DecorationData(cur, decorData.screenEffects)
+                    syncDecorRenderer()
+                    if (selectedDecorIdx >= cur.size) selectedDecorIdx = cur.size - 1
+                }
+            } else {
+                val ms = decorPopupClickMs
+                if (ImGui.menuItem("여기에 장식 추가 (${ms}ms)")) {
+                    // 새 장식 다이얼로그는 아직 Swing 기반 (향후 ImGui로 마이그레이션 예정)
+                    javax.swing.SwingUtilities.invokeLater { openNewDecorDialog(ms) }
+                }
+            }
+            ImGui.endPopup()
+        }
+    }
+
+    // ── ImGui 패널: 단축키 참조 ──────────────────────────────────────────────
+
+    private fun renderNoteShortcutPanelImGui() {
+        fun section(title: String) {
+            ImGui.textColored(0.51f, 0.39f, 0.78f, 1f, title)
+            ImGui.separator()
+        }
+        fun shortcut(keys: String, desc: String) {
+            ImGui.textColored(1.00f, 0.86f, 0.31f, 1f, keys)
+            ImGui.sameLine(90f)
+            ImGui.textColored(0.71f, 0.71f, 0.78f, 1f, desc)
+        }
+
+        section("재생 / 탐색")
+        shortcut("Space",     "재생 / 일시정지")
+        shortcut("J",         "5초 뒤로")
+        shortcut("← / →",    "±1초")
+        shortcut("Shift+←→", "±100ms")
+        shortcut("Home/End",  "시작 / 끝")
+        ImGui.spacing()
+
+        section("선택 / 편집")
+        shortcut("Ctrl+A",    "전체 선택")
+        shortcut("Tab",       "노트 이동")
+        shortcut("Ctrl+Z/Y",  "취소 / 재실행")
+        shortcut("Ctrl+C/V",  "복사 / 붙여넣기")
+        shortcut("Delete",    "삭제")
+        ImGui.spacing()
+
+        section("녹음 / 퀀타이즈")
+        shortcut("R",         "녹음 모드")
+        shortcut("N",         "노트 타입")
+        shortcut("Q / 4/8/6", "스냅")
+        shortcut("= / -",     "줌 in / out")
+        ImGui.spacing()
+
+        section("기타")
+        shortcut("Ctrl+S",       "저장")
+        shortcut("Ctrl+Shift+D", "장식 모드")
+        shortcut("Esc",          "뒤로")
+    }
+
+    // ── ImGui 패널: 장식 프로퍼티 ────────────────────────────────────────────
+
+    private fun renderDecorPropsPanelImGui() {
+        val selDec = decorations.getOrNull(selectedDecorIdx)
+
+        ImGui.textColored(0.76f, 0.51f, 1f, 1f, "田 장식 편집")
+        ImGui.separator()
+        ImGui.textColored(0.39f, 0.33f, 0.55f, 1f, "Ctrl+Shift+D: 노트 모드")
+        ImGui.textColored(0.39f, 0.33f, 0.55f, 1f, "우클릭: 추가  E: 편집  Del: 삭제")
+        ImGui.spacing()
+
+        if (selDec == null) {
+            ImGui.textColored(0.31f, 0.27f, 0.43f, 1f, "장식을 선택하세요")
+            ImGui.textColored(0.24f, 0.22f, 0.35f, 1f, "하단 타임라인에서 클릭")
+        } else {
+            ImGui.textColored(0.76f, 0.57f, 1f, 1f, selDec.id.ifEmpty { "(unnamed)" })
+            ImGui.separator()
+
+            fun propRow(label: String, value: String) {
+                ImGui.textColored(0.51f, 0.41f, 0.73f, 1f, label)
+                ImGui.sameLine(90f)
+                ImGui.textColored(0.88f, 0.88f, 0.96f, 1f, value)
+            }
+            propRow("image",    selDec.image.ifEmpty { "(없음)" })
+            propRow("timeMs",   "${selDec.timeMs} ms")
+            propRow("durMs",    "${selDec.durationMs} ms")
+            propRow("x / y",    "%.3f / %.3f".format(selDec.x, selDec.y))
+            propRow("w / h",    "${selDec.width} / ${selDec.height}")
+            propRow("opacity",  "%.2f".format(selDec.opacity))
+            propRow("rotation", "%.1f°".format(selDec.rotation))
+            propRow("depth",    "${selDec.depth}")
+            propRow("effects",  "${selDec.effects.size}개")
+
+            ImGui.spacing()
+            ImGui.textColored(0.27f, 0.22f, 0.39f, 1f, "E: 편집   Del: 삭제")
+        }
+
+        ImGui.spacing()
+        ImGui.separator()
+        ImGui.textColored(0.31f, 0.25f, 0.45f, 1f, "장식 ${decorations.size}개")
+        ImGui.spacing()
+        if (ImGui.button("저장 (Ctrl+S)")) saveDecor()
     }
 }
