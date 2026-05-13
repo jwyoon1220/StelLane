@@ -253,7 +253,8 @@ class GlQuadBatchRenderer(
         if (!frameBegun || w <= 0f || h <= 0f) return
         ensureTexture(textureId)
         ensureCapacity(VERTS_PER_QUAD)
-        val x1 = x + w; val y1 = y + h
+        val x1 = x + w
+        val y1 = y + h
         putVertexF(x,  y,  0f, 0f, 1f, 1f, 1f, 1f)
         putVertexF(x1, y,  1f, 0f, 1f, 1f, 1f, 1f)
         putVertexF(x1, y1, 1f, 1f, 1f, 1f, 1f, 1f)
