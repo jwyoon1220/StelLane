@@ -22,6 +22,7 @@ import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.editor.Quantizer
 import io.github.jwyoon1220.editor.Timeline
 import io.github.jwyoon1220.app.SwingHelper
+import io.github.jwyoon1220.core.data.DecEffect
 import io.github.jwyoon1220.engine.CustomGLRenderable
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
@@ -106,20 +107,27 @@ class EditorState(
     // ── 레이아웃 (render→mouse 공유) ───────────────────────────────────────────
     private var renderW = 1280
     private var renderH = 720
-    // 통합 에디터 레이아웃 상수
-    private val HDR_H      = 46
-    private val PROPS_W    = 260
-    private val NOTE_TL_H  = 90
-    private val DECOR_TL_H = 110
-    private val btmH       get() = NOTE_TL_H + DECOR_TL_H
-    private val unifiedTlY get() = renderH - btmH
+    // 통합 에디터 레이아웃 상수 (ImGui에서 갱신됨)
+    private var timelineX  = 0
+    private var timelineW  = 1280
+    private var unifiedTlY = 0
+    private var NOTE_TL_H  = 90
+    private var DECOR_TL_H = 110
     private val noteTrackY get() = unifiedTlY + DECOR_TL_H
-    private val mainW      get() = renderW - PROPS_W
+    private val mainW      get() = timelineW
+
     // 하위 호환 (findNoteAt, mouseDragged 등에서 사용)
     private val tlY       get() = noteTrackY
-    private val tlW       get() = mainW
+    private val tlW       get() = timelineW
     private val tlH       get() = NOTE_TL_H
-    private val tlCursorX get() = mainW / 2
+    private val tlCursorX get() = timelineW / 2
+
+    @Volatile private var isViewportHovered = false
+    @Volatile private var isTimelineHovered = false
+
+    private fun shouldIgnoreMouse(): Boolean {
+        return ImGui.getIO().wantCaptureMouse && !isViewportHovered && !isTimelineHovered
+    }
 
     // ── 레코딩 (홀드 추적) ────────────────────────────────────────────────────
     private val heldLaneStartMs  = LongArray(4) { -1L }
@@ -155,7 +163,7 @@ class EditorState(
     private var cachedVpH = 0
     private var cachedVpW = 0
     private var cachedVpX = 0
-    private var cachedVpY = HDR_H
+    private var cachedVpY = 46
 
     // ── ImGui 장식 편집 모달 ──────────────────────────────────────────────────
     private var showDecorModal    = false
@@ -163,15 +171,15 @@ class EditorState(
     private var decorModalEditIdx = -1
     private val bufDecId       = ImString(64)
     private val bufDecImage    = ImString(256)
-    private val bufDecTimeMs   = IntArray(1)
-    private val bufDecDurMs    = IntArray(1)
+    private val bufDecTimeMs   = imgui.type.ImInt()
+    private val bufDecDurMs    = imgui.type.ImInt()
     private val bufDecXY       = FloatArray(2)   // [x, y]
     private val bufDecWH       = FloatArray(2)   // [width, height]
     private val bufDecPivot    = FloatArray(2)   // [pivotX, pivotY]
     private val bufDecOpacity  = FloatArray(1)
-    private val bufDecRotation = FloatArray(1)
+    private val bufDecRotation = imgui.type.ImFloat()
     private val bufDecScale    = FloatArray(2)   // [scaleX, scaleY]
-    private val bufDecDepth    = IntArray(1)
+    private val bufDecDepth    = imgui.type.ImInt()
     private val modalEffects   = mutableListOf<DecEffect>()
     private var effectSelectedRow  = -1
     private var showAddEffPopup    = false
@@ -311,21 +319,16 @@ class EditorState(
         val timeStr = "%d:%02d.%03d".format(pos / 60_000, (pos % 60_000) / 1000, pos % 1000)
 
         // ── 레이아웃 계산 ──────────────────────────────────────────────────────
-        val propsX = w - PROPS_W
         val tl0Y   = unifiedTlY
         val noteY  = noteTrackY
         // handleDecorMouseClick 좌표 갱신
-        decorTlX = 0; decorTlY = tl0Y; decorTlW = mainW; decorTlH = DECOR_TL_H
+        decorTlX = timelineX; decorTlY = tl0Y; decorTlW = timelineW; decorTlH = DECOR_TL_H
 
         // ── 0. 전체 배경 검은색 채우기 ────────────────────────────────────────
         g.color = Color(10, 10, 12) // 매우 어두운 바탕색
         g.fillRect(0, 0, w, h)
 
-        // ── 1. 16:9 뷰포트 계산 및 비디오/장식 렌더링 ────────────────────────
-        cachedVpH = ((h - HDR_H - btmH) * vpHeightPct / 100.0).toInt()
-        cachedVpW = cachedVpH * 16 / 9
-        cachedVpX = (mainW - cachedVpW) / 2
-        cachedVpY = HDR_H
+        // 뷰포트는 ImGui에서 크기와 위치가 결정됨
         val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
 
         // 비디오 프레임 렌더링: GL 텍스처 핸들 우선(uploadPendingFrame이 이미 최신 상태 보장),
@@ -379,7 +382,7 @@ class EditorState(
                 g.drawRect(lx, lt, fw, fh)
                 g.stroke = BasicStroke(2f)
                 val hs = 8
-                for ((hx, hy) in listOf(lx to lt, lx + fw to lt, lx to lt + fh, lx + fw to lt + fh)) {
+                for ((hx, hy) in listOf<Pair<Int, Int>>(lx to lt, lx + fw to lt, lx to lt + fh, lx + fw to lt + fh)) {
                     g.color = Color(255, 220, 60, 200); g.fillRect(hx - hs/2, hy - hs/2, hs, hs)
                 }
                 g.stroke = sc; g.composite = sc2
@@ -396,13 +399,13 @@ class EditorState(
         }
         Timeline.render(
             g, chartSnapshot, timelineScrollMs, currentTimeMs,
-            0, noteY, mainW, NOTE_TL_H,
+            timelineX, noteY, timelineW, NOTE_TL_H,
             visibleWindowMs, selectedIndices,
             songEntry.song.bpm?.toDouble(),
             drawNotes = !useCustomGlRenderer  // CUSTOM GL 모드: renderCustomGl()에서 GL로 렌더
         )
         g.font = hintFont; g.color = Color(90, 75, 125)
-        g.drawString("♩ NOTES", 4, noteY - 3)
+        g.drawString("♩ NOTES", timelineX + 4, noteY - 3)
 
         // ── 7. 장식 타임라인 ─────────────────────────────────────────────────
         val decorList = decorations
@@ -412,8 +415,8 @@ class EditorState(
         g.font = hintFont
         for (i in 0..16) {
             val t  = gridStart + i * stepMs
-            val px = ((t - timelineScrollMs).toDouble() / viewMs * mainW).toInt()
-            if (px < 0 || px > mainW) continue
+            val px = timelineX + ((t - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
+            if (px < timelineX || px > timelineX + timelineW) continue
             g.color = Color(42, 32, 62, 180)
             g.drawLine(px, tl0Y, px, tl0Y + DECOR_TL_H)
             if (t >= 0L) { g.color = Color(80, 65, 115); g.drawString("${t / 1000}s", px + 2, tl0Y + 13) }
@@ -422,10 +425,10 @@ class EditorState(
         decorList.forEachIndexed { idx, dec ->
             val lane    = idx % 5
             val by      = tl0Y + 18 + lane * decorLaneH
-            val startPx = ((dec.timeMs - timelineScrollMs).toDouble() / viewMs * mainW).toInt()
-            val endPx   = ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / viewMs * mainW).toInt()
-            val barX    = startPx.coerceAtLeast(0)
-            val barW2   = (endPx - barX).coerceIn(4, mainW)
+            val startPx = timelineX + ((dec.timeMs - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
+            val endPx   = timelineX + ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
+            val barX    = startPx.coerceAtLeast(timelineX)
+            val barW2   = (endPx - barX).coerceIn(4, timelineW)
             val hue     = (idx * 53) % 360
             val bright  = if (idx == selectedDecorIdx) 1.0f else 0.65f
             g.color = java.awt.Color.getHSBColor(hue / 360f, 0.78f, bright)
@@ -437,24 +440,20 @@ class EditorState(
             }
         }
         g.color = Color(90, 75, 125); g.font = hintFont
-        g.drawString("田 DECOR", 4, tl0Y + 13)
+        g.drawString("田 DECOR", timelineX + 4, tl0Y + 13)
 
         // 트랙 구분선
         g.color = Color(55, 42, 80, 200)
-        g.drawLine(0, noteY, mainW, noteY)
-        g.drawLine(0, tl0Y, w, tl0Y)
+        g.drawLine(timelineX, noteY, timelineX + timelineW, noteY)
+        g.drawLine(timelineX, tl0Y, timelineX + timelineW, tl0Y)
 
         // 플레이헤드
-        val phX = ((currentTimeMs - timelineScrollMs).toDouble() / viewMs * mainW).toInt()
-        if (phX in 0..mainW) {
+        val phX = timelineX + ((currentTimeMs - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
+        if (phX in timelineX..(timelineX + timelineW)) {
             g.color = Color(210, 100, 255)
-            g.drawLine(phX, tl0Y, phX, h)
+            g.drawLine(phX, tl0Y, phX, tl0Y + DECOR_TL_H + NOTE_TL_H)
             g.fillPolygon(intArrayOf(phX - 5, phX + 5, phX), intArrayOf(tl0Y, tl0Y, tl0Y + 9), 3)
         }
-
-        // ── 8. (ImGui 우측 패널이 프로퍼티 처리) ─────────────────────────────
-        g.color = Color(60, 42, 90, 180)
-        g.drawLine(propsX, HDR_H, propsX, h)
     }
 
     override fun keyPressed(key: Int, mods: Int) {
@@ -700,6 +699,7 @@ class EditorState(
     // ── 마우스 ────────────────────────────────────────────────────────────────
 
     override fun mousePressed(x: Float, y: Float, button: Int, mods: Int) {
+        if (shouldIgnoreMouse()) return
         val mx = x.toInt(); val my = y.toInt()
         timelineDragStartX = mx
         if (decorMode) {
@@ -717,7 +717,7 @@ class EditorState(
                     val lt = vpY + ((selDec.y * 720f  - selDec.pivotY * bh) * scaleRatioY).toInt()
                     // 코너 핸들 히트 체크 (리사이즈 우선)
                     val hs = 10
-                    val corners = listOf(
+                    val corners = listOf<Pair<Int, Int>>(
                         lx        to lt,
                         lx + fw   to lt,
                         lx        to lt + fh,
@@ -746,21 +746,21 @@ class EditorState(
         }
 
         // 데코레이션 타임라인 영역 (하단 스트립) 클릭 → 타임 드래그
-        if (decorMode && my in decorTlY..(decorTlY + decorTlH) && mx <= mainW) {
+        if (decorMode && my in decorTlY..(decorTlY + decorTlH) && mx in timelineX..(timelineX + timelineW)) {
             val laneH = ((decorTlH - 20) / 5).coerceAtLeast(8)
             var hitIdx = -1
             decorations.forEachIndexed { idx, dec ->
                 val lane = idx % 5
                 val by = decorTlY + 18 + lane * laneH
-                val startPx = ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * mainW).toInt()
-                val endPx = ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * mainW).toInt()
-                if (mx in startPx.coerceAtLeast(0)..endPx.coerceAtMost(mainW) && my in by..(by + laneH - 3)) {
+                val startPx = timelineX + ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+                val endPx = timelineX + ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+                if (mx in startPx.coerceAtLeast(timelineX)..endPx.coerceAtMost(timelineX + timelineW) && my in by..(by + laneH - 3)) {
                     hitIdx = idx
                 }
             }
             if (hitIdx >= 0) {
                 timelineDecorDragIdx = hitIdx
-                val startPx = ((decorations[hitIdx].timeMs - timelineScrollMs).toDouble() / visibleWindowMs * mainW).toInt()
+                val startPx = timelineX + ((decorations[hitIdx].timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
                 timelineDecorDragOffsetX = (mx - startPx).toFloat()
                 selectedDecorIdx = hitIdx
                 return
@@ -768,7 +768,7 @@ class EditorState(
         }
 
         // 노트 트랙 영역 내 좌클릭 → 노트 리사이즈 준비
-        if (button == Keys.MOUSE_LEFT && my >= tlY && my <= tlY + tlH && mx <= tlW) {
+        if (button == Keys.MOUSE_LEFT && my >= tlY && my <= tlY + tlH && mx in timelineX..(timelineX + timelineW)) {
             val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
             val laneH = tlH / 4
             val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
@@ -797,17 +797,18 @@ class EditorState(
     }
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
+        if (shouldIgnoreMouse()) return
         val mx = x.toInt()
         val my = y.toInt()
 
         // 장식 타임라인 영역 클릭 (어떤 모드든 처리)
-        if (my in unifiedTlY..(unifiedTlY + DECOR_TL_H) && mx <= mainW) {
+        if (my in unifiedTlY..(unifiedTlY + DECOR_TL_H) && mx in timelineX..(timelineX + timelineW)) {
             handleDecorMouseClick(mx, my, button, mods); return
         }
 
         // 노트 타임라인 영역 안에서만 처리
         if (my < tlY || my > tlY + tlH) return
-        if (mx > tlW)                   return
+        if (mx < timelineX || mx > timelineX + tlW) return
 
         val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
         val laneH = tlH / 4
@@ -828,7 +829,7 @@ class EditorState(
                 } else {
                     // 빈 공간 클릭: 플레이헤드 이동 + 선택 해제
                     selectedIndices.clear()
-                    val clickMs = timelineScrollMs + mx.toLong() * visibleWindowMs / tlW
+                    val clickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / tlW
                     ctx.videoBackground.seek(maxOf(0L, clickMs + mutableChart.offsetMs))
                 }
             }
@@ -845,7 +846,7 @@ class EditorState(
                 } else {
                     // 빈 공간 우클릭: ImGui 팝업으로 노트 추가
                     addNotePopupLane = ((my - tlY).coerceIn(0, tlH - 1) / laneH).coerceIn(0, 3)
-                    val clickMs = timelineScrollMs + mx.toLong() * visibleWindowMs / tlW
+                    val clickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / tlW
                     addNotePopupMs  = snapTime(clickMs.coerceAtLeast(0L))
                     pendingNoteAdd  = true
                 }
@@ -859,7 +860,7 @@ class EditorState(
      */
     private fun findNoteAt(mx: Int, my: Int, currentTimeMs: Long, laneH: Int): Int {
         mutableChart.notes.forEachIndexed { idx, note ->
-            val nx = ((note.time - timelineScrollMs).toDouble() / visibleWindowMs * tlW).toInt()
+            val nx = timelineX + ((note.time - timelineScrollMs).toDouble() / visibleWindowMs * tlW).toInt()
             if (mx < nx - 6 || mx > nx + 6) return@forEachIndexed
             val ly = tlY + note.lane * laneH
             if (my < ly || my > ly + laneH) return@forEachIndexed
@@ -916,7 +917,7 @@ class EditorState(
         if (timelineDecorDragIdx >= 0 && decorMode) {
             val dec = decorations.getOrNull(timelineDecorDragIdx) ?: run { timelineDecorDragIdx = -1; return }
             val newStartPx = mx - timelineDecorDragOffsetX
-            val newTimeMs = timelineScrollMs + (newStartPx.toDouble() / mainW * visibleWindowMs).toLong()
+            val newTimeMs = timelineScrollMs + ((newStartPx - timelineX).toDouble() / timelineW * visibleWindowMs).toLong()
             val snappedTime = snapTime(newTimeMs.coerceAtLeast(0L))
             
             val updated = dec.copy(timeMs = snappedTime)
@@ -932,7 +933,7 @@ class EditorState(
         if (noteResizeIdx >= 0 && button == Keys.MOUSE_LEFT) {
             val note = mutableChart.notes.getOrNull(noteResizeIdx)
             if (note != null) {
-                val newEndMs = (timelineScrollMs + mx.toLong() * visibleWindowMs / tlW)
+                val newEndMs = (timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / tlW)
                     .coerceAtLeast(note.time + 50L)
                 val snapped = snapTime(newEndMs)
                 synchronized(notesLock) {
@@ -946,18 +947,18 @@ class EditorState(
             return
         }
 
-        if (my < unifiedTlY || mx > mainW) return
+        if (my < unifiedTlY || mx < timelineX || mx > timelineX + timelineW) return
         
         if (button == Keys.MOUSE_MIDDLE || button == Keys.MOUSE_RIGHT) {
             // 패닝 (Panning): 플레이헤드는 그대로 두고 뷰포트만 좌우 이동
             if (timelineDragStartX >= 0) {
                 val dx = mx - timelineDragStartX
                 timelineDragStartX = mx
-                timelineScrollMs -= (dx.toLong() * visibleWindowMs / mainW)
+                timelineScrollMs -= (dx.toLong() * visibleWindowMs / timelineW)
             }
         } else if (button == Keys.MOUSE_LEFT) {
             // 스크러빙 (Scrubbing): 클릭한 위치로 플레이헤드 이동 (VLC 과부하 방지)
-            val clickMs = timelineScrollMs + mx.toLong() * visibleWindowMs / mainW
+            val clickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / timelineW
             pendingSeekMs = maxOf(0L, clickMs + mutableChart.offsetMs)
             timelineDragStartX = mx
         }
@@ -1155,15 +1156,15 @@ class EditorState(
     private fun populateDecorModalBuffers(dec: Decoration) {
         bufDecId.set(dec.id)
         bufDecImage.set(dec.image)
-        bufDecTimeMs[0]   = dec.timeMs.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
-        bufDecDurMs[0]    = dec.durationMs.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
+        bufDecTimeMs.set(dec.timeMs.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt())
+        bufDecDurMs.set(dec.durationMs.coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
         bufDecXY[0]       = dec.x;       bufDecXY[1]    = dec.y
         bufDecWH[0]       = dec.width;   bufDecWH[1]    = dec.height
         bufDecPivot[0]    = dec.pivotX;  bufDecPivot[1] = dec.pivotY
         bufDecOpacity[0]  = dec.opacity
-        bufDecRotation[0] = dec.rotation
+        bufDecRotation.set(dec.rotation)
         bufDecScale[0]    = dec.scaleX;  bufDecScale[1] = dec.scaleY
-        bufDecDepth[0]    = dec.depth
+        bufDecDepth.set(dec.depth)
     }
 
     /**
@@ -1181,10 +1182,10 @@ class EditorState(
         // ── 1. 비디오 프레임 ─────────────────────────────────────────────────
         val glTex = ctx.videoBackground.getGlTextureId()
         if (glTex > 0 && ctx.videoBackground.getCurrentFrame() != null) {
-            val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX
+            val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
             renderer.drawTexturedRect(
                 x = vpX.toFloat(),
-                y = HDR_H.toFloat(),
+                y = vpY.toFloat(),
                 w = vpW.toFloat(),
                 h = vpH.toFloat(),
                 textureId = glTex
@@ -1239,9 +1240,85 @@ class EditorState(
     // ── Dear ImGui 오버레이 ──────────────────────────────────────────────────
 
     override fun renderImGui() {
-        val io      = ImGui.getIO()
+        val io = ImGui.getIO()
         val screenW = io.displaySizeX
         val screenH = io.displaySizeY
+        val menuBarH = 20f
+        val btmH = 200f
+        val propsW = 260f
+
+        val dockspaceFlags = imgui.flag.ImGuiDockNodeFlags.PassthruCentralNode
+        ImGui.dockSpaceOverViewport(ImGui.getMainViewport(), dockspaceFlags)
+
+        val windowFlags = imgui.flag.ImGuiWindowFlags.NoMove or imgui.flag.ImGuiWindowFlags.NoCollapse
+
+        // ── 뷰포트 (영상/장식) ──────────────────────────────────────────────
+        ImGui.pushStyleColor(imgui.flag.ImGuiCol.WindowBg, 0)
+        ImGui.pushStyleVar(imgui.flag.ImGuiStyleVar.WindowPadding, 0f, 0f)
+        
+        ImGui.setNextWindowPos(0f, menuBarH, imgui.flag.ImGuiCond.FirstUseEver)
+        ImGui.setNextWindowSize(screenW - propsW, screenH - menuBarH - btmH, imgui.flag.ImGuiCond.FirstUseEver)
+        if (ImGui.begin("뷰포트", windowFlags)) {
+            val pos = ImGui.getCursorScreenPos()
+            val availW = ImGui.getContentRegionAvailX()
+            val availH = ImGui.getContentRegionAvailY()
+            
+            val (lx, ly) = ctx.renderer.toLogical(pos.x.toDouble(), pos.y.toDouble())
+            val scale = ctx.renderer.renderScale
+            val lw = availW / scale
+            val lh = availH / scale
+            
+            val targetH = (lh * vpHeightPct / 100.0).toInt()
+            val targetW = targetH * 16 / 9
+            
+            cachedVpH = targetH
+            cachedVpW = targetW
+            cachedVpX = lx.toInt() + ((lw - targetW) / 2).toInt()
+            cachedVpY = ly.toInt() + ((lh - targetH) / 2).toInt()
+            
+            isViewportHovered = ImGui.isWindowHovered()
+        }
+        ImGui.end()
+
+        // ── 타임라인 ────────────────────────────────────────────────────────
+        ImGui.setNextWindowPos(0f, screenH - btmH, imgui.flag.ImGuiCond.FirstUseEver)
+        ImGui.setNextWindowSize(screenW - propsW, btmH, imgui.flag.ImGuiCond.FirstUseEver)
+        if (ImGui.begin("타임라인", windowFlags)) {
+            val pos = ImGui.getCursorScreenPos()
+            val availW = ImGui.getContentRegionAvailX()
+            val availH = ImGui.getContentRegionAvailY()
+
+            val (lx, ly) = ctx.renderer.toLogical(pos.x.toDouble(), pos.y.toDouble())
+            val scale = ctx.renderer.renderScale
+            val lw = availW / scale
+            val lh = availH / scale
+
+            timelineX = lx.toInt()
+            unifiedTlY = ly.toInt()
+            timelineW = lw.toInt().coerceAtLeast(1)
+            val totalH = lh.toInt().coerceAtLeast(1)
+            
+            if (decorMode) {
+                DECOR_TL_H = (totalH * 0.55).toInt()
+                NOTE_TL_H = totalH - DECOR_TL_H
+            } else {
+                DECOR_TL_H = 0
+                NOTE_TL_H = totalH
+            }
+            isTimelineHovered = ImGui.isWindowHovered()
+        }
+        ImGui.end()
+        ImGui.popStyleVar()
+        ImGui.popStyleColor()
+
+        // ── 우측 프로퍼티 패널 ─────────────────────────────────────────────────
+        ImGui.setNextWindowPos(screenW - propsW, menuBarH, imgui.flag.ImGuiCond.FirstUseEver)
+        ImGui.setNextWindowSize(propsW, screenH - menuBarH, imgui.flag.ImGuiCond.FirstUseEver)
+        if (ImGui.begin("도움말 및 설정", windowFlags)) {
+            if (decorMode) renderDecorPropsPanelImGui()
+            else           renderNoteShortcutPanelImGui()
+        }
+        ImGui.end()
 
         // ── 메인 메뉴바 ───────────────────────────────────────────────────────
         if (ImGui.beginMainMenuBar()) {
@@ -1290,25 +1367,15 @@ class EditorState(
                 ImGui.separator()
                 if (ImGui.menuItem("줌 인", "=")) zoomIn()
                 if (ImGui.menuItem("줌 아웃", "-")) zoomOut()
+                ImGui.separator()
+                val vpArr = intArrayOf(vpHeightPct)
+                if (ImGui.sliderInt("뷰포트 크기 %", vpArr, 30, 100)) {
+                    vpHeightPct = vpArr[0]
+                }
                 ImGui.endMenu()
             }
             ImGui.endMainMenuBar()
         }
-
-        val menuBarH = ImGui.getFrameHeight()
-
-        // ── 우측 프로퍼티 패널 ─────────────────────────────────────────────────
-        val panelFlags = ImGuiWindowFlags.NoMove         or
-                         ImGuiWindowFlags.NoResize       or
-                         ImGuiWindowFlags.NoCollapse     or
-                         ImGuiWindowFlags.NoTitleBar     or
-                         ImGuiWindowFlags.NoBringToFrontOnFocus
-        ImGui.setNextWindowPos(screenW - PROPS_W, menuBarH, ImGuiCond.Always)
-        ImGui.setNextWindowSize(PROPS_W.toFloat(), screenH - menuBarH - btmH, ImGuiCond.Always)
-        ImGui.begin("##props", panelFlags)
-        if (decorMode) renderDecorPropsPanelImGui()
-        else           renderNoteShortcutPanelImGui()
-        ImGui.end()
 
         // ── 노트 추가 팝업 ────────────────────────────────────────────────────
         if (pendingNoteAdd) {
@@ -1337,8 +1404,7 @@ class EditorState(
             if (decorPopupHitIdx >= 0) {
                 if (ImGui.menuItem("편집…")) {
                     val idx = decorPopupHitIdx
-                    // 장식 편집 다이얼로그는 아직 Swing 기반 (향후 ImGui로 마이그레이션 예정)
-                    javax.swing.SwingUtilities.invokeLater { openDecorEditDialog(idx) }
+                    openDecorEditDialog(idx)
                 }
                 if (ImGui.menuItem("삭제")) {
                     val cur = decorations
@@ -1350,11 +1416,14 @@ class EditorState(
             } else {
                 val ms = decorPopupClickMs
                 if (ImGui.menuItem("여기에 장식 추가 (${ms}ms)")) {
-                    // 새 장식 다이얼로그는 아직 Swing 기반 (향후 ImGui로 마이그레이션 예정)
-                    javax.swing.SwingUtilities.invokeLater { openNewDecorDialog(ms) }
+                    openNewDecorDialog(ms)
                 }
             }
             ImGui.endPopup()
+        }
+        
+        if (showDecorModal) {
+            renderDecorModalImGui()
         }
     }
 
@@ -1442,5 +1511,64 @@ class EditorState(
         ImGui.textColored(0.31f, 0.25f, 0.45f, 1f, "장식 ${decorations.size}개")
         ImGui.spacing()
         if (ImGui.button("저장 (Ctrl+S)")) saveDecor()
+    }
+
+    private fun renderDecorModalImGui() {
+        if (!showDecorModal) return
+
+        val flags = ImGuiWindowFlags.AlwaysAutoResize or ImGuiWindowFlags.NoSavedSettings
+        val io = ImGui.getIO()
+        ImGui.setNextWindowPos(io.displaySizeX / 2 - 200f, io.displaySizeY / 2 - 300f, ImGuiCond.Appearing)
+        if (ImGui.begin(if (decorModalIsNew) "새 장식 추가" else "장식 편집", flags)) {
+            ImGui.inputText("ID", bufDecId)
+            ImGui.inputText("Image", bufDecImage)
+            ImGui.inputInt("Time (ms)", bufDecTimeMs)
+            ImGui.inputInt("Duration (ms)", bufDecDurMs)
+            ImGui.sliderFloat2("X / Y", bufDecXY, 0f, 1f)
+            ImGui.inputFloat2("Width / Height", bufDecWH)
+            ImGui.sliderFloat2("Pivot", bufDecPivot, 0f, 1f)
+            ImGui.sliderFloat("Opacity", bufDecOpacity, 0f, 1f)
+            ImGui.inputFloat("Rotation", bufDecRotation)
+            ImGui.inputFloat2("Scale", bufDecScale)
+            ImGui.inputInt("Depth", bufDecDepth)
+
+            ImGui.separator()
+            ImGui.text("Effects (${modalEffects.size})")
+            if (ImGui.button("Clear Effects")) {
+                modalEffects.clear()
+            }
+
+            ImGui.separator()
+            if (ImGui.button("저장")) {
+                val dec = Decoration(
+                    id = bufDecId.get().trim(),
+                    timeMs = bufDecTimeMs.get().toLong(),
+                    durationMs = bufDecDurMs.get().toLong(),
+                    image = bufDecImage.get().trim(),
+                    x = bufDecXY[0], y = bufDecXY[1],
+                    width = bufDecWH[0], height = bufDecWH[1],
+                    pivotX = bufDecPivot[0], pivotY = bufDecPivot[1],
+                    opacity = bufDecOpacity[0],
+                    rotation = bufDecRotation.get(),
+                    scaleX = bufDecScale[0], scaleY = bufDecScale[1],
+                    depth = bufDecDepth.get(),
+                    effects = modalEffects.toList()
+                )
+                if (decorModalIsNew) {
+                    decorations.add(dec)
+                } else if (decorModalEditIdx in decorations.indices) {
+                    decorations[decorModalEditIdx] = dec
+                }
+                decorData = DecorationData(decorations, decorData.screenEffects)
+                syncDecorRenderer()
+                unsaved = true
+                showDecorModal = false
+            }
+            ImGui.sameLine()
+            if (ImGui.button("취소")) {
+                showDecorModal = false
+            }
+        }
+        ImGui.end()
     }
 }
