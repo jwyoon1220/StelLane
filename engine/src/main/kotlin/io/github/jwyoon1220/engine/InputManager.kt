@@ -1,6 +1,7 @@
 package io.github.jwyoon1220.engine
 
 import it.unimi.dsi.fastutil.objects.ObjectArrayList
+import imgui.ImGui
 import org.jctools.queues.MpscArrayQueue
 
 enum class LaneEventType { PRESS, RELEASE }
@@ -31,6 +32,9 @@ class InputManager(
     var stateMouseDragged : ((x: Float, y: Float, button: Int)            -> Unit)? = null
     var stateScroll       : ((dy: Double)                                 -> Unit)? = null
 
+    /** ImGuiManager 가 주입되면 wantCapture 플래그를 체크해 입력을 필터링합니다. */
+    var imGuiManager: ImGuiManager? = null
+
     private val laneKeyMap = mapOf(
         Keys.D to 0,
         Keys.F to 1,
@@ -43,7 +47,7 @@ class InputManager(
 
     init {
         window.onKey = { key, action, mods ->
-            // 레인 키 → 큐
+            // 레인 키 → 큐 (ImGui wantCaptureKeyboard 와 무관하게 항상 큐에 넣음)
             val lane = laneKeyMap[key]
             if (lane != null) {
                 when (action) {
@@ -51,28 +55,37 @@ class InputManager(
                     Keys.RELEASE -> eventQueue.offer(LaneEvent(lane, LaneEventType.RELEASE))
                 }
             }
-            // 모든 키 → State 콜백
-            when (action) {
-                Keys.PRESS, Keys.REPEAT -> stateKeyPressed?.invoke(key, mods)
-                Keys.RELEASE            -> stateKeyReleased?.invoke(key, mods)
+            // 일반 키 → ImGui 가 캡처 중이 아닐 때만 State 에 전달
+            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureKeyboard
+            if (!imguiCaptures) {
+                when (action) {
+                    Keys.PRESS, Keys.REPEAT -> stateKeyPressed?.invoke(key, mods)
+                    Keys.RELEASE            -> stateKeyReleased?.invoke(key, mods)
+                }
             }
         }
 
         window.onChar = { codepoint ->
-            stateKeyTyped?.invoke(codepoint)
+            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureKeyboard
+            if (!imguiCaptures) stateKeyTyped?.invoke(codepoint)
         }
 
         window.onMouseButton = { button, action, mods ->
+            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureMouse
             val (lx, ly) = renderer.toLogical(window.cursorX, window.cursorY)
             when (action) {
                 Keys.PRESS -> {
-                    pressedButton = button
-                    stateMousePressed?.invoke(lx, ly, button, mods)
+                    if (!imguiCaptures) {
+                        pressedButton = button
+                        stateMousePressed?.invoke(lx, ly, button, mods)
+                    }
                 }
                 Keys.RELEASE -> {
-                    stateMouseReleased?.invoke(lx, ly, button, mods)
-                    stateMouseClicked?.invoke(lx, ly, button, mods)
-                    pressedButton = -1
+                    if (pressedButton >= 0) {
+                        stateMouseReleased?.invoke(lx, ly, button, mods)
+                        stateMouseClicked?.invoke(lx, ly, button, mods)
+                        pressedButton = -1
+                    }
                 }
             }
         }
@@ -85,7 +98,8 @@ class InputManager(
         }
 
         window.onScroll = { _, dy ->
-            stateScroll?.invoke(dy)
+            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureMouse
+            if (!imguiCaptures) stateScroll?.invoke(dy)
         }
     }
 
