@@ -278,14 +278,22 @@ class GlQuadBatchRenderer(
         val y1 = y + h
 
         // 4개 코너 색상을 미리 정규화 (int→float 변환을 6 정점 × 4채널 24회 → 4 × 4채널 16회로 감소)
-        val tlR = topLeft.red   / COLOR_DIV; val tlG = topLeft.green   / COLOR_DIV
-        val tlB = topLeft.blue  / COLOR_DIV; val tlA = topLeft.alpha   / COLOR_DIV
-        val trR = topRight.red  / COLOR_DIV; val trG = topRight.green  / COLOR_DIV
-        val trB = topRight.blue / COLOR_DIV; val trA = topRight.alpha  / COLOR_DIV
-        val brR = bottomRight.red  / COLOR_DIV; val brG = bottomRight.green  / COLOR_DIV
-        val brB = bottomRight.blue / COLOR_DIV; val brA = bottomRight.alpha  / COLOR_DIV
-        val blR = bottomLeft.red   / COLOR_DIV; val blG = bottomLeft.green   / COLOR_DIV
-        val blB = bottomLeft.blue  / COLOR_DIV; val blA = bottomLeft.alpha   / COLOR_DIV
+        val tlR = topLeft.red   / COLOR_DIV
+        val tlG = topLeft.green / COLOR_DIV
+        val tlB = topLeft.blue  / COLOR_DIV
+        val tlA = topLeft.alpha / COLOR_DIV
+        val trR = topRight.red  / COLOR_DIV
+        val trG = topRight.green / COLOR_DIV
+        val trB = topRight.blue / COLOR_DIV
+        val trA = topRight.alpha / COLOR_DIV
+        val brR = bottomRight.red   / COLOR_DIV
+        val brG = bottomRight.green / COLOR_DIV
+        val brB = bottomRight.blue  / COLOR_DIV
+        val brA = bottomRight.alpha / COLOR_DIV
+        val blR = bottomLeft.red   / COLOR_DIV
+        val blG = bottomLeft.green / COLOR_DIV
+        val blB = bottomLeft.blue  / COLOR_DIV
+        val blA = bottomLeft.alpha / COLOR_DIV
 
         putVertexF(x0, y0, 0f, 0f, tlR, tlG, tlB, tlA)
         putVertexF(x1, y0, 1f, 0f, trR, trG, trB, trA)

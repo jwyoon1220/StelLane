@@ -28,6 +28,7 @@ import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
 import java.io.File
+import kotlin.math.abs
 
 class EditorState(
     private val ctx: GameContext,
@@ -1211,7 +1212,7 @@ class EditorState(
                 val endMs     = note.endTime ?: note.time
                 val ex        = ((endMs - timelineScrollMs).toDouble() / viewMs * w).toFloat()
                 val left      = minOf(nx, ex)
-                val bw        = kotlin.math.abs(ex - nx).coerceAtLeast(4f)
+                val bw        = abs(ex - nx).coerceAtLeast(4f)
                 // 롱노트 바디: 사전 캐시된 bodyColor (per-lane × selected 조합)
                 val bodyColor = if (isSelected) TL_SELECTED_BODY_COLOR
                                 else TL_LONG_BODY_COLORS[laneIdx][0]
