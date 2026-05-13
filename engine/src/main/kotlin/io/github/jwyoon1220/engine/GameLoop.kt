@@ -1,8 +1,5 @@
 package io.github.jwyoon1220.engine
 
-
-import java.util.concurrent.locks.LockSupport
-
 /**
  * GLFW 메인 스레드에서 실행되는 게임 루프.
  *
@@ -61,16 +58,17 @@ class GameLoop(
             }
 
             // 4. 고정밀 프레임 대기
-            while (true) {
-                val passed    = System.nanoTime() - lastLoopTime
-                val remaining = optimalTimeNs - passed
-                if (remaining <= 0L) break
-                if (remaining > 2_000_000L) {
-                    try { Thread.sleep(1) }
-                    catch (e: InterruptedException) { Thread.currentThread().interrupt(); break }
-                } else {
-                    LockSupport.parkNanos(100_000L)
-                }
+            // 1ms 단위로 sleep → 남은 시간이 1ms 이하가 되면 스핀 대기
+            // (parkNanos 는 Windows에서 OS 스케줄러 정밀도로 인해 수백 µs씩 실제로 더 자므로 사용 안 함)
+            val deadline = lastLoopTime + optimalTimeNs
+            var remaining = deadline - System.nanoTime()
+            while (remaining > 1_000_000L) {
+                try { Thread.sleep(1) }
+                catch (e: InterruptedException) { Thread.currentThread().interrupt(); break }
+                remaining = deadline - System.nanoTime()
+            }
+            while (System.nanoTime() < deadline) {
+                Thread.onSpinWait()
             }
         }
     }
