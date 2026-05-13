@@ -36,7 +36,12 @@ class ImGuiManager(private val windowHandle: Long) {
             ImGuiManager::class.java.classLoader
                 .getResourceAsStream("fonts/MaruBuri-Regular.ttf")
                 ?.readBytes()
+        }.getOrNull() ?: runCatching {
+            java.io.File("assets/fonts/MaruBuri-Regular.ttf").readBytes()
+        }.getOrNull() ?: runCatching {
+            java.io.File("run/assets/fonts/MaruBuri-Regular.ttf").readBytes()
         }.getOrNull()
+
         if (fontBytes != null) {
             val cfg = ImFontConfig()
             cfg.oversampleH = 2
@@ -52,6 +57,7 @@ class ImGuiManager(private val windowHandle: Long) {
         io.apply {
             iniFilename = null                                   // imgui.ini 비활성화
             addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard)
+            addConfigFlags(ImGuiConfigFlags.DockingEnable)       // ── 도킹 활성화 ──
         }
         ImGui.styleColorsDark()
         applyStelLaneTheme()

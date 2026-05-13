@@ -55,8 +55,8 @@ class InputManager(
                     Keys.RELEASE -> eventQueue.offer(LaneEvent(lane, LaneEventType.RELEASE))
                 }
             }
-            // 일반 키 → ImGui 가 캡처 중이 아닐 때만 State 에 전달
-            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureKeyboard
+            // 일반 키 → ImGui 텍스트 입력 중이 아닐 때만 State 에 전달
+            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantTextInput
             if (!imguiCaptures) {
                 when (action) {
                     Keys.PRESS, Keys.REPEAT -> stateKeyPressed?.invoke(key, mods)
@@ -66,7 +66,7 @@ class InputManager(
         }
 
         window.onChar = { codepoint ->
-            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureKeyboard
+            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantTextInput
             if (!imguiCaptures) stateKeyTyped?.invoke(codepoint)
         }
 
@@ -75,13 +75,11 @@ class InputManager(
             val (lx, ly) = renderer.toLogical(window.cursorX, window.cursorY)
             when (action) {
                 Keys.PRESS -> {
-                    if (!imguiCaptures) {
-                        pressedButton = button
-                        stateMousePressed?.invoke(lx, ly, button, mods)
-                    }
+                    pressedButton = button
+                    stateMousePressed?.invoke(lx, ly, button, mods)
                 }
                 Keys.RELEASE -> {
-                    // pressedButton >= 0: ImGui에 캡처되지 않은 press가 있었을 때만 콜백 실행
+                    // pressedButton >= 0: 이전에 press가 있었을 때만 콜백 실행
                     if (pressedButton >= 0) {
                         stateMouseReleased?.invoke(lx, ly, button, mods)
                         stateMouseClicked?.invoke(lx, ly, button, mods)
@@ -99,8 +97,7 @@ class InputManager(
         }
 
         window.onScroll = { _, dy ->
-            val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureMouse
-            if (!imguiCaptures) stateScroll?.invoke(dy)
+            stateScroll?.invoke(dy)
         }
     }
 
