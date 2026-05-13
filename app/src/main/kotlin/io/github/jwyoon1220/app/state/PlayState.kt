@@ -51,6 +51,7 @@ class PlayState(
         private val COLOR_LONG_BODY = Color(160, 80, 255, 150)
         private val COLOR_LONG_FILL = Color(190, 120, 255)
         private val COLOR_LONG_BORDER = Color(225, 185, 255)
+        private const val NOTE_BORDER_THICKNESS = 1.5f
         private val KEY_LABELS = arrayOf("D", "F", "J", "K")
     }
 
@@ -304,9 +305,7 @@ class PlayState(
         // 노트 렌더링 (SoA — 원시 타입 배열 순회, 객체 참조 없음)
         synchronized(notesLock) {
             val count = soaSize
-            if (useCustomRenderer) {
-                // 커스텀 GL 백엔드에서는 엔진 레벨 OpenGL 패스에서 노트를 렌더합니다.
-            } else {
+            if (!useCustomRenderer) {
                 for (i in 0 until count) {
                     if (!soaActive[i] && !soaHeld[i]) continue
                     val lx        = lanesL + soaLane[i] * LANE_WIDTH
@@ -569,8 +568,14 @@ class PlayState(
                         bottomRight = Color(255, 210, 80, 255),
                         bottomLeft = Color(255, 210, 80, 255)
                     )
-                    renderer.drawRect(headX, headY, headW, 1.5f, Color(255, 252, 220, 255))
-                    renderer.drawRect(headX, headY + headH - 1.5f, headW, 1.5f, Color(255, 230, 140, 220))
+                    renderer.drawRect(headX, headY, headW, NOTE_BORDER_THICKNESS, Color(255, 252, 220, 255))
+                    renderer.drawRect(
+                        headX,
+                        headY + headH - NOTE_BORDER_THICKNESS,
+                        headW,
+                        NOTE_BORDER_THICKNESS,
+                        Color(255, 230, 140, 220)
+                    )
                 } else {
                     val endTop = hl - ((soaEndMs[i] - nowD) * SCROLL_SPEED / 1000.0).toFloat()
                     val bodyTop = min(headY, endTop)
@@ -601,7 +606,7 @@ class PlayState(
                         bottomRight = Color(175, 110, 250, 255),
                         bottomLeft = Color(175, 110, 250, 255)
                     )
-                    renderer.drawRect(headX, headY, headW, 1.5f, Color(238, 220, 255, 255))
+                    renderer.drawRect(headX, headY, headW, NOTE_BORDER_THICKNESS, Color(238, 220, 255, 255))
                 }
             }
         }

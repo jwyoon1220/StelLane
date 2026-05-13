@@ -114,8 +114,8 @@ class GlQuadBatchRenderer(
                 float px = uViewport.x + (aPos.x / uDesign.x) * uViewport.z;
                 float py = uViewport.y + (aPos.y / uDesign.y) * uViewport.w;
 
-                float nx = (px / max(uFramebuffer.x, 1.0)) * 2.0 - 1.0;
-                float ny = 1.0 - (py / max(uFramebuffer.y, 1.0)) * 2.0;
+                float nx = (px / uFramebuffer.x) * 2.0 - 1.0;
+                float ny = 1.0 - (py / uFramebuffer.y) * 2.0;
 
                 gl_Position = vec4(nx, ny, 0.0, 1.0);
                 vUV = aUV;
@@ -198,6 +198,11 @@ class GlQuadBatchRenderer(
 
     fun begin(framebufferWidth: Int, framebufferHeight: Int, offsetX: Float, offsetY: Float, drawW: Float, drawH: Float) {
         if (program == 0) init()
+        if (framebufferWidth <= 0 || framebufferHeight <= 0 || drawW <= 0f || drawH <= 0f) {
+            frameBegun = false
+            return
+        }
+
         vertexCount = 0
         boundTexture = -1
         frameBegun = true
@@ -212,11 +217,6 @@ class GlQuadBatchRenderer(
         glBindVertexArray(vao)
         glBindBuffer(GL_ARRAY_BUFFER, vbo)
         glActiveTexture(GL_TEXTURE0)
-
-        // framebufferWidth / framebufferHeight는 API 명시를 위해 전달받고, 상위에서 viewport를 관리합니다.
-        if (framebufferWidth <= 0 || framebufferHeight <= 0) {
-            frameBegun = false
-        }
     }
 
     fun end() {
@@ -234,6 +234,7 @@ class GlQuadBatchRenderer(
         drawGradientRect(x, y, w, h, color, color, color, color, textureId)
     }
 
+    /** 텍스처 샘플 결과와 정점 색상을 곱해 그립니다(기본: whiteTexture). */
     fun drawGradientRect(
         x: Float, y: Float, w: Float, h: Float,
         topLeft: Color, topRight: Color, bottomRight: Color, bottomLeft: Color,
