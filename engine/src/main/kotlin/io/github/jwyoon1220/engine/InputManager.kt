@@ -81,6 +81,7 @@ class InputManager(
                     }
                 }
                 Keys.RELEASE -> {
+                    // pressedButton >= 0: ImGui에 캡처되지 않은 press가 있었을 때만 콜백 실행
                     if (pressedButton >= 0) {
                         stateMouseReleased?.invoke(lx, ly, button, mods)
                         stateMouseClicked?.invoke(lx, ly, button, mods)
