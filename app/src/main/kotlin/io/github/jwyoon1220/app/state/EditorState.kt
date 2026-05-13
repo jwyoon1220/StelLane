@@ -149,8 +149,32 @@ class EditorState(
             Color(255, 200, 80,  200),
             Color(255, 120, 120, 200)
         )
-        private val TL_SELECTED_COLOR  = Color(255, 255, 80, 230)
-        private val TL_LONG_BODY_ALPHA = Color(0, 0, 0, 0)  // placeholder; body 는 alpha 버전 필요
+        private val TL_SELECTED_COLOR = Color(255, 255, 80, 230)
+        // 롱노트 바디 색상 캐시: [lane 0..3][0=normal, 1=selected]
+        private val TL_LONG_BODY_COLORS = Array(4) { lane ->
+            val c = arrayOf(
+                Color(100, 180, 255), Color(100, 255, 160),
+                Color(255, 200, 80), Color(255, 120, 120)
+            )[lane]
+            arrayOf(
+                Color(c.red, c.green, c.blue, 120),
+                Color(c.red, c.green, c.blue, 200)
+            )
+        }
+        private val TL_SELECTED_BODY_COLOR = Color(255, 255, 80, 200)
+        // 단노트 하이라이트(밝은) 버전 색상 캐시
+        private val TL_BRIGHT_COLORS = Array(4) { lane ->
+            val c = arrayOf(
+                Color(100, 180, 255, 200), Color(100, 255, 160, 200),
+                Color(255, 200, 80, 200),  Color(255, 120, 120, 200)
+            )[lane]
+            Color(
+                (c.red   * 1.2f).toInt().coerceAtMost(255),
+                (c.green * 1.2f).toInt().coerceAtMost(255),
+                (c.blue  * 1.2f).toInt().coerceAtMost(255),
+                c.alpha
+            )
+        }
     }
 
     // ── GameState ─────────────────────────────────────────────────────────────
@@ -1176,28 +1200,25 @@ class EditorState(
             if (nx < -20f || nx > w + 20f) continue
 
             val isSelected = idx in selectedIndices
-            val baseColor  = if (isSelected) TL_SELECTED_COLOR else TL_LANE_COLORS[note.lane % 4]
+            val laneIdx    = note.lane % 4
             val ly         = (noteY + note.lane * laneH).toFloat()
 
             if (note.type == NoteType.SHORT) {
-                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), baseColor)
-                val bright = Color(
-                    (baseColor.red * 1.2f).toInt().coerceAtMost(255),
-                    (baseColor.green * 1.2f).toInt().coerceAtMost(255),
-                    (baseColor.blue * 1.2f).toInt().coerceAtMost(255),
-                    baseColor.alpha
-                )
-                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), bright)
+                // 단노트: 사전 캐시된 하이라이트 색상(밝게) 한 번만 그림
+                val drawColor = if (isSelected) TL_SELECTED_COLOR else TL_BRIGHT_COLORS[laneIdx]
+                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), drawColor)
             } else {
-                val endMs  = note.endTime ?: note.time
-                val ex     = ((endMs - timelineScrollMs).toDouble() / viewMs * w).toFloat()
-                val left   = minOf(nx, ex)
-                val bw     = kotlin.math.abs(ex - nx).coerceAtLeast(4f)
-                val bodyAlpha = if (isSelected) 200 else 120
-                val bodyColor = Color(baseColor.red, baseColor.green, baseColor.blue, bodyAlpha)
+                val endMs     = note.endTime ?: note.time
+                val ex        = ((endMs - timelineScrollMs).toDouble() / viewMs * w).toFloat()
+                val left      = minOf(nx, ex)
+                val bw        = kotlin.math.abs(ex - nx).coerceAtLeast(4f)
+                // 롱노트 바디: 사전 캐시된 bodyColor (per-lane × selected 조합)
+                val bodyColor = if (isSelected) TL_SELECTED_BODY_COLOR
+                                else TL_LONG_BODY_COLORS[laneIdx][0]
+                val headColor = if (isSelected) TL_SELECTED_COLOR else TL_LANE_COLORS[laneIdx]
                 renderer.drawRect(left, ly + laneH / 3f, bw, laneH / 3f, bodyColor)
-                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), baseColor)
-                renderer.drawRect(ex - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), baseColor)
+                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), headColor)
+                renderer.drawRect(ex - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), headColor)
             }
         }
     }
