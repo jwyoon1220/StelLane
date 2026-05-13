@@ -275,6 +275,11 @@ class VideoBackground private constructor(
     private var nvgImgHandle: Int = -1
     /** VLC display 콜백에서 true 로 설정, 메인 스레드에서 uploadPendingFrame() 이 소비합니다. */
     @Volatile private var frameReady = false
+    /** 마지막으로 업로드된 텍스처의 폭. glTexImage2D(재할당)과 glTexSubImage2D(갱신)를 구분합니다. */
+    private var lastUploadW = 0
+    private var lastUploadH = 0
+    /** 픽셀 업로드용 재사용 버퍼 (매 프레임 alloc/free 제거). */
+    private var uploadBuf: ByteBuffer? = null
 
     /**
      * OpenGL 컨텍스트 생성 후(메인 스레드에서) 한 번만 호출합니다.
@@ -295,6 +300,11 @@ class VideoBackground private constructor(
     /**
      * 메인 스레드(렌더 루프)에서 매 프레임 호출합니다.
      * VLC 새 프레임이 있을 때만 GL 텍스처를 업로드합니다.
+     *
+     * 최적화:
+     * - 해상도가 바뀔 때만 glTexImage2D(재할당), 그 외에는 glTexSubImage2D(갱신)로 드라이버 alloc 제거.
+     * - ByteBuffer를 프레임마다 새로 할당하지 않고 재사용합니다.
+     * - 크기가 변경될 때만 NVG 핸들을 무효화합니다.
      */
     fun uploadPendingFrame() {
         if (!isAvailable || !frameReady) return
@@ -304,20 +314,35 @@ class VideoBackground private constructor(
         val w = frame.width; val h = frame.height
         if (w <= 0 || h <= 0) return
 
-        // TYPE_INT_ARGB 픽셀 데이터를 GL 에 직접 업로드 (BGRA 포맷 = ARGB little-endian)
+        // 픽셀 업로드 버퍼 재사용 (크기가 바뀌면 재할당)
+        val needed = w * h * 4
+        var buf = uploadBuf
+        if (buf == null || buf.capacity() < needed) {
+            if (buf != null) {
+                uploadBuf = null
+                MemoryUtil.memFree(buf)
+            }
+            buf = MemoryUtil.memAlloc(needed)
+            uploadBuf = buf
+        }
+        buf.clear()
         val pixels = (frame.raster.dataBuffer as DataBufferInt).data
-        val buf: ByteBuffer = MemoryUtil.memAlloc(pixels.size * 4)
-        val intBuf = buf.asIntBuffer()
-        intBuf.put(pixels)
-        buf.rewind()
+        buf.asIntBuffer().put(pixels)
+        buf.limit(needed)
 
         glBindTexture(GL_TEXTURE_2D, glTexId)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
+        if (w != lastUploadW || h != lastUploadH) {
+            // 해상도 변경 → 텍스처 스토리지 재할당
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
+            lastUploadW = w
+            lastUploadH = h
+            // NVG 핸들 무효화 (해상도가 바뀌었으므로)
+            nvgImgHandle = -1
+        } else {
+            // 동일 해상도 → 스토리지 재사용, NVG 핸들 유지
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
+        }
         glBindTexture(GL_TEXTURE_2D, 0)
-        MemoryUtil.memFree(buf)
-
-        // NVG 핸들 무효화 (크기가 바뀌었을 수 있으므로)
-        if (nvgImgHandle >= 0) { nvgImgHandle = -1 }
     }
 
     /**
@@ -336,8 +361,15 @@ class VideoBackground private constructor(
         return nvgImgHandle
     }
 
+    /**
+     * 원시 OpenGL 텍스처 ID를 반환합니다. GlQuadBatchRenderer.drawRect의 textureId 파라미터로
+     * 직접 사용할 수 있습니다. initGLTexture() 이후 유효합니다.
+     */
+    fun getGlTextureId(): Int = glTexId
+
     fun release() {
         log.info("[VideoBackground] release 시작")
+        uploadBuf?.let { MemoryUtil.memFree(it); uploadBuf = null }
         vlcExecutor.submit {
             runCatching { mediaPlayer?.controls()?.stop() }
             runCatching { mediaPlayer?.release() }
@@ -349,6 +381,4 @@ class VideoBackground private constructor(
         runCatching { vlcExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS) }
     }
 }
-
-
 
