@@ -1,8 +1,7 @@
 package io.github.jwyoon1220.app.ui.ingame
 
+import io.github.jwyoon1220.app.ui.NativeFileDialog
 import io.github.jwyoon1220.core.data.Decoration
-import java.awt.FileDialog
-import java.awt.Frame
 import java.io.File
 import java.awt.Color
 
@@ -39,14 +38,12 @@ class DecorEditInGameWindow(
         components += tfImage
         // 네이티브 파일 탐색기 버튼
         components += UIButton(278, 38, 70, 24, "탐색…") {
-            val dlg = FileDialog(null as Frame?, "이미지 선택", FileDialog.LOAD).apply {
-                directory = songDir.absolutePath
-                file = "*.png;*.jpg;*.jpeg;*.webp"
-            }
-            dlg.isVisible = true
-            val chosen = dlg.file
-            if (chosen != null) {
-                val fullPath = File(dlg.directory, chosen)
+            val fullPath = NativeFileDialog.chooseOpenFile(
+                title = "이미지 선택",
+                initialDir = songDir,
+                extensionsCsv = "png,jpg,jpeg,webp"
+            )
+            if (fullPath != null) {
                 tfImage.text = runCatching {
                     fullPath.toRelativeString(songDir).replace("\\", "/")
                 }.getOrDefault(fullPath.absolutePath)

@@ -7,12 +7,14 @@ import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.ChartParser
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.Keys
+import imgui.ImGui
+import imgui.flag.ImGuiWindowFlags
+import imgui.type.ImString
 import org.slf4j.LoggerFactory
 import java.awt.AlphaComposite
 import java.awt.Color
-import java.awt.FileDialog
-import java.awt.Frame
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -23,7 +25,7 @@ enum class SelectMode { PLAY, EDIT }
 class SongSelectState(
     private val ctx: GameContext,
     private val mode: SelectMode
-) : GameState {
+) : GameState, ImGuiRenderable {
 
     private val log = LoggerFactory.getLogger(SongSelectState::class.java)
 
@@ -66,6 +68,16 @@ class SongSelectState(
     private var mouseX  = 0f
     private var mouseY  = 0f
     private var hoverIdx= -1
+
+    @Volatile private var exportInProgress = false
+    @Volatile private var exportMessage = ""
+
+    private data class FileBrowserEntry(val file: File, val displayName: String, val isDirectory: Boolean)
+    private var exportDialogOpen = false
+    private var exportDialogDir: File = ctx.songManager.workingDir
+    private var exportDialogEntries: List<FileBrowserEntry> = emptyList()
+    private var exportDialogSelected: File? = null
+    private val exportFileName = ImString(256)
 
     private val songs    get() = ctx.songManager.songs
     private val curSong  get() = songs.getOrNull(songIndex)
@@ -164,6 +176,11 @@ class SongSelectState(
         g.font  = hintFont
         g.color = Color(65, 55, 90)
         g.drawString(hint, (w / 2 + 60).toFloat(), 33f)
+        if (exportMessage.isNotEmpty()) {
+            g.font = hintFont
+            g.color = if (exportInProgress) Color(220, 190, 120) else Color(120, 200, 140)
+            g.drawString(exportMessage, (w / 2 + 60).toFloat(), 48f)
+        }
 
         // ── 왼쪽: 선택된 곡 상세 ─────────────────────────────────────────────
         curSong?.let { entry ->
@@ -347,6 +364,10 @@ class SongSelectState(
 
     // ── 입력 ─────────────────────────────────────────────────────────────────
     override fun keyPressed(key: Int, mods: Int) {
+        if (exportDialogOpen && key == Keys.ESCAPE) {
+            exportDialogOpen = false
+            return
+        }
         when (key) {
             Keys.UP     -> if (songs.isNotEmpty()) { songIndex = (songIndex - 1 + songs.size) % songs.size; diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
             Keys.DOWN   -> if (songs.isNotEmpty()) { songIndex = (songIndex + 1) % songs.size;             diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
@@ -354,7 +375,7 @@ class SongSelectState(
             Keys.RIGHT  -> if (curDiffs.isNotEmpty()) diffIndex = (diffIndex + 1) % curDiffs.size
             Keys.ENTER  -> onConfirm()
             Keys.N      -> if (mode == SelectMode.EDIT) ctx.stateManager.changeState(NewSongState(ctx))
-            Keys.E      -> if (mode == SelectMode.EDIT) exportCurrentSong()
+            Keys.E      -> if (mode == SelectMode.EDIT) openExportDialog()
             Keys.ESCAPE -> ctx.stateManager.changeState(MainMenuState(ctx))
         }
     }
@@ -420,16 +441,114 @@ class SongSelectState(
         }
     }
 
-    private fun exportCurrentSong() {
+    private fun openExportDialog() {
         val entry = curSong ?: return
-        val dlg = FileDialog(null as Frame?, "곡 내보내기 위치 선택", FileDialog.SAVE).apply {
-            file = "${entry.song.title}.zip"
+        exportDialogDir = ctx.songManager.workingDir.takeIf { it.exists() && it.isDirectory } ?: File(System.getProperty("user.dir"))
+        exportDialogSelected = null
+        exportFileName.set("${sanitizeFileName(entry.song.title)}.zip")
+        refreshExportDialogEntries()
+        exportDialogOpen = true
+    }
+
+    private fun exportCurrentSong(dest: File) {
+        val entry = curSong ?: return
+        if (exportInProgress) return
+
+        exportInProgress = true
+        exportMessage = "내보내는 중... ${dest.name}"
+
+        Thread({
+            runCatching { SongZipUtil.export(entry, dest) }
+                .onSuccess {
+                    exportMessage = "내보내기 완료: ${dest.name}"
+                    log.info("곡 내보내기 완료: {}", dest.absolutePath)
+                }
+                .onFailure {
+                    exportMessage = "내보내기 실패: ${it.message ?: "알 수 없는 오류"}"
+                    log.error("내보내기 실패", it)
+                }
+            exportInProgress = false
+        }, "song-export-${entry.song.title}").apply { isDaemon = true }.start()
+    }
+
+    private fun refreshExportDialogEntries() {
+        val dir = exportDialogDir.takeIf { it.exists() && it.isDirectory } ?: return
+        exportDialogEntries = dir.listFiles().orEmpty()
+            .filter { it.isDirectory || it.extension.equals("zip", ignoreCase = true) }
+            .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
+            .map {
+                FileBrowserEntry(
+                    file = it,
+                    displayName = if (it.isDirectory) "[DIR] ${it.name}" else it.name,
+                    isDirectory = it.isDirectory
+                )
+            }
+    }
+
+    private fun sanitizeFileName(name: String): String {
+        val safe = name.replace(Regex("[^a-zA-Z0-9가-힣\\-_ ]"), "_").trim().replace(" ", "_")
+        return safe.ifEmpty { "song" }.take(80)
+    }
+
+    override fun renderImGui() {
+        if (!exportDialogOpen) return
+
+        ImGui.setNextWindowSize(560f, 430f)
+        if (ImGui.begin("곡 내보내기", ImGuiWindowFlags.NoCollapse)) {
+            ImGui.textWrapped("내부 파일 브라우저에서 저장 위치와 파일명을 선택합니다.")
+            ImGui.separator()
+            ImGui.textWrapped(exportDialogDir.absolutePath)
+
+            if (ImGui.button("상위 폴더")) {
+                exportDialogDir.parentFile?.takeIf { it.exists() && it.isDirectory }?.let {
+                    exportDialogDir = it
+                    exportDialogSelected = null
+                    refreshExportDialogEntries()
+                }
+            }
+            ImGui.sameLine()
+            if (ImGui.button("기본 경로")) {
+                exportDialogDir = ctx.songManager.workingDir.takeIf { it.exists() && it.isDirectory } ?: exportDialogDir
+                exportDialogSelected = null
+                refreshExportDialogEntries()
+            }
+            ImGui.sameLine()
+            if (ImGui.button("새로고침")) refreshExportDialogEntries()
+
+            ImGui.separator()
+            ImGui.beginChild("ExportFileList", 0f, 250f, true)
+            if (exportDialogEntries.isEmpty()) {
+                ImGui.textWrapped("표시할 폴더/zip 파일이 없습니다.")
+            } else {
+                for (entry in exportDialogEntries) {
+                    val selected = exportDialogSelected?.absolutePath == entry.file.absolutePath
+                    if (ImGui.selectable(entry.displayName, selected)) {
+                        if (entry.isDirectory) {
+                            exportDialogDir = entry.file
+                            exportDialogSelected = null
+                            refreshExportDialogEntries()
+                        } else {
+                            exportDialogSelected = entry.file
+                            exportFileName.set(entry.file.name)
+                        }
+                    }
+                }
+            }
+            ImGui.endChild()
+
+            ImGui.inputText("파일명", exportFileName)
+
+            if (ImGui.button("내보내기", 120f, 30f)) {
+                val raw = exportFileName.get().trim()
+                if (raw.isNotEmpty()) {
+                    val finalName = if (raw.endsWith(".zip", ignoreCase = true)) raw else "$raw.zip"
+                    exportCurrentSong(File(exportDialogDir, finalName))
+                    exportDialogOpen = false
+                }
+            }
+            ImGui.sameLine()
+            if (ImGui.button("취소", 120f, 30f)) exportDialogOpen = false
+            ImGui.end()
         }
-        dlg.isVisible = true
-        val name = dlg.file ?: return
-        var dest = File(dlg.directory, name)
-        if (!dest.name.endsWith(".zip", ignoreCase = true)) dest = File(dest.parentFile, dest.name + ".zip")
-        runCatching { SongZipUtil.export(entry, dest) }
-            .onFailure { log.error("내보내기 실패", it) }
     }
 }
