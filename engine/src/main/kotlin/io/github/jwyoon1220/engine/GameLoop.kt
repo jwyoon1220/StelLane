@@ -1,5 +1,7 @@
 package io.github.jwyoon1220.engine
 
+import io.github.jwyoon1220.engine.ecs.Scene
+
 /**
  * GLFW 메인 스레드에서 실행되는 게임 루프.
  *
@@ -10,7 +12,12 @@ package io.github.jwyoon1220.engine
 class GameLoop(
     private val window: GLFWWindow,
     private val stateManager: StateManager,
-    private val renderer: Renderer
+    private val renderer: Renderer,
+    /**
+     * InputSnapshot을 빌드해 현재 [Scene]에 주입하기 위한 InputManager.
+     * null이면 ECS InputSnapshot 주입을 건너뜁니다 (하위 호환).
+     */
+    private val inputManager: InputManager? = null
 ) {
     /** 목표 FPS. 언제든지 변경 가능 — 다음 루프 사이클부터 반영됩니다. */
     @Volatile var targetFPS: Int = 60
@@ -41,7 +48,15 @@ class GameLoop(
             // 1. GLFW 이벤트 처리 (콜백 → InputManager 로 라우팅)
             window.pollEvents()
 
-            // 2. 상태 업데이트 로직
+            // 2-a. ECS Scene이면 InputSnapshot을 주입합니다
+            //      (Scene.update()가 내부에서 tickSystems(lastInput, delta)를 호출)
+            val currentState = stateManager.currentState
+            if (inputManager != null && currentState is Scene) {
+                val snap = inputManager.buildSnapshot(now)
+                currentState.injectInput(snap)
+            }
+
+            // 2-b. 상태 업데이트 로직
             stateManager.update(delta)
 
             // 3. 렌더링

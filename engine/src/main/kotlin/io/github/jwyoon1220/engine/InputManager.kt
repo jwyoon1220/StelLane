@@ -2,6 +2,10 @@ package io.github.jwyoon1220.engine
 
 import it.unimi.dsi.fastutil.objects.ObjectArrayList
 import imgui.ImGui
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.KeyInputEvent
+import io.github.jwyoon1220.engine.ecs.LaneInputEvent
+import io.github.jwyoon1220.engine.ecs.MouseInputEvent
 import org.jctools.queues.MpscArrayQueue
 
 enum class LaneEventType { PRESS, RELEASE }
@@ -45,6 +49,13 @@ class InputManager(
     // 마우스 드래그용 버튼 추적
     private var pressedButton = -1
 
+    // ── ECS InputSnapshot 수집 버퍼 ─────────────────────────────────────────
+    private val pendingKeyEvents   = ObjectArrayList<KeyInputEvent>(16)
+    private val pendingMouseEvents = ObjectArrayList<MouseInputEvent>(8)
+    @Volatile private var frameScrollDy = 0.0
+    @Volatile private var logicalX = 0f
+    @Volatile private var logicalY = 0f
+
     init {
         window.onKey = { key, action, mods ->
             // 레인 키 → 큐 (ImGui wantCaptureKeyboard 와 무관하게 항상 큐에 넣음)
@@ -63,6 +74,8 @@ class InputManager(
                     Keys.RELEASE            -> stateKeyReleased?.invoke(key, mods)
                 }
             }
+            // ECS 경로: 항상 수집 (ImGui 필터 무관)
+            pendingKeyEvents.add(KeyInputEvent(key, action, mods))
         }
 
         window.onChar = { codepoint ->
@@ -73,10 +86,12 @@ class InputManager(
         window.onMouseButton = { button, action, mods ->
             val imguiCaptures = imGuiManager != null && ImGui.getIO().wantCaptureMouse
             val (lx, ly) = renderer.toLogical(window.cursorX, window.cursorY)
+            logicalX = lx; logicalY = ly
             when (action) {
                 Keys.PRESS -> {
                     pressedButton = button
                     stateMousePressed?.invoke(lx, ly, button, mods)
+                    pendingMouseEvents.add(MouseInputEvent(lx, ly, button, Keys.PRESS, mods))
                 }
                 Keys.RELEASE -> {
                     // pressedButton >= 0: 이전에 press가 있었을 때만 콜백 실행
@@ -84,6 +99,7 @@ class InputManager(
                         stateMouseReleased?.invoke(lx, ly, button, mods)
                         stateMouseClicked?.invoke(lx, ly, button, mods)
                         pressedButton = -1
+                        pendingMouseEvents.add(MouseInputEvent(lx, ly, button, Keys.RELEASE, mods))
                     }
                 }
             }
@@ -92,12 +108,17 @@ class InputManager(
         window.onCursorPos = { x, y ->
             if (pressedButton >= 0) {
                 val (lx, ly) = renderer.toLogical(x, y)
+                logicalX = lx; logicalY = ly
                 stateMouseDragged?.invoke(lx, ly, pressedButton)
+            } else {
+                val (lx, ly) = renderer.toLogical(x, y)
+                logicalX = lx; logicalY = ly
             }
         }
 
         window.onScroll = { _, dy ->
             stateScroll?.invoke(dy)
+            frameScrollDy += dy
         }
     }
 
@@ -112,5 +133,34 @@ class InputManager(
 
     /** 상태 전환 시 잔여 레인 이벤트를 비웁니다. */
     fun clearEvents() = eventQueue.clear()
+
+    /**
+     * 이번 프레임의 [InputSnapshot]을 빌드합니다.
+     *
+     * 레인 큐를 드레인하고 누적된 키/마우스/스크롤 이벤트를 수집합니다.
+     * [GameLoop]가 [window.pollEvents] 직후 호출합니다.
+     *
+     * @param frameTimeNs 프레임 시작 시각 (System.nanoTime())
+     */
+    fun buildSnapshot(frameTimeNs: Long = System.nanoTime()): InputSnapshot {
+        val laneEvents = mutableListOf<LaneInputEvent>()
+        while (true) {
+            val e = eventQueue.poll() ?: break
+            laneEvents.add(LaneInputEvent(e.lane, e.type == LaneEventType.PRESS))
+        }
+        val snap = InputSnapshot(
+            laneEvents   = laneEvents,
+            keyEvents    = pendingKeyEvents.toList(),
+            mouseEvents  = pendingMouseEvents.toList(),
+            cursorX      = logicalX,
+            cursorY      = logicalY,
+            scrollDy     = frameScrollDy,
+            frameTimeNs  = frameTimeNs
+        )
+        pendingKeyEvents.clear()
+        pendingMouseEvents.clear()
+        frameScrollDy = 0.0
+        return snap
+    }
 }
 
