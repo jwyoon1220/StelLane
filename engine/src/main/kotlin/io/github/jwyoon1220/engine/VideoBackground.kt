@@ -70,6 +70,10 @@ class VideoBackground private constructor(
     // getSmoothTimeMs/Double 에서 JNI player.status().isPlaying 폴링을 대체합니다.
     @Volatile private var isCurrentlyPlaying = false
 
+    // VLC 오디오 장치 재초기화/필터 재적용으로 음량이 흔들릴 때 강제로 복원할 목표 볼륨(%)
+    @Volatile private var targetVolumePercent = 100
+    @Volatile private var lastVolumeGuardAtMs = 0L
+
     companion object {
         /**
          * 팩토리 레벨 VLC 옵션.
@@ -81,11 +85,14 @@ class VideoBackground private constructor(
          *   노이즈를 억제. 재시도 후 I420 fallback 경로로 정상 재생됨.
          */
         private val FACTORY_OPTIONS = arrayOf(
-            "--avcodec-hw=none",
+            "--avcodec-hw=d3d11",         // Windows D3D11 하드웨어 디코딩 활성화 (GPU 가속)
             "--no-video-title-show",
             "--no-sub-autodetect-file",  // 자막 자동 로드 방지
             "--no-spu",                   // 자막/OSD 모듈 비활성화
-            "--quiet"                    // 내부 필터 체인 재시도 메시지 무음 (비치명적)
+            "--quiet",                    // 내부 필터 체인 재시도 메시지 무음 (비치명적)
+            "--audio-replay-gain-mode=none", // 음향 정규화 비활성화 (ReplayGain OFF)
+            "--no-volume-save",           // 미디어별 볼륨 기억 기능 비활성화
+            "--audio-filter="              // 사용자/시스템 오디오 필터 자동 적용 방지
         )
 
         fun create(): VideoBackground {
@@ -172,6 +179,7 @@ class VideoBackground private constructor(
             override fun playing(mp: MediaPlayer) {
                 log.debug("[VLC] playing 이벤트 수신")
                 isCurrentlyPlaying = true
+                enforceVolumeNow()
                 onPlayingStarted?.invoke()
             }
             override fun paused(mp: MediaPlayer)   { log.debug("[VLC] paused");   isCurrentlyPlaying = false }
@@ -182,7 +190,14 @@ class VideoBackground private constructor(
             // 이 이벤트로 timeAnchor를 갱신하면 getSmoothTimeMs/Double이
             // 게임 루프 핫패스에서 JNI를 전혀 호출하지 않아도 됩니다.
             override fun timeChanged(mp: MediaPlayer, newTime: Long) {
-                if (newTime >= 0) timeAnchor = TimeAnchor(newTime, System.nanoTime())
+                if (newTime >= 0) {
+                    timeAnchor = TimeAnchor(newTime, System.nanoTime())
+                    // 일부 환경에서 seek/출력장치 변경 직후 음량이 낮아지는 현상을 주기적으로 교정
+                    if (newTime - lastVolumeGuardAtMs >= 500L) {
+                        lastVolumeGuardAtMs = newTime
+                        enforceVolumeNow()
+                    }
+                }
             }
         })
 
@@ -222,6 +237,7 @@ class VideoBackground private constructor(
         log.info("[VLC] play 요청: {}", path)
         isCurrentlyPlaying = false  // playing 이벤트 수신 전까지 보간 억제
         timeAnchor = TimeAnchor(0L, System.nanoTime())
+        lastVolumeGuardAtMs = 0L
         // ":avcodec-hw=none" — 미디어별 소프트웨어 디코딩 강제 (팩토리 옵션과 이중 보호).
         // 하드웨어 디코더(D3D11VA 등)가 켜지면 GPU 메모리 프레임을 콜백 서피스(CPU)로
         // 복사하는 과정에서 VLC 필터 체인 재귀 오류가 발생하므로 반드시 비활성화.
@@ -254,7 +270,32 @@ class VideoBackground private constructor(
     fun seek(ms: Long) {
         //log.debug("[VLC] seek 요청: {}ms", ms)
         timeAnchor = TimeAnchor(ms, System.nanoTime())
-        vlcExecutor.submit { mediaPlayer?.controls()?.setTime(ms) }
+        vlcExecutor.submit {
+            mediaPlayer?.controls()?.setTime(ms)
+            enforceVolumeInternal(mediaPlayer)
+        }
+    }
+
+    /** 비디오 음량의 목표값(0..200%)을 설정합니다. 기본값은 100입니다. */
+    fun setTargetVolumePercent(value: Int) {
+        targetVolumePercent = value.coerceIn(0, 200)
+        enforceVolumeNow()
+    }
+
+    private fun enforceVolumeNow() {
+        val player = mediaPlayer ?: return
+        vlcExecutor.submit { enforceVolumeInternal(player) }
+    }
+
+    private fun enforceVolumeInternal(player: EmbeddedMediaPlayer?) {
+        val p = player ?: return
+        val audioApi = p.audio() ?: return
+        val target = targetVolumePercent.coerceIn(0, 200)
+        val current = runCatching { audioApi.volume() }.getOrNull()
+        if (current != null && current != target) {
+            runCatching { audioApi.setVolume(target) }
+                .onFailure { err -> log.debug("[VLC] setVolume 실패: {}", err.message) }
+        }
     }
 
     /** 현재 재생 위치(ms). 미디어가 없으면 0 반환. */

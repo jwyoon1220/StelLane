@@ -1,85 +1,103 @@
 package io.github.jwyoon1220.app.ui.ingame
 
 import io.github.jwyoon1220.core.data.Decoration
+import java.awt.FileDialog
+import java.awt.Frame
 import java.io.File
 import java.awt.Color
 
+/**
+ * 장식 속성 편집 인게임 창.
+ * Swing JFileChooser 대신 AWT FileDialog (네이티브 OS 파일 탐색기) 사용.
+ */
 class DecorEditInGameWindow(
     val initial: Decoration,
     val songDir: File,
     val onSave: (Decoration) -> Unit
-) : UIWindow("decor_edit", "장식 편집 - ${initial.id.ifEmpty { "New" }}", 300, 100, 400, 360) {
-    
-    private val tfId = UITextField(120, 10, 150, 24, initial.id)
-    private val tfImage = UITextField(120, 40, 150, 24, initial.image)
-    private val tfTimeMs = UITextField(120, 70, 150, 24, initial.timeMs.toString())
-    private val tfDurMs = UITextField(120, 100, 150, 24, initial.durationMs.toString())
-    private val tfX = UITextField(120, 130, 60, 24, initial.x.toString())
-    private val tfY = UITextField(190, 130, 60, 24, initial.y.toString())
-    private val tfW = UITextField(120, 160, 60, 24, initial.width.toString())
-    private val tfH = UITextField(190, 160, 60, 24, initial.height.toString())
-    private val tfScaleX = UITextField(120, 190, 60, 24, initial.scaleX.toString())
-    private val tfScaleY = UITextField(190, 190, 60, 24, initial.scaleY.toString())
-    private val tfDepth = UITextField(120, 220, 150, 24, initial.depth.toString())
+) : UIWindow("decor_edit_${initial.id}", "장식 편집 — ${initial.id.ifEmpty { "New" }}", 200, 80, 440, 400) {
+
+    private val tfId     = UITextField(110, 8,  200, 24, initial.id)
+    private val tfImage  = UITextField(110, 38, 160, 24, initial.image)
+    private val tfTimeMs = UITextField(110, 68, 130, 24, initial.timeMs.toString())
+    private val tfDurMs  = UITextField(110, 98, 130, 24, initial.durationMs.toString())
+    private val tfX      = UITextField(110, 128, 60, 24, initial.x.toString())
+    private val tfY      = UITextField(180, 128, 60, 24, initial.y.toString())
+    private val tfW      = UITextField(110, 158, 60, 24, initial.width.toString())
+    private val tfH      = UITextField(180, 158, 60, 24, initial.height.toString())
+    private val tfPivX   = UITextField(110, 188, 60, 24, initial.pivotX.toString())
+    private val tfPivY   = UITextField(180, 188, 60, 24, initial.pivotY.toString())
+    private val tfOpac   = UITextField(110, 218, 60, 24, initial.opacity.toString())
+    private val tfRot    = UITextField(200, 218, 60, 24, initial.rotation.toString())
+    private val tfDepth  = UITextField(110, 248, 60, 24, initial.depth.toString())
 
     init {
-        components.add(UILabel(20, 10, "ID"))
-        components.add(tfId)
-        
-        components.add(UILabel(20, 40, "Image Path"))
-        components.add(tfImage)
-        components.add(UIButton(280, 40, 80, 24, "탐색") {
-            val fc = javax.swing.JFileChooser(songDir).apply {
-                dialogTitle = "이미지 선택"
-                fileFilter  = javax.swing.filechooser.FileNameExtensionFilter("이미지", "png", "jpg", "jpeg", "webp")
-            }
-            val owner = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
-            if (fc.showOpenDialog(owner) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                tfImage.text = fc.selectedFile.toRelativeString(songDir).replace("\\\\", "/")
-            }
-        })
-        
-        components.add(UILabel(20, 70, "Time (ms)"))
-        components.add(tfTimeMs)
-        
-        components.add(UILabel(20, 100, "Duration (ms)"))
-        components.add(tfDurMs)
-        
-        components.add(UILabel(20, 130, "X / Y"))
-        components.add(tfX)
-        components.add(tfY)
-        
-        components.add(UILabel(20, 160, "Width / Height"))
-        components.add(tfW)
-        components.add(tfH)
-        
-        components.add(UILabel(20, 190, "Scale X / Y"))
-        components.add(tfScaleX)
-        components.add(tfScaleY)
+        fun lbl(x: Int, y: Int, text: String) = UILabel(x, y, text, Color(160, 135, 210))
 
-        components.add(UILabel(20, 220, "Depth"))
-        components.add(tfDepth)
-        
-        components.add(UIButton(100, 280, 80, 30, "저장") {
+        components += lbl(10,  8,  "ID")
+        components += tfId
+        components += lbl(10,  38, "Image")
+        components += tfImage
+        // 네이티브 파일 탐색기 버튼
+        components += UIButton(278, 38, 70, 24, "탐색…") {
+            val dlg = FileDialog(null as Frame?, "이미지 선택", FileDialog.LOAD).apply {
+                directory = songDir.absolutePath
+                file = "*.png;*.jpg;*.jpeg;*.webp"
+            }
+            dlg.isVisible = true
+            val chosen = dlg.file
+            if (chosen != null) {
+                val fullPath = File(dlg.directory, chosen)
+                tfImage.text = runCatching {
+                    fullPath.toRelativeString(songDir).replace("\\", "/")
+                }.getOrDefault(fullPath.absolutePath)
+            }
+        }
+
+        components += lbl(10,  68,  "Time (ms)")
+        components += tfTimeMs
+        components += lbl(10,  98,  "Duration (ms)")
+        components += tfDurMs
+        components += lbl(10,  128, "X")
+        components += tfX
+        components += lbl(170, 128, "Y")
+        components += tfY
+        components += lbl(10,  158, "Width")
+        components += tfW
+        components += lbl(170, 158, "Height")
+        components += tfH
+        components += lbl(10,  188, "Pivot X")
+        components += tfPivX
+        components += lbl(170, 188, "Pivot Y")
+        components += tfPivY
+        components += lbl(10,  218, "Opacity")
+        components += tfOpac
+        components += lbl(190, 218, "Rotation")
+        components += tfRot
+        components += lbl(10,  248, "Depth")
+        components += tfDepth
+
+        // ── 저장 / 취소 버튼 ────────────────────────────────────────────────
+        components += UIButton(60, 305, 110, 30, "저장") {
             val dec = initial.copy(
-                id = tfId.text.trim(),
-                image = tfImage.text.trim(),
-                timeMs = tfTimeMs.text.toLongOrNull() ?: initial.timeMs,
-                durationMs = tfDurMs.text.toLongOrNull() ?: initial.durationMs,
-                x = tfX.text.toFloatOrNull() ?: initial.x,
-                y = tfY.text.toFloatOrNull() ?: initial.y,
-                width = tfW.text.toFloatOrNull() ?: initial.width,
-                height = tfH.text.toFloatOrNull() ?: initial.height,
-                scaleX = tfScaleX.text.toFloatOrNull() ?: initial.scaleX,
-                scaleY = tfScaleY.text.toFloatOrNull() ?: initial.scaleY,
-                depth = tfDepth.text.toIntOrNull() ?: initial.depth
+                id         = tfId.text.trim(),
+                image      = tfImage.text.trim(),
+                timeMs     = tfTimeMs.text.toLongOrNull()  ?: initial.timeMs,
+                durationMs = tfDurMs.text.toLongOrNull()   ?: initial.durationMs,
+                x          = tfX.text.toFloatOrNull()      ?: initial.x,
+                y          = tfY.text.toFloatOrNull()      ?: initial.y,
+                width      = tfW.text.toFloatOrNull()      ?: initial.width,
+                height     = tfH.text.toFloatOrNull()      ?: initial.height,
+                pivotX     = tfPivX.text.toFloatOrNull()   ?: initial.pivotX,
+                pivotY     = tfPivY.text.toFloatOrNull()   ?: initial.pivotY,
+                opacity    = tfOpac.text.toFloatOrNull()   ?: initial.opacity,
+                rotation   = tfRot.text.toFloatOrNull()    ?: initial.rotation,
+                depth      = tfDepth.text.toIntOrNull()    ?: initial.depth
             )
             onSave(dec)
             UIManager.removeWindow(id)
-        })
-        components.add(UIButton(200, 280, 80, 30, "취소") {
+        }
+        components += UIButton(190, 305, 110, 30, "취소") {
             UIManager.removeWindow(id)
-        })
+        }
     }
 }
-

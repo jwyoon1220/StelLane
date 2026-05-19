@@ -95,7 +95,7 @@ fun main(args: Array<String>) {
     stateManager.changeState(MainMenuState(ctx))
 
     // ── 게임 루프 시작 (블로킹, 창이 닫힐 때까지 반환되지 않음) ─────────────────
-    val gameLoop = GameLoop(window, stateManager, renderer)
+    val gameLoop = GameLoop(window, stateManager, renderer, inputManager)
     ctx.gameLoop = gameLoop
     gameLoop.onFpsUpdate = { fps -> window.title = "StelLane  |  $fps FPS" }
     gameLoop.targetFPS = AppSettings.targetFps

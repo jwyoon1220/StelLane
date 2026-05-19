@@ -448,6 +448,76 @@ class DrawContext(
         nvgFill(vg)
     }
 
+    // ── 텍스트 정렬 변형 ─────────────────────────────────────────────────────
+
+    /** 텍스트를 가운데 정렬로 그립니다. cx 가 중심 x 좌표. */
+    fun drawStringCentered(str: String, cx: Float, y: Float) {
+        val f = font ?: return
+        nvgFontFaceId(vg, f.id)
+        nvgFontSize(vg, f.size)
+        nvgTextAlign(vg, NVG_ALIGN_CENTER or NVG_ALIGN_BASELINE)
+        applyFillColor()
+        nvgText(vg, cx, y, str)
+    }
+
+    /** 텍스트를 오른쪽 정렬로 그립니다. x 가 오른쪽 끝 좌표. */
+    fun drawStringRight(str: String, x: Float, y: Float) {
+        val f = font ?: return
+        nvgFontFaceId(vg, f.id)
+        nvgFontSize(vg, f.size)
+        nvgTextAlign(vg, NVG_ALIGN_RIGHT or NVG_ALIGN_BASELINE)
+        applyFillColor()
+        nvgText(vg, x, y, str)
+    }
+
+    /** 텍스트를 왼쪽 정렬로 그립니다 (drawString 별칭, 일관성 유지용). */
+    fun drawStringLeft(str: String, x: Float, y: Float) = drawString(str, x, y)
+
+    // ── 폰트 블러 ────────────────────────────────────────────────────────────
+
+    /** NanoVG 폰트 블러 반경을 설정합니다. 0f 로 초기화하세요. */
+    fun setFontBlur(blur: Float) = nvgFontBlur(vg, blur)
+
+    // ── 텍스트 측정 ─────────────────────────────────────────────────────────
+
+    /** 주어진 폰트로 문자열 너비를 측정합니다. */
+    fun measureStringWidth(str: String, f: DrawFont): Float {
+        if (str.isEmpty()) return 0f
+        nvgFontFaceId(vg, f.id)
+        nvgFontSize(vg, f.size)
+        val bounds = FloatArray(4)
+        return nvgTextBounds(vg, 0f, 0f, str, bounds)
+    }
+
+    /** 현재 설정된 font 로 문자열 너비를 측정합니다. */
+    fun measureStringWidth(str: String): Float = font?.let { measureStringWidth(str, it) } ?: 0f
+
+    // ── 박스 그라디언트 ──────────────────────────────────────────────────────
+
+    /**
+     * 둥근 사각형 안쪽에서 바깥쪽으로 퍼지는 박스 그라디언트를 채웁니다.
+     * 커버 이미지 테두리 글로우 등에 활용합니다.
+     *
+     * @param x, y, w, h   사각형 영역
+     * @param r             모서리 반경
+     * @param feather       흐림 폭 (px)
+     * @param innerColor    안쪽 색
+     * @param outerColor    바깥쪽 색
+     */
+    fun fillBoxGradientRect(
+        x: Float, y: Float, w: Float, h: Float,
+        r: Float, feather: Float,
+        innerColor: Color, outerColor: Color
+    ) {
+        nvgRGBAf(innerColor.red/255f, innerColor.green/255f, innerColor.blue/255f, innerColor.alpha/255f, nvgColor)
+        nvgRGBAf(outerColor.red/255f, outerColor.green/255f, outerColor.blue/255f, outerColor.alpha/255f, nvgColor2)
+        nvgBoxGradient(vg, x, y, w, h, r, feather, nvgColor, nvgColor2, nvgPaint)
+        nvgBeginPath(vg)
+        nvgRect(vg, x - feather, y - feather, w + feather * 2, h + feather * 2)
+        nvgFillPaint(vg, nvgPaint)
+        nvgFill(vg)
+    }
+
     // ── 내부 유틸 ───────────────────────────────────────────────────────────
     private fun toRGBABuffer(img: BufferedImage): ByteBuffer {
         val w = img.width; val h = img.height

@@ -1,15 +1,9 @@
 package io.github.jwyoon1220.app.state
 
-import imgui.ImGui
-import imgui.flag.ImGuiCond
-import imgui.flag.ImGuiTableFlags
-import imgui.flag.ImGuiWindowFlags
-import imgui.type.ImString
-import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.DecorationRenderer
-import io.github.jwyoon1220.app.EditorRenderBackend
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.app.ui.ingame.*
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Decoration
 import io.github.jwyoon1220.core.data.DecorationData
@@ -21,17 +15,19 @@ import io.github.jwyoon1220.core.song.ChartParser
 import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.editor.Quantizer
 import io.github.jwyoon1220.editor.Timeline
-import io.github.jwyoon1220.app.SwingHelper
 import io.github.jwyoon1220.core.data.DecEffect
+import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.LaneEventType
 import io.github.jwyoon1220.engine.CustomGLRenderable
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
-import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.ImGuiRenderable
-import io.github.jwyoon1220.engine.Keys
-import io.github.jwyoon1220.engine.LaneEventType
+import imgui.ImGui
+import imgui.type.ImFloat
+import imgui.type.ImInt
+import imgui.type.ImString
+import imgui.flag.ImGuiWindowFlags
 import it.unimi.dsi.fastutil.ints.IntArraySet
-import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
 import java.io.File
@@ -39,13 +35,13 @@ import kotlin.math.abs
 
 class EditorState(
     private val ctx: GameContext,
-    private val songEntry: SongEntry,
+    val songEntry: SongEntry,
     private val chartFile: File,
     chart: Chart
 ) : GameState, CustomGLRenderable, ImGuiRenderable {
     override val rendersBackground = true
-    override val useCustomGlRenderer: Boolean
-        get() = AppSettings.editorRenderBackend == EditorRenderBackend.CUSTOM
+    // 에디터는 마딩으로 NanoVG 패스로 비디오를 그림 (커스텀 GL 패스 불필요)
+    override val useCustomGlRenderer: Boolean = false
 
     // ── 노트 모드 ──────────────────────────────────────────────────────────────
     private enum class NoteMode { NORMAL, LONG }
@@ -126,7 +122,8 @@ class EditorState(
     @Volatile private var isTimelineHovered = false
 
     private fun shouldIgnoreMouse(): Boolean {
-        return ImGui.getIO().wantCaptureMouse && !isViewportHovered && !isTimelineHovered
+        // ImGui가 마우스를 점유 중이면 게임 로직(노트 클릭 등) 무시
+        return ImGui.getIO().wantCaptureMouse
     }
 
     // ── 레코딩 (홀드 추적) ────────────────────────────────────────────────────
@@ -134,13 +131,41 @@ class EditorState(
     // GameLoopThread(update) ↔ EDT(render) 동시 접근 목적: mutableChart.notes 보호
     private val notesLock = Any()
 
-    // ── ImGui 팝업 상태 ──────────────────────────────────────────────────────
-    private var pendingNoteAdd      = false
-    private var addNotePopupLane    = 0
-    private var addNotePopupMs      = 0L
-    private var pendingDecorPopup   = false
-    private var decorPopupHitIdx    = -1
-    private var decorPopupClickMs   = 0L
+    // ── UI 상태 ──────────────────────────────────────────────────────────────
+    private var contextMenuX = 0f
+    private var contextMenuY = 0f
+    private var contextMenuNoteIdx = -1
+    private var contextMenuDecorIdx = -1
+    private var contextMenuClickMs = 0L
+    private var contextMenuLane = 0
+    // ImGui.openPopup()은 반드시 ImGui 프레임 내(renderImGui)에서 호출해야 합니다.
+    // 입력 콜백에서 직접 호출하면 JVM 네이티브 크래시가 발생하므로 플래그로 지연합니다.
+    @Volatile private var pendingContextMenu = false
+
+    private var editingDecorIdx = -1
+    private var editingDecor: Decoration? = null
+    private var imageBrowserOpen = false
+    private var imageBrowserDir: File = songEntry.songDir
+    private var imageBrowserSelectedFile: File? = null
+    private var imageBrowserEntries: List<ImageBrowserEntry> = emptyList()
+    
+    // ImGui용 바인딩
+    private val imId = ImString(128)
+    private val imImage = ImString(256)
+    private val imTime = ImInt(0)
+    private val imDuration = ImInt(0)
+    private val imX = ImFloat(0f)
+    private val imY = ImFloat(0f)
+    private val imW = ImFloat(0f)
+    private val imH = ImFloat(0f)
+    private val imOpacity = ImFloat(1f)
+    private val imRotation = ImFloat(0f)
+    private val imDepth = ImInt(0)
+    private var showShortcutPanel = true
+    private var showDecorPanel    = true
+    private var sidebarW          = 280
+    private var headerH           = 46
+
 
     // ── 데코레이션 편집 모드 ──────────────────────────────────────────────────
     private var decorMode = false
@@ -164,31 +189,11 @@ class EditorState(
     private var cachedVpW = 0
     private var cachedVpX = 0
     private var cachedVpY = 46
+    private var overviewBarY = 0
+    private var overviewBarH = 18
+    private var overviewBarGap = 8
+    private var overviewDragActive = false
 
-    // ── ImGui 장식 편집 모달 ──────────────────────────────────────────────────
-    private var showDecorModal    = false
-    private var decorModalIsNew   = false
-    private var decorModalEditIdx = -1
-    private val bufDecId       = ImString(64)
-    private val bufDecImage    = ImString(256)
-    private val bufDecTimeMs   = imgui.type.ImInt()
-    private val bufDecDurMs    = imgui.type.ImInt()
-    private val bufDecXY       = FloatArray(2)   // [x, y]
-    private val bufDecWH       = FloatArray(2)   // [width, height]
-    private val bufDecPivot    = FloatArray(2)   // [pivotX, pivotY]
-    private val bufDecOpacity  = FloatArray(1)
-    private val bufDecRotation = imgui.type.ImFloat()
-    private val bufDecScale    = FloatArray(2)   // [scaleX, scaleY]
-    private val bufDecDepth    = imgui.type.ImInt()
-    private val modalEffects   = mutableListOf<DecEffect>()
-    private var effectSelectedRow  = -1
-    private var showAddEffPopup    = false
-    private val newEffTypeIdxArr   = intArrayOf(0)
-    private val newEffEasingIdxArr = intArrayOf(0)
-    private val newEffStartMs      = IntArray(1)
-    private val newEffDurMs        = intArrayOf(500)
-    private val effectTypeNames    = arrayOf("fadeIn", "fadeOut", "opacityTo", "moveTo", "rotateTo", "scaleTo", "colorFilter", "shake")
-    private val easingTypeNames    = arrayOf("linear", "easeIn", "easeOut", "easeInOut")
 
     // ── 폰트 ─────────────────────────────────────────────────────────────────
     private val headerFont = FontLoader.semiBold(20f)
@@ -198,6 +203,8 @@ class EditorState(
 
     // ── 컴패니언 — 매 프레임 Color 할당 방지 ─────────────────────────────────────
     companion object {
+        private val IMAGE_FILE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp")
+
         // 타임라인 노트 색상 (Custom GL 패스)
         private val TL_LANE_COLORS = arrayOf(
             Color(100, 180, 255, 200),
@@ -233,6 +240,12 @@ class EditorState(
         }
     }
 
+    private data class ImageBrowserEntry(
+        val file: File,
+        val displayName: String,
+        val isDirectory: Boolean
+    )
+
     // ── GameState ─────────────────────────────────────────────────────────────
 
     override fun enter() {
@@ -252,13 +265,28 @@ class EditorState(
         }
     }
 
+    private fun resolveMediaPath(): String? {
+        val song = songEntry.song
+        return when {
+            song.videoPath != null -> File(songEntry.songDir, song.videoPath).absolutePath
+            song.audioPath != null -> File(songEntry.songDir, song.audioPath).absolutePath
+            else                   -> null
+        }
+    }
+
     override fun exit() {
         ctx.videoBackground.onPlayingStarted = null
         ctx.videoBackground.stop()
         ctx.inputManager.clearEvents()
     }
 
+    // ── 캐시된 현재 시간 (프레임당 1회 계산으로 제한)
+    private var cachedCurrentTimeMs = 0L
+    private var lastCacheFrameId = -1L
+    private var frameCounter = 0L
+
     override fun update(deltaTime: Double) {
+        frameCounter++
         val events = ctx.inputManager.pollEvents()
         
         if (pendingSeekMs >= 0L) {
@@ -270,7 +298,14 @@ class EditorState(
             }
         }
         
-        val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
+        // getSmoothTimeMs() 호출을 프레임당 1회로 제한 (이전 호출과 동일하면 캐시된 값 사용)
+        val frameId = ctx.videoBackground.getFrameId()
+        if (frameId != lastCacheFrameId || lastCacheFrameId == -1L) {
+            cachedCurrentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
+            lastCacheFrameId = frameId
+        }
+        val currentTimeMs = cachedCurrentTimeMs
+        
         // 재생 중일 때 타임라인 스크롤 자동 전진 (페이지 넘김 방식 또는 부드러운 스크롤)
         if (isPlaying) {
             if (currentTimeMs > timelineScrollMs + visibleWindowMs * 0.9) {
@@ -279,16 +314,16 @@ class EditorState(
                 timelineScrollMs = currentTimeMs - (visibleWindowMs * 0.1).toLong()
             }
         }
+        
         if (recordingMode && isPlaying) {
-            val now = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
             for (event in events) {
                 val lane = event.lane
                 when (event.type) {
-                    LaneEventType.PRESS   -> heldLaneStartMs[lane] = now
+                    LaneEventType.PRESS   -> heldLaneStartMs[lane] = currentTimeMs
                     LaneEventType.RELEASE -> {
                         val startMs = heldLaneStartMs[lane]
                         if (startMs < 0) continue
-                        val duration     = now - startMs
+                        val duration     = currentTimeMs - startMs
                         val snappedStart = snapTime(startMs)
 
                         saveSnapshot()
@@ -296,7 +331,7 @@ class EditorState(
                             if (duration < 150 || noteMode == NoteMode.NORMAL) {
                                 mutableChart.notes.add(MutableNote(snappedStart, lane, NoteType.SHORT))
                             } else {
-                                mutableChart.notes.add(MutableNote(snappedStart, lane, NoteType.LONG, snapTime(now)))
+                                mutableChart.notes.add(MutableNote(snappedStart, lane, NoteType.LONG, snapTime(currentTimeMs)))
                             }
                             mutableChart.notes.sortBy { it.time }
                         }
@@ -314,168 +349,214 @@ class EditorState(
         val w = renderW
         val h = renderH
 
-        val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
+        // 캐시된 현재 시간 사용 (update()에서 계산됨)
+        val currentTimeMs = cachedCurrentTimeMs
         val pos     = maxOf(currentTimeMs, 0L)
         val timeStr = "%d:%02d.%03d".format(pos / 60_000, (pos % 60_000) / 1000, pos % 1000)
 
         // ── 레이아웃 계산 ──────────────────────────────────────────────────────
-        val tl0Y   = unifiedTlY
-        val noteY  = noteTrackY
-        // handleDecorMouseClick 좌표 갱신
-        decorTlX = timelineX; decorTlY = tl0Y; decorTlW = timelineW; decorTlH = DECOR_TL_H
+        val topH = headerH
+        val leftPanelW = if (showDecorPanel) sidebarW else 0
+        val rightPanelW = if (showShortcutPanel) sidebarW else 0
+        val timelineH = if (decorMode) 238 else 138
+        val contentTimelineH = timelineH - overviewBarH - overviewBarGap
+        
+        timelineX = leftPanelW
+        timelineW = w - leftPanelW - rightPanelW
+        unifiedTlY = h - timelineH
+        overviewBarY = h - overviewBarH
+        
+        NOTE_TL_H  = if (decorMode) contentTimelineH - 110 else contentTimelineH - 20
+        DECOR_TL_H = if (decorMode) 110 else 0
+        
+        decorTlX = timelineX; decorTlY = unifiedTlY; decorTlW = timelineW; decorTlH = DECOR_TL_H
+        timelineScrollMs = clampTimelineScroll(timelineScrollMs)
 
-        // ── 0. 전체 배경 검은색 채우기 ────────────────────────────────────────
-        g.color = Color(10, 10, 12) // 매우 어두운 바탕색
+        // 뷰포트 영역 계산
+        val vpAreaW = timelineW
+        val vpAreaH = h - topH - timelineH
+        
+        val targetH = (vpAreaH * vpHeightPct / 100.0).toInt()
+        val targetW = (targetH * 16 / 9).coerceAtMost(vpAreaW)
+        val finalH = (targetW * 9 / 16).toInt()
+
+        cachedVpH = finalH
+        cachedVpW = targetW
+        cachedVpX = timelineX + (vpAreaW - targetW) / 2
+        cachedVpY = topH + (vpAreaH - finalH) / 2
+
+        // ── 0. 전체 배경 ──────────────────────────────────────────────────────
+        g.color = Color(8, 6, 16)
         g.fillRect(0, 0, w, h)
 
-        // 뷰포트는 ImGui에서 크기와 위치가 결정됨
-        val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
+        // ── 1. 비디오 뷰포트 (가장 먼저 그림) ────────────────────────────────
+        if (cachedVpW > 0 && cachedVpH > 0) {
+            // 뷰포트 외곽 어두운 테두리
+            g.color = Color(0, 0, 0, 180)
+            g.fillRect(cachedVpX - 2, cachedVpY - 2, cachedVpW + 4, cachedVpH + 4)
 
-        // 비디오 프레임 렌더링: GL 텍스처 핸들 우선(uploadPendingFrame이 이미 최신 상태 보장),
-        // 없으면 BufferedImage 폴백. CUSTOM GL 모드에서는 renderCustomGl()에서 직접 GL 텍스처를
-        // 그리므로 NanoVG 비디오 패스를 건너뜀.
-        if (!useCustomGlRenderer) {
-            val nvgHandle = ctx.videoBackground.getNvgImageHandle(g.vg)
-            if (nvgHandle >= 0) {
-                g.drawNvgImage(nvgHandle, vpX.toFloat(), vpY.toFloat(), vpW.toFloat(), vpH.toFloat())
-            } else {
-                val frame = ctx.videoBackground.getCurrentFrame()
-                if (frame != null) g.drawImage(frame, vpX, vpY, vpW, vpH, null)
-            }
-        }
-
-        // ── 2. 장식 오버레이 (뷰포트 스케일 적용) ────────────────────────────────
-        val renderer = decorRenderer
-        if (renderer != null) {
-            g.save()
-            g.setClip(vpX, vpY, vpW, vpH)
-            g.translate(vpX.toDouble(), vpY.toDouble())
-            g.scale(vpW / 1280.0, vpH / 720.0)
-            renderer.render(g, currentTimeMs, beforeNotes = true)
-            renderer.render(g, currentTimeMs, beforeNotes = false)
-            renderer.renderScreenEffects(g, currentTimeMs)
-            g.restore()
-        }
-
-        // ── 3. 선택된 장식 바운딩 박스 (뷰포트 적용) ──────────────────────────
-        if (decorMode) {
-            val selDec = decorations.getOrNull(selectedDecorIdx)
-            selDec?.let { dec ->
-                // 데코레이션은 1280x720 논리 해상도를 기준으로 하므로,
-                // 이를 뷰포트 비율로 변환해야 함
-                val scaleRatioX = vpW / 1280f
-                val scaleRatioY = vpH / 720f
-
-                val bw = if (dec.width  <= 1f) dec.width  * 1280f else dec.width
-                val bh = if (dec.height <= 1f) dec.height * 720f  else dec.height
-                val fw = (bw * scaleRatioX).toInt().coerceAtLeast(1)
-                val fh = (bh * scaleRatioY).toInt().coerceAtLeast(1)
-                
-                val lx = vpX + ((dec.x * 1280f - dec.pivotX * bw) * scaleRatioX).toInt()
-                val lt = vpY + ((dec.y * 720f  - dec.pivotY * bh) * scaleRatioY).toInt()
-
-                val sc  = g.stroke; val sc2 = g.composite
-                g.composite = AlphaComposite.SrcOver
-                g.stroke = BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
-                    10f, floatArrayOf(8f, 4f), 0f)
-                g.color = Color(255, 220, 60, 220)
-                g.drawRect(lx, lt, fw, fh)
-                g.stroke = BasicStroke(2f)
-                val hs = 8
-                for ((hx, hy) in listOf<Pair<Int, Int>>(lx to lt, lx + fw to lt, lx to lt + fh, lx + fw to lt + fh)) {
-                    g.color = Color(255, 220, 60, 200); g.fillRect(hx - hs/2, hy - hs/2, hs, hs)
+            if (!useCustomGlRenderer) {
+                val nvgHandle = ctx.videoBackground.getNvgImageHandle(g.vg)
+                if (nvgHandle >= 0) {
+                    g.drawNvgImage(nvgHandle, cachedVpX.toFloat(), cachedVpY.toFloat(), cachedVpW.toFloat(), cachedVpH.toFloat())
+                } else {
+                    val frame = ctx.videoBackground.getCurrentFrame()
+                    if (frame != null) {
+                        g.drawImage(frame, cachedVpX, cachedVpY, cachedVpW, cachedVpH, null)
+                    } else {
+                        // 영상 없을 때 자리표시자
+                        g.color = Color(20, 15, 35)
+                        g.fillRect(cachedVpX, cachedVpY, cachedVpW, cachedVpH)
+                        g.color = Color(60, 50, 90)
+                        g.font = infoFont
+                        g.drawStringCentered("▶ 영상 없음", (cachedVpX + cachedVpW / 2).toFloat(), (cachedVpY + cachedVpH / 2).toFloat())
+                    }
                 }
-                g.stroke = sc; g.composite = sc2
+            }
+
+            // ── 1b. 장식 오버레이 (영상 위에 그림) ──────────────────────────
+            val decorRend = decorRenderer
+            if (decorRend != null) {
+                g.save()
+                g.setClip(cachedVpX, cachedVpY, cachedVpW, cachedVpH)
+                g.translate(cachedVpX.toDouble(), cachedVpY.toDouble())
+                g.scale(cachedVpW / 1280.0, cachedVpH / 720.0)
+                decorRend.render(g, currentTimeMs, beforeNotes = true)
+                decorRend.render(g, currentTimeMs, beforeNotes = false)
+                decorRend.renderScreenEffects(g, currentTimeMs)
+                g.restore()
+            }
+
+            // ── 1c. 선택된 장식 바운딩 박스 가이드 ──────────────────────────
+            if (decorMode && selectedDecorIdx >= 0) {
+                val dec = decorations.getOrNull(selectedDecorIdx)
+                dec?.let { d ->
+                    val scaleX = cachedVpW / 1280f; val scaleY = cachedVpH / 720f
+                    val dw = if (d.width <= 1f) d.width * 1280f else d.width
+                    val dh = if (d.height <= 1f) d.height * 720f else d.height
+                    val fx = cachedVpX + ((d.x * 1280f - d.pivotX * dw) * scaleX).toInt()
+                    val fy = cachedVpY + ((d.y * 720f  - d.pivotY * dh) * scaleY).toInt()
+                    val fw = (dw * scaleX).toInt().coerceAtLeast(2)
+                    val fh = (dh * scaleY).toInt().coerceAtLeast(2)
+
+                    g.color = Color(220, 160, 255, 200)
+                    g.stroke = BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, floatArrayOf(6f, 4f), 0f)
+                    g.drawRect(fx, fy, fw, fh)
+                    g.stroke = BasicStroke(1.5f)
+                    // 코너 핸들
+                    for ((hx, hy) in listOf(fx to fy, fx + fw to fy, fx to fy + fh, fx + fw to fy + fh)) {
+                        g.color = Color(220, 160, 255); g.fillRect(hx - 4, hy - 4, 8, 8)
+                        g.color = Color(0, 0, 0, 120); g.drawRect(hx - 4, hy - 4, 8, 8)
+                    }
+                    // 이름 라벨
+                    g.color = Color(220, 160, 255, 180); g.font = hintFont
+                    g.drawString(d.id.ifEmpty { "(decoration)" }, (fx + 2).toFloat(), (fy - 4).toFloat())
+                }
             }
         }
 
-        // ── 4. (ImGui가 UI 배경 처리) ─────────────────────────────────────────
-
-        // ── 5. (ImGui 메뉴바가 헤더 처리) ────────────────────────────────────
-
-        // ── 6. 노트 타임라인 ─────────────────────────────────────────────────
-        val chartSnapshot = synchronized(notesLock) {
-            MutableChart(mutableChart.offsetMs, mutableChart.notes.toMutableList())
+        // ── 2. 사이드 패널 ────────────────────────────────────────────────────
+        if (showDecorPanel) {
+            g.fillLinearGradient(
+                0f, topH.toFloat(), leftPanelW.toFloat(), (h - topH).toFloat(),
+                0f, 0f, leftPanelW.toFloat(), 0f,
+                Color(18, 13, 32, 230), Color(12, 8, 22, 190)
+            )
+            g.color = Color(80, 55, 130, 80); g.drawLine(leftPanelW, topH, leftPanelW, h)
+            renderDecorPropsPanel(g, 0, topH, leftPanelW, h - topH)
         }
-        Timeline.render(
-            g, chartSnapshot, timelineScrollMs, currentTimeMs,
-            timelineX, noteY, timelineW, NOTE_TL_H,
-            visibleWindowMs, selectedIndices,
-            songEntry.song.bpm?.toDouble(),
-            drawNotes = !useCustomGlRenderer  // CUSTOM GL 모드: renderCustomGl()에서 GL로 렌더
+        if (showShortcutPanel) {
+            val dx = w - rightPanelW
+            g.fillLinearGradient(
+                dx.toFloat(), topH.toFloat(), rightPanelW.toFloat(), (h - topH).toFloat(),
+                dx.toFloat(), 0f, w.toFloat(), 0f,
+                Color(12, 8, 22, 190), Color(18, 13, 32, 230)
+            )
+            g.color = Color(80, 55, 130, 80); g.drawLine(dx, topH, dx, h)
+            renderNoteShortcutPanel(g, dx, topH, rightPanelW, h - topH)
+        }
+
+        // ── 3. 상단 헤더 ──────────────────────────────────────────────────────
+        g.fillLinearGradient(
+            0f, 0f, w.toFloat(), topH.toFloat(),
+            0f, 0f, 0f, topH.toFloat(),
+            Color(40, 22, 80, 245), Color(22, 14, 45, 245)
         )
-        g.font = hintFont; g.color = Color(90, 75, 125)
-        g.drawString("♩ NOTES", timelineX + 4, noteY - 3)
+        g.color = Color(120, 70, 220, 100); g.drawLine(0, topH - 1, w, topH - 1)
+        // 왼쪽: 곡 제목
+        g.font = headerFont; g.color = Color(190, 150, 255)
+        g.drawString("✏  ${songEntry.song.title}", 16f, 30f)
+        // 오른쪽: 상태 + 버전
+        g.font = infoFont
+        val statusStr = "B1.2.2  ·  ${timeStr}  ${if (isPlaying) "▶" else "⏸"}  ${if (decorMode) "田 DECOR" else "♩ NOTE"}  ${if (recordingMode) "● REC" else ""}  ${if (quantizeEnabled) "1/$quantizeDivision" else "Free"}  ${visibleWindowMs/1000}s"
+        g.color = Color(140, 125, 185); g.drawStringRight(statusStr, (w - 12).toFloat(), 30f)
+        if (unsaved) { g.color = Color(255, 90, 90); g.fillOval(w - 8, 10, 5, 5) }
 
-        // ── 7. 장식 타임라인 ─────────────────────────────────────────────────
-        val decorList = decorations
-        val viewMs    = visibleWindowMs
-        val stepMs    = (viewMs / 8).coerceAtLeast(100L)
-        val gridStart = (timelineScrollMs / stepMs) * stepMs
-        g.font = hintFont
-        for (i in 0..16) {
-            val t  = gridStart + i * stepMs
-            val px = timelineX + ((t - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
-            if (px < timelineX || px > timelineX + timelineW) continue
-            g.color = Color(42, 32, 62, 180)
-            g.drawLine(px, tl0Y, px, tl0Y + DECOR_TL_H)
-            if (t >= 0L) { g.color = Color(80, 65, 115); g.drawString("${t / 1000}s", px + 2, tl0Y + 13) }
+        // ── 4. 타임라인 ──────────────────────────────────────────────────────
+        // 객체 할당 최소화: 스냅샷 대신 직접 참조 (읽기 전용, notesLock 보호)
+        val noteY = noteTrackY
+        synchronized(notesLock) {
+            Timeline.render(g, mutableChart, timelineScrollMs, currentTimeMs, timelineX, noteY, timelineW, NOTE_TL_H, visibleWindowMs, selectedIndices, songEntry.song.bpm?.toDouble(), drawNotes = !useCustomGlRenderer)
         }
-        val decorLaneH = ((DECOR_TL_H - 20) / 5).coerceAtLeast(8)
-        decorList.forEachIndexed { idx, dec ->
-            val lane    = idx % 5
-            val by      = tl0Y + 18 + lane * decorLaneH
-            val startPx = timelineX + ((dec.timeMs - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
-            val endPx   = timelineX + ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
-            val barX    = startPx.coerceAtLeast(timelineX)
-            val barW2   = (endPx - barX).coerceIn(4, timelineW)
-            val hue     = (idx * 53) % 360
-            val bright  = if (idx == selectedDecorIdx) 1.0f else 0.65f
-            g.color = java.awt.Color.getHSBColor(hue / 360f, 0.78f, bright)
-            g.fillRoundRect(barX, by, barW2, decorLaneH - 2, 4, 4)
-            if (idx == selectedDecorIdx) { g.color = Color.WHITE; g.drawRoundRect(barX, by, barW2, decorLaneH - 2, 4, 4) }
-            if (barW2 > 24) {
-                g.color = Color(0, 0, 0, 175); g.font = hintFont
-                g.drawString(dec.id.ifEmpty { "#$idx" }, barX + 3, by + decorLaneH - 3)
+        
+        if (decorMode) {
+            // 장식 그리드 & 아이템
+            val stepMs = (visibleWindowMs / 8).coerceAtLeast(100L)
+            val gridStart = (timelineScrollMs / stepMs) * stepMs
+            for (i in 0..16) {
+                val t = gridStart + i * stepMs
+                val px = timelineX + ((t - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+                if (px in timelineX..(timelineX + timelineW)) {
+                    g.color = Color(40, 35, 60, 120); g.drawLine(px, unifiedTlY, px, unifiedTlY + DECOR_TL_H)
+                }
+            }
+            val laneH = (DECOR_TL_H - 20) / 5
+            decorations.forEachIndexed { idx, dec ->
+                val lane = idx % 5; val by = unifiedTlY + 18 + lane * laneH
+                val startPx = timelineX + ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+                val endPx = timelineX + ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+                val bx = startPx.coerceAtLeast(timelineX); val bw2 = (endPx - bx).coerceIn(4, timelineW - (bx - timelineX))
+                if (bx < timelineX + timelineW && bw2 > 0) {
+                    val hue = (idx * 53) % 360; val bright = if (idx == selectedDecorIdx) 1.0f else 0.6f
+                    g.color = Color.getHSBColor(hue / 360f, 0.7f, bright)
+                    g.fillRoundRect(bx, by, bw2, laneH - 3, 4, 4)
+                    if (idx == selectedDecorIdx) { g.color = Color.WHITE; g.drawRoundRect(bx, by, bw2, laneH - 3, 4, 4) }
+                }
             }
         }
-        g.color = Color(90, 75, 125); g.font = hintFont
-        g.drawString("田 DECOR", timelineX + 4, tl0Y + 13)
-
-        // 트랙 구분선
-        g.color = Color(55, 42, 80, 200)
-        g.drawLine(timelineX, noteY, timelineX + timelineW, noteY)
-        g.drawLine(timelineX, tl0Y, timelineX + timelineW, tl0Y)
-
+        
         // 플레이헤드
-        val phX = timelineX + ((currentTimeMs - timelineScrollMs).toDouble() / viewMs * timelineW).toInt()
+        val phX = timelineX + ((currentTimeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
         if (phX in timelineX..(timelineX + timelineW)) {
-            g.color = Color(210, 100, 255)
-            g.drawLine(phX, tl0Y, phX, tl0Y + DECOR_TL_H + NOTE_TL_H)
-            g.fillPolygon(intArrayOf(phX - 5, phX + 5, phX), intArrayOf(tl0Y, tl0Y, tl0Y + 9), 3)
+            g.color = Color(220, 100, 255); g.drawLine(phX, unifiedTlY, phX, overviewBarY - 2)
+            g.fillPolygon(intArrayOf(phX - 6, phX + 6, phX), intArrayOf(unifiedTlY, unifiedTlY, unifiedTlY + 10), 3)
         }
+
+        renderOverviewBar(g, currentTimeMs)
+
+        // 8. Tooltips & Guidelines (NanoVG)
+        // renderGuidelines(g)
+        // renderTooltips(g)
     }
 
     override fun keyPressed(key: Int, mods: Int) {
         val ctrl  = Keys.isCtrl(mods)
         val shift = Keys.isShift(mods)
 
-        // 데코레이션 모드 전용 단축키
         if (decorMode) {
             when {
                 ctrl && shift && key == Keys.D -> toggleDecorMode()
                 ctrl && key == Keys.S          -> saveDecor()
-                key == Keys.E && selectedDecorIdx >= 0 -> openDecorModalForEdit(selectedDecorIdx)
+                key == Keys.E && selectedDecorIdx >= 0 -> openDecorEditDialog(selectedDecorIdx)
                 key == Keys.DELETE || key == Keys.BACKSPACE -> {
                     val idx = selectedDecorIdx
                     if (idx >= 0) {
-                        val cur = decorations; cur.removeAt(idx)
-                        decorData = DecorationData(cur, decorData.screenEffects)
+                        decorations.removeAt(idx)
+                        decorData = DecorationData(decorations, decorData.screenEffects)
                         selectedDecorIdx = (idx - 1).coerceAtLeast(-1)
                     }
                 }
                 key == Keys.ESCAPE -> decorMode = false
-                // 재생 제어는 데코레이션 모드에서도 허용
                 key == Keys.SPACE  -> togglePlay()
                 key == Keys.LEFT   -> seek(-1_000L)
                 key == Keys.RIGHT  -> seek(1_000L)
@@ -485,8 +566,6 @@ class EditorState(
 
         when {
             ctrl && shift && key == Keys.D -> toggleDecorMode()
-
-            // 재생 제어 — 녹음 중에는 J/K 가 레인 키로만 동작
             key == Keys.SPACE                       -> togglePlay()
             key == Keys.J && !ctrl && !recordingMode -> { pause(); seek(-5_000L) }
             key == Keys.K && !recordingMode          -> pause()
@@ -497,14 +576,10 @@ class EditorState(
             key == Keys.RIGHT && shift              -> seek(100L)
             key == Keys.LEFT  && !ctrl && !shift    -> seek(-1_000L)
             key == Keys.RIGHT && !ctrl && !shift    -> seek(1_000L)
-
-            // 선택
             ctrl && key == Keys.A                   -> selectAll()
             ctrl && key == Keys.D                   -> selectedIndices.clear()
             key == Keys.TAB && !shift               -> navigateNote(+1)
             key == Keys.TAB && shift                -> navigateNote(-1)
-
-            // 편집
             ctrl && key == Keys.Z && !shift         -> undo()
             ctrl && key == Keys.Y                   -> redo()
             ctrl && key == Keys.Z && shift          -> redo()
@@ -512,23 +587,14 @@ class EditorState(
             ctrl && key == Keys.X                   -> cut()
             ctrl && key == Keys.V                   -> paste()
             key == Keys.DELETE || key == Keys.BACKSPACE -> deleteSelected()
-
-            // 녹음 / 퀀타이즈
             key == Keys.N                           -> cycleNoteMode()
-            key == Keys.R                           -> {
-                recordingMode = !recordingMode
-                heldLaneStartMs.fill(-1L)
-            }
+            key == Keys.R                           -> { recordingMode = !recordingMode; heldLaneStartMs.fill(-1L) }
             key == Keys.Q                           -> cycleQuantize()
             key == Keys.N4                          -> { quantizeEnabled = true; quantizeDivision = 4  }
             key == Keys.N8                          -> { quantizeEnabled = true; quantizeDivision = 8  }
             key == Keys.N6                          -> { quantizeEnabled = true; quantizeDivision = 16 }
-
-            // 줌
             key == Keys.EQUAL || key == Keys.PLUS   -> zoomIn()
             key == Keys.MINUS                       -> zoomOut()
-
-            // 저장 / 뒤로
             ctrl && key == Keys.S                   -> if (decorMode) saveDecor() else save()
             ctrl && key == Keys.COMMA               -> openSettings()
             ctrl && shift && key == Keys.O          -> openCalibration()
@@ -539,14 +605,9 @@ class EditorState(
         }
     }
 
-    override fun keyTyped(codepoint: Int) {
-    }
+    override fun keyTyped(codepoint: Int) {}
 
-    // ── 재생 제어 ─────────────────────────────────────────────────────────────
-
-    private fun togglePlay() {
-        if (isPlaying) pause() else startPlay()
-    }
+    private fun togglePlay() { if (isPlaying) pause() else startPlay() }
 
     private fun startPlay() {
         if (!isPlaying) {
@@ -554,26 +615,15 @@ class EditorState(
             if (ctx.videoBackground.isPlayable()) {
                 val currentMs = ctx.videoBackground.getTimeMs()
                 val lengthMs = ctx.videoBackground.getLengthMs()
-                // 미디어가 끝에 도달했다면 처음부터 다시 재생
-                if (lengthMs > 0L && currentMs >= lengthMs - 100) {
-                    ctx.videoBackground.play(path)
-                } else {
-                    ctx.videoBackground.resume()
-                }
-            } else {
-                ctx.videoBackground.play(path)
-            }
+                if (lengthMs > 0L && currentMs >= lengthMs - 100) ctx.videoBackground.play(path)
+                else ctx.videoBackground.resume()
+            } else ctx.videoBackground.play(path)
             isPlaying = true
         }
     }
 
     private fun pause() {
-        if (isPlaying) {
-            ctx.videoBackground.pause()
-            isPlaying = false
-            recordingMode = false
-            heldLaneStartMs.fill(-1L)
-        }
+        if (isPlaying) { ctx.videoBackground.pause(); isPlaying = false; recordingMode = false; heldLaneStartMs.fill(-1L) }
     }
 
     private fun seek(deltaMs: Long) {
@@ -586,25 +636,17 @@ class EditorState(
         ctx.videoBackground.seek(lastNote + mutableChart.offsetMs + 2_000L)
     }
 
-    // ── 선택 ─────────────────────────────────────────────────────────────────
-
     private fun selectAll() {
-        selectedIndices.clear()
-        selectedIndices.addAll(mutableChart.notes.indices)
-        cursorNoteIdx = mutableChart.notes.lastIndex
+        selectedIndices.clear(); selectedIndices.addAll(mutableChart.notes.indices); cursorNoteIdx = mutableChart.notes.lastIndex
     }
 
     private fun navigateNote(direction: Int) {
         if (mutableChart.notes.isEmpty()) return
         cursorNoteIdx = (cursorNoteIdx + direction).coerceIn(0, mutableChart.notes.lastIndex)
-        selectedIndices.clear()
-        selectedIndices.add(cursorNoteIdx)
-        // 타임라인 뷰를 선택한 노트로 이동
+        selectedIndices.clear(); selectedIndices.add(cursorNoteIdx)
         val noteTime = mutableChart.notes[cursorNoteIdx].time + mutableChart.offsetMs
         ctx.videoBackground.seek(noteTime)
     }
-
-    // ── 편집 (undo/redo/copy/cut/paste/delete) ────────────────────────────────
 
     private fun saveSnapshot() {
         undoStack.addLast(mutableChart.notes.map { it.copy() })
@@ -615,19 +657,15 @@ class EditorState(
     private fun undo() {
         if (undoStack.isEmpty()) return
         redoStack.addLast(mutableChart.notes.map { it.copy() })
-        mutableChart.notes.clear()
-        mutableChart.notes.addAll(undoStack.removeLast())
-        selectedIndices.clear()
-        unsaved = true
+        mutableChart.notes.clear(); mutableChart.notes.addAll(undoStack.removeLast())
+        selectedIndices.clear(); unsaved = true
     }
 
     private fun redo() {
         if (redoStack.isEmpty()) return
         undoStack.addLast(mutableChart.notes.map { it.copy() })
-        mutableChart.notes.clear()
-        mutableChart.notes.addAll(redoStack.removeLast())
-        selectedIndices.clear()
-        unsaved = true
+        mutableChart.notes.clear(); mutableChart.notes.addAll(redoStack.removeLast())
+        selectedIndices.clear(); unsaved = true
     }
 
     private fun copy() {
@@ -637,23 +675,15 @@ class EditorState(
         clipboard = sorted.map { it.copy() }
     }
 
-    private fun cut() {
-        copy()
-        deleteSelected()
-    }
+    private fun cut() { copy(); deleteSelected() }
 
     private fun paste() {
         if (clipboard.isEmpty()) return
         val currentMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
         val delta     = currentMs - clipboardBaseMs
         saveSnapshot()
-        val pasted = clipboard.map {
-            it.copy(time = snapTime(it.time + delta), endTime = it.endTime?.let { e -> snapTime(e + delta) })
-        }
-        val insertStart = mutableChart.notes.size
-        mutableChart.notes.addAll(pasted)
-        mutableChart.notes.sortBy { it.time }
-        // 붙여넣은 노트들을 선택 상태로
+        val pasted = clipboard.map { it.copy(time = snapTime(it.time + delta), endTime = it.endTime?.let { e -> snapTime(e + delta) }) }
+        mutableChart.notes.addAll(pasted); mutableChart.notes.sortBy { it.time }
         selectedIndices.clear()
         pasted.forEach { p ->
             val idx = mutableChart.notes.indexOfFirst { it.time == p.time && it.lane == p.lane && it.type == p.type }
@@ -667,12 +697,8 @@ class EditorState(
         saveSnapshot()
         val sorted = selectedIndices.sortedDescending()
         sorted.forEach { mutableChart.notes.removeAt(it) }
-        selectedIndices.clear()
-        cursorNoteIdx = -1
-        unsaved = true
+        selectedIndices.clear(); cursorNoteIdx = -1; unsaved = true
     }
-
-    // ── 양자화 / 줌 ────────────────────────────────────────────────────────
 
     private fun cycleQuantize() {
         val options = listOf(4, 8, 16)
@@ -688,176 +714,162 @@ class EditorState(
         return Quantizer.snap(timeMs, bpm, quantizeDivision)
     }
 
-    private fun zoomIn() {
-        if (zoomIdx > 0) { zoomIdx--; visibleWindowMs = zoomLevels[zoomIdx] }
+    private fun zoomIn() { if (zoomIdx > 0) { zoomIdx--; visibleWindowMs = zoomLevels[zoomIdx]; timelineScrollMs = clampTimelineScroll(timelineScrollMs) } }
+    private fun zoomOut() { if (zoomIdx < zoomLevels.lastIndex) { zoomIdx++; visibleWindowMs = zoomLevels[zoomIdx]; timelineScrollMs = clampTimelineScroll(timelineScrollMs) } }
+
+    private fun getTimelineOverviewRangeMs(): Long {
+        val chartEndMs = mutableChart.notes.maxOfOrNull { it.endTime ?: it.time } ?: 0L
+        val mediaEndMs = (ctx.videoBackground.getLengthMs() - mutableChart.offsetMs).coerceAtLeast(0L)
+        return maxOf(visibleWindowMs, chartEndMs + 2_000L, mediaEndMs)
     }
 
-    private fun zoomOut() {
-        if (zoomIdx < zoomLevels.lastIndex) { zoomIdx++; visibleWindowMs = zoomLevels[zoomIdx] }
+    private fun getTimelineMaxScrollMs(): Long = (getTimelineOverviewRangeMs() - visibleWindowMs).coerceAtLeast(0L)
+
+    private fun clampTimelineScroll(value: Long): Long = value.coerceIn(0L, getTimelineMaxScrollMs())
+
+    private fun updateTimelineOverviewFromMouse(mouseX: Int) {
+        if (timelineW <= 0) return
+        val ratio = ((mouseX - timelineX).toDouble() / timelineW).coerceIn(0.0, 1.0)
+        timelineScrollMs = (ratio * getTimelineMaxScrollMs()).toLong()
     }
 
-    // ── 마우스 ────────────────────────────────────────────────────────────────
+    private fun renderOverviewBar(g: DrawContext, currentTimeMs: Long) {
+        if (timelineW <= 0) return
+        val barY = overviewBarY
+        val totalRangeMs = getTimelineOverviewRangeMs()
+        val maxScrollMs = getTimelineMaxScrollMs()
+        val selectionRatio = (visibleWindowMs.toDouble() / totalRangeMs).coerceIn(0.05, 1.0)
+        val selectionW = (timelineW * selectionRatio).toInt().coerceIn(24, timelineW)
+        val selectionX = if (maxScrollMs == 0L) {
+            timelineX
+        } else {
+            timelineX + ((timelineW - selectionW) * (timelineScrollMs.toDouble() / maxScrollMs)).toInt()
+        }
+        val playheadRatio = (currentTimeMs.coerceIn(0L, totalRangeMs).toDouble() / totalRangeMs).coerceIn(0.0, 1.0)
+        val playheadX = timelineX + (timelineW * playheadRatio).toInt().coerceIn(0, timelineW)
+
+        g.color = Color(12, 10, 20, 235)
+        g.fillRoundRect(timelineX, barY, timelineW, overviewBarH, 6, 6)
+        g.color = Color(38, 32, 58, 180)
+        g.drawRoundRect(timelineX, barY, timelineW, overviewBarH, 6, 6)
+
+        synchronized(notesLock) {
+            mutableChart.notes.forEach { note ->
+                val noteRatio = (note.time.coerceIn(0L, totalRangeMs).toDouble() / totalRangeMs).coerceIn(0.0, 1.0)
+                val noteX = timelineX + (timelineW * noteRatio).toInt()
+                g.color = TL_LANE_COLORS[note.lane].let { Color(it.red, it.green, it.blue, 130) }
+                g.drawLine(noteX, barY + 3, noteX, barY + overviewBarH - 3)
+            }
+        }
+
+        g.color = Color(110, 72, 205, 180)
+        g.fillRoundRect(selectionX, barY + 2, selectionW, overviewBarH - 4, 5, 5)
+        g.color = Color(220, 200, 255, 220)
+        g.drawRoundRect(selectionX, barY + 2, selectionW, overviewBarH - 4, 5, 5)
+
+        g.color = Color(255, 140, 255, 220)
+        g.drawLine(playheadX, barY + 1, playheadX, barY + overviewBarH - 1)
+    }
 
     override fun mousePressed(x: Float, y: Float, button: Int, mods: Int) {
-        if (shouldIgnoreMouse()) return
         val mx = x.toInt(); val my = y.toInt()
         timelineDragStartX = mx
+        if (button == Keys.MOUSE_LEFT && my in overviewBarY..(overviewBarY + overviewBarH) && mx in timelineX..(timelineX + timelineW)) {
+            overviewDragActive = true
+            updateTimelineOverviewFromMouse(mx)
+            return
+        }
         if (decorMode) {
             val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
             if (mx in vpX..(vpX+vpW) && my in vpY..(vpY+vpH)) {
-                val scaleRatioX = vpW / 1280f
-                val scaleRatioY = vpH / 720f
+                val scaleRatioX = vpW / 1280f; val scaleRatioY = vpH / 720f
                 val selDec = decorations.getOrNull(selectedDecorIdx)
                 if (selDec != null) {
                     val bw = if (selDec.width <= 1f) selDec.width * 1280f else selDec.width
                     val bh = if (selDec.height <= 1f) selDec.height * 720f else selDec.height
-                    val fw = (bw * scaleRatioX).toInt().coerceAtLeast(1)
-                    val fh = (bh * scaleRatioY).toInt().coerceAtLeast(1)
+                    val fw = (bw * scaleRatioX).toInt().coerceAtLeast(1); val fh = (bh * scaleRatioY).toInt().coerceAtLeast(1)
                     val lx = vpX + ((selDec.x * 1280f - selDec.pivotX * bw) * scaleRatioX).toInt()
                     val lt = vpY + ((selDec.y * 720f  - selDec.pivotY * bh) * scaleRatioY).toInt()
-                    // 코너 핸들 히트 체크 (리사이즈 우선)
-                    val hs = 10
-                    val corners = listOf<Pair<Int, Int>>(
-                        lx        to lt,
-                        lx + fw   to lt,
-                        lx        to lt + fh,
-                        lx + fw   to lt + fh
-                    )
-                    val hitCorner = corners.indexOfFirst { (hx, hy) ->
-                        mx in (hx - hs)..(hx + hs) && my in (hy - hs)..(hy + hs)
+                    val hs = 12
+                    if (mx in (lx + fw - hs)..(lx + fw + hs) && my in (lt + fh - hs)..(lt + fh + hs)) {
+                        resizingDecorIdx = selectedDecorIdx; decorResizePressX = mx; decorResizePressY = my
+                        decorResizeOrigW = selDec.width; decorResizeOrigH = selDec.height; return
                     }
-                    if (hitCorner >= 0) {
-                        resizingDecorIdx  = selectedDecorIdx
-                        decorResizePressX = mx
-                        decorResizePressY = my
-                        decorResizeOrigW  = selDec.width
-                        decorResizeOrigH  = selDec.height
-                        return
-                    }
-                    // 바디 드래그 (코너 바깥이면)
                     if (mx in lx..(lx+fw) && my in lt..(lt+fh)) {
                         draggingDecorIdx = selectedDecorIdx
-                        decorDragOffsetX = selDec.x - (mx - vpX) / (1280f * scaleRatioX)
-                        decorDragOffsetY = selDec.y - (my - vpY) / (720f * scaleRatioY)
-                        return
+                        decorDragOffsetX = selDec.x - (mx - vpX) / (1280f * scaleRatioX); decorDragOffsetY = selDec.y - (my - vpY) / (720f * scaleRatioY); return
                     }
                 }
             }
         }
-
-        // 데코레이션 타임라인 영역 (하단 스트립) 클릭 → 타임 드래그
-        if (decorMode && my in decorTlY..(decorTlY + decorTlH) && mx in timelineX..(timelineX + timelineW)) {
-            val laneH = ((decorTlH - 20) / 5).coerceAtLeast(8)
-            var hitIdx = -1
-            decorations.forEachIndexed { idx, dec ->
-                val lane = idx % 5
-                val by = decorTlY + 18 + lane * laneH
-                val startPx = timelineX + ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
-                val endPx = timelineX + ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
-                if (mx in startPx.coerceAtLeast(timelineX)..endPx.coerceAtMost(timelineX + timelineW) && my in by..(by + laneH - 3)) {
-                    hitIdx = idx
+        if (my in unifiedTlY..(unifiedTlY + DECOR_TL_H + NOTE_TL_H) && mx in timelineX..(timelineX + timelineW)) {
+            if (decorMode && my < unifiedTlY + DECOR_TL_H) {
+                val hit = findDecorAt(mx, my)
+                if (hit >= 0) {
+                    timelineDecorDragIdx = hit; selectedDecorIdx = hit
+                    val startPx = timelineX + ((decorations[hit].timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+                    timelineDecorDragOffsetX = (mx - startPx).toFloat(); return
                 }
-            }
-            if (hitIdx >= 0) {
-                timelineDecorDragIdx = hitIdx
-                val startPx = timelineX + ((decorations[hitIdx].timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
-                timelineDecorDragOffsetX = (mx - startPx).toFloat()
-                selectedDecorIdx = hitIdx
-                return
-            }
-        }
-
-        // 노트 트랙 영역 내 좌클릭 → 노트 리사이즈 준비
-        if (button == Keys.MOUSE_LEFT && my >= tlY && my <= tlY + tlH && mx in timelineX..(timelineX + timelineW)) {
-            val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
-            val laneH = tlH / 4
-            val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
-            if (hitIdx >= 0) {
-                noteResizeIdx   = hitIdx
-                noteResizeMoved = false
+            } else if (my >= noteTrackY) {
+                val laneH = NOTE_TL_H / 4; val hit = findNoteAt(mx, my, ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs, laneH)
+                if (hit >= 0 && button == Keys.MOUSE_LEFT) { noteResizeIdx = hit; noteResizeMoved = false }
             }
         }
     }
 
     override fun mouseReleased(x: Float, y: Float, button: Int, mods: Int) {
-        // 노트 리사이즈 완료 시 스냅샷 저장
-        if (noteResizeIdx >= 0 && noteResizeMoved) {
-            saveSnapshot()
-            unsaved = true
-        }
-        noteResizeIdx   = -1
-        noteResizeMoved = false
-        draggingDecorIdx = -1
-        resizingDecorIdx = -1
-        timelineDecorDragIdx = -1
-        if (pendingSeekMs >= 0L) {
-            ctx.videoBackground.seek(pendingSeekMs)
-            pendingSeekMs = -1L
-        }
+        if (noteResizeIdx >= 0 && noteResizeMoved) { saveSnapshot(); unsaved = true }
+        overviewDragActive = false
+        noteResizeIdx = -1; noteResizeMoved = false; draggingDecorIdx = -1; resizingDecorIdx = -1; timelineDecorDragIdx = -1
+        if (pendingSeekMs >= 0L) { ctx.videoBackground.seek(pendingSeekMs); pendingSeekMs = -1L }
     }
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
-        if (shouldIgnoreMouse()) return
-        val mx = x.toInt()
-        val my = y.toInt()
-
-        // 장식 타임라인 영역 클릭 (어떤 모드든 처리)
-        if (my in unifiedTlY..(unifiedTlY + DECOR_TL_H) && mx in timelineX..(timelineX + timelineW)) {
-            handleDecorMouseClick(mx, my, button, mods); return
+        val mx = x.toInt(); val my = y.toInt()
+        if (button == Keys.MOUSE_LEFT && my in overviewBarY..(overviewBarY + overviewBarH) && mx in timelineX..(timelineX + timelineW)) {
+            updateTimelineOverviewFromMouse(mx)
+            return
         }
-
-        // 노트 타임라인 영역 안에서만 처리
-        if (my < tlY || my > tlY + tlH) return
-        if (mx < timelineX || mx > timelineX + tlW) return
-
-        val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
-        val laneH = tlH / 4
-
-        when (button) {
-            Keys.MOUSE_LEFT -> {
-                val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
-                if (hitIdx >= 0) {
-                    // 노트 클릭: 선택 / 추가 선택
-                    if (Keys.isShift(mods)) {
-                        if (hitIdx in selectedIndices) selectedIndices.remove(hitIdx)
-                        else selectedIndices.add(hitIdx)
-                    } else {
-                        selectedIndices.clear()
-                        selectedIndices.add(hitIdx)
-                        cursorNoteIdx = hitIdx
-                    }
+        if (my >= noteTrackY && my < overviewBarY - overviewBarGap && mx in timelineX..(timelineX + timelineW)) {
+            val laneH = NOTE_TL_H / 4; val currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
+            val hit = findNoteAt(mx, my, currentTimeMs, laneH)
+            if (button == Keys.MOUSE_LEFT) {
+                if (hit >= 0) {
+                    if (Keys.isShift(mods)) { if (hit in selectedIndices) selectedIndices.remove(hit) else selectedIndices.add(hit) }
+                    else { selectedIndices.clear(); selectedIndices.add(hit); cursorNoteIdx = hit }
                 } else {
-                    // 빈 공간 클릭: 플레이헤드 이동 + 선택 해제
                     selectedIndices.clear()
-                    val clickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / tlW
+                    val clickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / timelineW
                     ctx.videoBackground.seek(maxOf(0L, clickMs + mutableChart.offsetMs))
                 }
+            } else if (button == Keys.MOUSE_RIGHT) {
+                contextMenuNoteIdx = hit; contextMenuDecorIdx = -1
+                contextMenuClickMs = snapTime(timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / timelineW)
+                contextMenuLane = ((my - noteTrackY) / laneH).coerceIn(0, 3)
+                pendingContextMenu = true
             }
-            Keys.MOUSE_RIGHT -> {
-                val hitIdx = findNoteAt(mx, my, currentTimeMs, laneH)
-                if (hitIdx >= 0) {
-                    // 노트 우클릭: 삭제
-                    saveSnapshot()
-                    mutableChart.notes.removeAt(hitIdx)
-                    val above = selectedIndices.filter { it > hitIdx }.toSet()
-                    selectedIndices.removeAll { it >= hitIdx }
-                    selectedIndices.addAll(above.map { it - 1 })
-                    unsaved = true
-                } else {
-                    // 빈 공간 우클릭: ImGui 팝업으로 노트 추가
-                    addNotePopupLane = ((my - tlY).coerceIn(0, tlH - 1) / laneH).coerceIn(0, 3)
-                    val clickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / tlW
-                    addNotePopupMs  = snapTime(clickMs.coerceAtLeast(0L))
-                    pendingNoteAdd  = true
-                }
+        } else if (decorMode && my in unifiedTlY..(unifiedTlY + DECOR_TL_H) && mx in timelineX..(timelineX + timelineW)) {
+            val hit = findDecorAt(mx, my)
+            if (button == Keys.MOUSE_LEFT) selectedDecorIdx = hit
+            else if (button == Keys.MOUSE_RIGHT) {
+                contextMenuNoteIdx = -1; contextMenuDecorIdx = hit
+                contextMenuClickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / timelineW
+                pendingContextMenu = true
             }
         }
     }
 
-    /**
-     * 화면 좌표 (mx, my) 에서 노트를 찾아 인덱스를 반환합니다.
-     * 노트 x ±6px, 레인 y 범위 내에 있으면 히트로 판정합니다.
-     */
+    private fun findDecorAt(mx: Int, my: Int): Int {
+        val laneH = (DECOR_TL_H - 20) / 5
+        decorations.forEachIndexed { idx, dec ->
+            val lane = idx % 5; val by = unifiedTlY + 18 + lane * laneH
+            val startPx = timelineX + ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+            val endPx = timelineX + ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
+            if (mx in startPx.coerceAtLeast(timelineX)..endPx.coerceAtMost(timelineX+timelineW) && my in by..(by+laneH)) return idx
+        }
+        return -1
+    }
+
     private fun findNoteAt(mx: Int, my: Int, currentTimeMs: Long, laneH: Int): Int {
         mutableChart.notes.forEachIndexed { idx, note ->
             val nx = timelineX + ((note.time - timelineScrollMs).toDouble() / visibleWindowMs * tlW).toInt()
@@ -871,704 +883,266 @@ class EditorState(
 
     override fun mouseDragged(x: Float, y: Float, button: Int) {
         val mx = x.toInt(); val my = y.toInt()
-        // 데코레이션 코너 리사이즈
-        if (resizingDecorIdx >= 0 && decorMode) {
-            val vpH = cachedVpH; val vpW = cachedVpW
-            val dx = (mx - decorResizePressX).toFloat()
-            val dy = (my - decorResizePressY).toFloat()
-            val dec = decorations.getOrNull(resizingDecorIdx) ?: run { resizingDecorIdx = -1; return }
-            val newW = if (decorResizeOrigW <= 1f) {
-                (decorResizeOrigW + dx / vpW).coerceAtLeast(0.02f)
-            } else {
-                (decorResizeOrigW + dx * 1280f / vpW).coerceAtLeast(1f)
-            }
-            val newH = if (decorResizeOrigH <= 1f) {
-                (decorResizeOrigH + dy / vpH).coerceAtLeast(0.02f)
-            } else {
-                (decorResizeOrigH + dy * 720f / vpH).coerceAtLeast(1f)
-            }
-            val updated = dec.copy(width = newW, height = newH)
-            val cur = decorData.decorations.toMutableList()
-            cur[resizingDecorIdx] = updated
-            decorData = DecorationData(cur, decorData.screenEffects)
-            syncDecorRenderer()
-            unsaved = true
+        if (overviewDragActive && button == Keys.MOUSE_LEFT) {
+            updateTimelineOverviewFromMouse(mx)
             return
+        }
+        if (resizingDecorIdx >= 0 && decorMode) {
+            val vpH = cachedVpH; val vpW = cachedVpW; val dx = (mx - decorResizePressX).toFloat(); val dy = (my - decorResizePressY).toFloat()
+            val dec = decorations.getOrNull(resizingDecorIdx) ?: run { resizingDecorIdx = -1; return }
+            val newW = if (decorResizeOrigW <= 1f) (decorResizeOrigW + dx / vpW).coerceAtLeast(0.02f) else (decorResizeOrigW + dx * 1280f / vpW).coerceAtLeast(1f)
+            val newH = if (decorResizeOrigH <= 1f) (decorResizeOrigH + dy / vpH).coerceAtLeast(0.02f) else (decorResizeOrigH + dy * 720f / vpH).coerceAtLeast(1f)
+            decorations[resizingDecorIdx] = dec.copy(width = newW, height = newH)
+            decorData = DecorationData(decorations, decorData.screenEffects); syncDecorRenderer(); unsaved = true; return
         }
         if (draggingDecorIdx >= 0 && decorMode) {
-            val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
-            val scaleRatioX = vpW / 1280f
-            val scaleRatioY = vpH / 720f
-            
-            val newX = (mx - vpX) / (1280f * scaleRatioX) + decorDragOffsetX
-            val newY = (my - vpY) / (720f * scaleRatioY) + decorDragOffsetY
-            
-            val dec = decorations[draggingDecorIdx]
-            val updated = dec.copy(x = newX.coerceIn(0f, 1f), y = newY.coerceIn(0f, 1f))
-            val cur = decorData.decorations.toMutableList()
-            cur[draggingDecorIdx] = updated
-            decorData = DecorationData(cur, decorData.screenEffects)
-            syncDecorRenderer()
-            unsaved = true
-            return
+            val vpW = cachedVpW; val vpX = cachedVpX; val scaleRatioX = vpW / 1280f; val scaleRatioY = cachedVpH / 720f
+            val newX = (mx - vpX) / (1280f * scaleRatioX) + decorDragOffsetX; val newY = (my - cachedVpY) / (720f * scaleRatioY) + decorDragOffsetY
+            decorations[draggingDecorIdx] = decorations[draggingDecorIdx].copy(x = newX.coerceIn(0f, 1f), y = newY.coerceIn(0f, 1f))
+            decorData = DecorationData(decorations, decorData.screenEffects); syncDecorRenderer(); unsaved = true; return
         }
-        
-        // 타임라인 내 데코레이션 드래그 (시간 변경)
         if (timelineDecorDragIdx >= 0 && decorMode) {
             val dec = decorations.getOrNull(timelineDecorDragIdx) ?: run { timelineDecorDragIdx = -1; return }
-            val newStartPx = mx - timelineDecorDragOffsetX
-            val newTimeMs = timelineScrollMs + ((newStartPx - timelineX).toDouble() / timelineW * visibleWindowMs).toLong()
-            val snappedTime = snapTime(newTimeMs.coerceAtLeast(0L))
-            
-            val updated = dec.copy(timeMs = snappedTime)
-            val cur = decorData.decorations.toMutableList()
-            cur[timelineDecorDragIdx] = updated
-            decorData = DecorationData(cur, decorData.screenEffects)
-            syncDecorRenderer()
-            unsaved = true
-            return
+            val newTimeMs = timelineScrollMs + ((mx - timelineDecorDragOffsetX - timelineX).toDouble() / timelineW * visibleWindowMs).toLong()
+            decorations[timelineDecorDragIdx] = dec.copy(timeMs = snapTime(newTimeMs.coerceAtLeast(0L)))
+            decorData = DecorationData(decorations, decorData.screenEffects); syncDecorRenderer(); unsaved = true; return
         }
-        
-        // 노트 리사이즈 (endTime 연장)
         if (noteResizeIdx >= 0 && button == Keys.MOUSE_LEFT) {
             val note = mutableChart.notes.getOrNull(noteResizeIdx)
             if (note != null) {
-                val newEndMs = (timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / tlW)
-                    .coerceAtLeast(note.time + 50L)
-                val snapped = snapTime(newEndMs)
-                synchronized(notesLock) {
-                    note.type    = NoteType.LONG
-                    note.endTime = snapped
-                }
+                note.type = NoteType.LONG; note.endTime = snapTime((timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / tlW).coerceAtLeast(note.time + 50L))
                 noteResizeMoved = true
-            } else {
-                noteResizeIdx = -1
-            }
+            } else noteResizeIdx = -1
             return
         }
-
-        if (my < unifiedTlY || mx < timelineX || mx > timelineX + timelineW) return
-        
+        if (my < unifiedTlY || my >= overviewBarY - overviewBarGap || mx < timelineX || mx > timelineX + timelineW) return
         if (button == Keys.MOUSE_MIDDLE || button == Keys.MOUSE_RIGHT) {
-            // 패닝 (Panning): 플레이헤드는 그대로 두고 뷰포트만 좌우 이동
-            if (timelineDragStartX >= 0) {
-                val dx = mx - timelineDragStartX
-                timelineDragStartX = mx
-                timelineScrollMs -= (dx.toLong() * visibleWindowMs / timelineW)
-            }
+            if (timelineDragStartX >= 0) { val dx = mx - timelineDragStartX; timelineDragStartX = mx; timelineScrollMs = clampTimelineScroll(timelineScrollMs - (dx.toLong() * visibleWindowMs / timelineW)) }
         } else if (button == Keys.MOUSE_LEFT) {
-            // 스크러빙 (Scrubbing): 클릭한 위치로 플레이헤드 이동 (VLC 과부하 방지)
-            val clickMs = timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / timelineW
-            pendingSeekMs = maxOf(0L, clickMs + mutableChart.offsetMs)
+            pendingSeekMs = maxOf(0L, (timelineScrollMs + (mx - timelineX).toLong() * visibleWindowMs / timelineW) + mutableChart.offsetMs)
             timelineDragStartX = mx
         }
     }
 
-    // ── 설정 / 보정 다이얼로그 ─────────────────────────────────────────────────
+    private fun openSettings() { ctx.stateManager.changeState(SettingsState(ctx, this)) }
+    private fun openCalibration() { ctx.stateManager.changeState(SettingsState(ctx, this, startAt = 1)) }
+    private fun cycleNoteMode() { noteMode = if (noteMode == NoteMode.NORMAL) NoteMode.LONG else NoteMode.NORMAL }
 
-    private fun openSettings() {
-        ctx.stateManager.changeState(SettingsState(ctx, this))
-    }
-
-    private fun openCalibration() {
-        ctx.stateManager.changeState(SettingsState(ctx, this, startAt = 1))
-    }
-
-    private fun cycleNoteMode() {
-        noteMode = if (noteMode == NoteMode.NORMAL) NoteMode.LONG else NoteMode.NORMAL
-    }
-
-    // ── 저장 / 미디어 ────────────────────────────────────────────────────────
-
-    private fun save() {
-        runCatching { ChartParser.serializeChart(mutableChart.toChart(), chartFile) }
-            .onSuccess { unsaved = false }
-    }
-
+    private fun save() { runCatching { ChartParser.serializeChart(mutableChart.toChart(), chartFile) }.onSuccess { unsaved = false } }
     private fun saveDecor() {
-        val list = decorations
-        decorData = DecorationData(decorations = list, screenEffects = decorData.screenEffects)
-        syncDecorRenderer()
-        runCatching { DecorationParser.serialize(decorData, songEntry.songDir) }
+        decorData = DecorationData(decorations = decorations, screenEffects = decorData.screenEffects)
+        syncDecorRenderer(); runCatching { DecorationParser.serialize(decorData, songEntry.songDir) }
     }
-
-    private fun syncDecorRenderer() {
-        decorRenderer = DecorationRenderer(decorData, songEntry.songDir)
-    }
-
+    private fun syncDecorRenderer() { decorRenderer = DecorationRenderer(decorData, songEntry.songDir) }
     private fun toggleDecorMode() {
-        decorMode = !decorMode
-        selectedDecorIdx = -1
-        if (decorMode) {
-            decorData = DecorationParser.parseOrNull(songEntry.songDir) ?: DecorationData()
-            syncDecorRenderer()
-        }
-        // decorRenderer는 항상 유지 (통합 에디터: 장식 오버레이 항상 표시)
+        decorMode = !decorMode; selectedDecorIdx = -1
+        if (decorMode) { decorData = DecorationParser.parseOrNull(songEntry.songDir) ?: DecorationData(); syncDecorRenderer() }
     }
 
     private fun renderNoteShortcutPanel(g: DrawContext, px: Int, py: Int, pw: Int, ph: Int) {
-        g.font = toolFont
-        var ty = py + 18
-        fun section(title: String) {
-            g.color = Color(130, 100, 200); g.drawString(title, px + 10, ty); ty += 20
-            g.color = Color(40, 40, 65); g.drawLine(px + 8, ty - 4, px + pw - 4, ty - 4); ty += 4
-        }
-        fun shortcut(keys: String, desc: String) {
-            g.color = Color(255, 220, 80); g.drawString(keys, px + 10, ty)
-            g.color = Color(180, 180, 200); g.drawString(desc, px + 90, ty); ty += 18
-        }
-        section("재생 / 탐색")
-        shortcut("Space", "재생 / 일시정지")
-        shortcut("J", "5초 뒤로"); shortcut("← / →", "±1초")
-        shortcut("Shift←→", "±100ms"); shortcut("Home / End", "시작 / 끝")
-        ty += 4
-        section("선택 / 편집")
-        shortcut("Ctrl+A", "전체 선택"); shortcut("Tab / ↑Tab", "노트 이동")
-        shortcut("Ctrl+Z / Y", "취소 / 재실행")
-        shortcut("Ctrl+C / V", "복사 / 붙여넣기"); shortcut("Delete", "삭제")
-        ty += 4
-        section("노트 / 퀘다이즈")
-        shortcut("R", "녹음 모드"); shortcut("N", "노트 타입")
-        shortcut("Q / 4 / 8 / 6", "스냅"); shortcut("= / -", "줌 in / out")
-        ty += 4
-        section("기타")
-        shortcut("Ctrl+S", "저장")
-        shortcut("Ctrl+Shift+D", "장식 모드")
-        shortcut("Esc", "뒤로")
+        g.font = toolFont; var ty = py + 18
+        fun section(title: String) { g.color = Color(130, 100, 200); g.drawString(title, px + 10, ty); ty += 20; g.color = Color(40, 40, 65); g.drawLine(px + 8, ty - 4, px + pw - 4, ty - 4); ty += 4 }
+        fun shortcut(keys: String, desc: String) { g.color = Color(255, 220, 80); g.drawString(keys, px + 10, ty); g.color = Color(180, 180, 200); g.drawString(desc, px + 90, ty); ty += 18 }
+        section("재생 / 탐색"); shortcut("Space", "재생 / 일시정지"); shortcut("J", "5초 뒤로"); shortcut("← / →", "±1초"); shortcut("Shift←→", "±100ms"); shortcut("Home / End", "시작 / 끝"); ty += 4
+        section("선택 / 편집"); shortcut("Ctrl+A", "전체 선택"); shortcut("Tab / ↑Tab", "노트 이동"); shortcut("Ctrl+Z / Y", "취소 / 재실행"); shortcut("Ctrl+C / V", "복사 / 붙여넣기"); shortcut("Delete", "삭제"); ty += 4
+        section("노트 / 퀘다이즈"); shortcut("R", "녹음 모드"); shortcut("N", "노트 타입"); shortcut("Q / 4 / 8 / 6", "스냅"); shortcut("= / -", "줌 in / out"); ty += 4
+        section("기타"); shortcut("Ctrl+S", "저장"); shortcut("Ctrl+Shift+D", "장식 모드"); shortcut("Esc", "뒤로")
     }
 
     private fun renderDecorPropsPanel(g: DrawContext, px: Int, py: Int, pw: Int, ph: Int) {
-        val list   = decorations
-        val selDec = list.getOrNull(selectedDecorIdx)
-        g.font = toolFont
-        var ty = py + 18
-        g.color = Color(195, 130, 255); g.font = headerFont
-        g.drawString("田 장식 편집", px + 8, ty); ty += 24
-
-        g.font = hintFont; g.color = Color(100, 85, 140)
-        g.drawString("Ctrl+Shift+D: 노트 모드   Ctrl+S: 저장", px + 8, ty); ty += 16
+        val list = decorations; val selDec = list.getOrNull(selectedDecorIdx); g.font = toolFont; var ty = py + 18
+        g.color = Color(195, 130, 255); g.font = headerFont; g.drawString("田 장식 편집", px + 8, ty); ty += 24
+        g.font = hintFont; g.color = Color(100, 85, 140); g.drawString("Ctrl+Shift+D: 노트 모드   Ctrl+S: 저장", px + 8, ty); ty += 16
         g.drawString("우클릭: 추가   E: 편집   Del: 삭제", px + 8, ty); ty += 10
-
         g.color = Color(50, 40, 72); g.drawLine(px + 8, ty - 2, px + pw - 8, ty - 2); ty += 10
-        if (selDec == null) {
-            g.color = Color(80, 70, 110); g.font = toolFont
-            g.drawString("장식을 선택하세요", px + 8, ty); ty += 18
-
-            g.color = Color(60, 55, 90)
-            g.drawString("하단 타임라인에서 클릭", px + 8, ty)
-        } else {
-            g.color = Color(195, 145, 255); g.font = headerFont
-            g.drawString(selDec.id.ifEmpty { "(unnamed)" }, px + 8, ty); ty += 22
-
-            g.font = toolFont
-            fun propRow(label: String, value: String) {
-                g.color = Color(130, 105, 185); g.drawString(label, px + 8, ty)
-                g.color = Color(225, 225, 245); g.drawString(value, px + 100, ty); ty += 18
-            }
-            propRow("image",    selDec.image.ifEmpty { "(없음)" })
-            propRow("timeMs",   "${selDec.timeMs} ms")
-
-            propRow("durMs",    "${selDec.durationMs} ms")
-            propRow("x / y",    "%.3f / %.3f".format(selDec.x, selDec.y))
-
-            propRow("w / h",    "${selDec.width} / ${selDec.height}")
-            propRow("opacity",  "%.2f".format(selDec.opacity))
-
-            propRow("rotation", "%.1f°".format(selDec.rotation))
-            propRow("depth",    "${selDec.depth}")
-
-            propRow("effects",  "${selDec.effects.size}개")
-
-            ty += 6
-            g.color = Color(70, 58, 100); g.font = hintFont
-            g.drawString("E: 편집   Del: 삭제", px + 8, ty)
+        if (selDec == null) { g.color = Color(80, 70, 110); g.font = toolFont; g.drawString("장식을 선택하세요", px + 8, ty); ty += 18; g.color = Color(60, 55, 90); g.drawString("하단 타임라인에서 클릭", px + 8, ty) }
+        else {
+            g.color = Color(195, 145, 255); g.font = headerFont; g.drawString(selDec.id.ifEmpty { "(unnamed)" }, px + 8, ty); ty += 22; g.font = toolFont
+            fun propRow(label: String, value: String) { g.color = Color(130, 105, 185); g.drawString(label, px + 8, ty); g.color = Color(225, 225, 245); g.drawString(value, px + 100, ty); ty += 18 }
+            propRow("image", selDec.image.ifEmpty { "(없음)" }); propRow("timeMs", "${selDec.timeMs} ms"); propRow("durMs", "${selDec.durationMs} ms"); propRow("x / y", "%.3f / %.3f".format(selDec.x, selDec.y))
+            propRow("w / h", "${selDec.width} / ${selDec.height}"); propRow("opacity", "%.2f".format(selDec.opacity)); propRow("rotation", "%.1f°".format(selDec.rotation)); propRow("depth", "${selDec.depth}"); propRow("effects", "${selDec.effects.size}개")
+            ty += 6; g.color = Color(70, 58, 100); g.font = hintFont; g.drawString("E: 편집   Del: 삭제", px + 8, ty)
         }
-        ty += 10
-        g.color = Color(50, 40, 72); g.drawLine(px + 8, ty - 2, px + pw - 8, ty - 2); ty += 8
-        g.color = Color(80, 65, 115); g.font = hintFont
-        g.drawString("장식 ${list.size}개", px + 8, ty)
+        ty += 10; g.color = Color(50, 40, 72); g.drawLine(px + 8, ty - 2, px + pw - 8, ty - 2); ty += 8; g.color = Color(80, 65, 115); g.font = hintFont; g.drawString("장식 ${list.size}개", px + 8, ty)
     }
 
-    // ── 데코레이션 마우스 핸들러 ─────────────────────────────────────────────────
-    private fun handleDecorMouseClick(mx: Int, my: Int, button: Int, mods: Int) {
-        // 하단 타임라인 영역만 처리
-        if (my < decorTlY || my > decorTlY + decorTlH) return
-
-        val list      = decorations
-        val currentMs = ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs
-        val cursorPx  = decorTlW / 2   // w/2 = 플레이헤드
-        val laneH     = ((decorTlH - 20) / 5).coerceAtLeast(8)
-
-        fun findHit(): Int {
-            list.forEachIndexed { idx, dec ->
-                val lane    = idx % 5
-                val by      = decorTlY + 18 + lane * laneH
-                val startPx = ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * decorTlW).toInt()
-                val endPx   = ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * decorTlW).toInt()
-                if (mx in startPx.coerceAtLeast(0)..endPx.coerceAtMost(decorTlW) &&
-                    my in by..(by + laneH - 3)) return idx
-            }
-            return -1
-        }
-
-        when (button) {
-            Keys.MOUSE_LEFT -> selectedDecorIdx = findHit()
-            Keys.MOUSE_RIGHT -> {
-                val clickMs = currentMs + (mx - cursorPx).toLong() * visibleWindowMs / decorTlW
-                val hit     = findHit()
-                // ImGui 팝업으로 처리 (장식 추가/편집/삭제)
-                decorPopupHitIdx  = hit
-                decorPopupClickMs = clickMs.coerceAtLeast(0L)
-                pendingDecorPopup = true
-            }
-        }
-    }
+    fun mouseMoved(x: Float, y: Float) {}
+    override fun mouseScrolled(dy: Double) { if (dy > 0) zoomIn() else zoomOut() }
 
     private fun openDecorEditDialog(idx: Int) {
-        openDecorModalForEdit(idx)
+        val dec = decorations.getOrNull(idx) ?: return
+        imageBrowserOpen = false
+        editingDecorIdx = idx; editingDecor = dec; imId.set(dec.id); imImage.set(dec.image); imTime.set(dec.timeMs.toInt()); imDuration.set(dec.durationMs.toInt())
+        imX.set(dec.x); imY.set(dec.y); imW.set(dec.width); imH.set(dec.height); imOpacity.set(dec.opacity); imRotation.set(dec.rotation); imDepth.set(dec.depth)
     }
 
     private fun openNewDecorDialog(timeMs: Long) {
-        openDecorModalForNew(timeMs)
+        val dec = Decoration(id = "new_dec", timeMs = timeMs, durationMs = 1000L)
+        imageBrowserOpen = false
+        editingDecorIdx = -2; editingDecor = dec; imId.set(dec.id); imImage.set(dec.image); imTime.set(dec.timeMs.toInt()); imDuration.set(dec.durationMs.toInt())
+        imX.set(dec.x); imY.set(dec.y); imW.set(dec.width); imH.set(dec.height); imOpacity.set(dec.opacity); imRotation.set(dec.rotation); imDepth.set(dec.depth)
     }
 
-    private fun openDecorModalForEdit(idx: Int) {
-        val dec = decorations.getOrNull(idx) ?: return
-        populateDecorModalBuffers(dec)
-        decorModalIsNew   = false
-        decorModalEditIdx = idx
-        modalEffects.clear()
-        modalEffects.addAll(dec.effects)
-        effectSelectedRow = -1
-        showDecorModal    = true
+    private fun openImageBrowser() {
+        imageBrowserDir = resolveImageBrowserStartDir()
+        imageBrowserSelectedFile = resolveSongRelativeFile(imImage.get())?.takeIf { it.isFile }
+        refreshImageBrowserEntries()
+        imageBrowserOpen = true
     }
 
-    private fun openDecorModalForNew(timeMs: Long) {
-        val dec = Decoration(id = "dec_${timeMs}", timeMs = timeMs, durationMs = 1000L)
-        populateDecorModalBuffers(dec)
-        decorModalIsNew   = true
-        decorModalEditIdx = -1
-        modalEffects.clear()
-        effectSelectedRow = -1
-        showDecorModal    = true
+    private fun closeImageBrowser() {
+        imageBrowserOpen = false
+        imageBrowserSelectedFile = null
     }
 
-    private fun populateDecorModalBuffers(dec: Decoration) {
-        bufDecId.set(dec.id)
-        bufDecImage.set(dec.image)
-        bufDecTimeMs.set(dec.timeMs.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt())
-        bufDecDurMs.set(dec.durationMs.coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
-        bufDecXY[0]       = dec.x;       bufDecXY[1]    = dec.y
-        bufDecWH[0]       = dec.width;   bufDecWH[1]    = dec.height
-        bufDecPivot[0]    = dec.pivotX;  bufDecPivot[1] = dec.pivotY
-        bufDecOpacity[0]  = dec.opacity
-        bufDecRotation.set(dec.rotation)
-        bufDecScale[0]    = dec.scaleX;  bufDecScale[1] = dec.scaleY
-        bufDecDepth.set(dec.depth)
+    private fun resolveImageBrowserStartDir(): File {
+        val current = resolveSongRelativeFile(imImage.get())
+        return when {
+            current?.isDirectory == true -> current
+            current?.parentFile?.isDirectory == true -> current.parentFile
+            else -> songEntry.songDir
+        } ?: songEntry.songDir
     }
 
-    /**
-     * CustomGLRenderable — NanoVG 프레임 이후 실행됩니다.
-     * CUSTOM 모드에서:
-     *   1. 비디오 프레임을 에디터 뷰포트 위치에 GL 텍스처로 직접 렌더
-     *   2. 타임라인 노트 아이템을 GlQuadBatchRenderer로 렌더 (NanoVG보다 빠름)
-     *
-     * 비디오는 NanoVG 배경(검은 사각형)이 있는 자리에 그려지므로 UI가 위로 올라오는
-     * 레이어 순서: NanoVG(검은 배경, UI 패널, 텍스트) → GL(비디오, 노트 아이템)
-     */
-    override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
-        if (!useCustomGlRenderer) return
+    private fun resolveSongRelativeFile(relativeOrAbsolute: String): File? {
+        val trimmed = relativeOrAbsolute.trim()
+        if (trimmed.isEmpty()) return null
+        val file = File(trimmed)
+        return if (file.isAbsolute) file else File(songEntry.songDir, trimmed)
+    }
 
-        // ── 1. 비디오 프레임 ─────────────────────────────────────────────────
-        val glTex = ctx.videoBackground.getGlTextureId()
-        if (glTex > 0 && ctx.videoBackground.getCurrentFrame() != null) {
-            val vpH = cachedVpH; val vpW = cachedVpW; val vpX = cachedVpX; val vpY = cachedVpY
-            renderer.drawTexturedRect(
-                x = vpX.toFloat(),
-                y = vpY.toFloat(),
-                w = vpW.toFloat(),
-                h = vpH.toFloat(),
-                textureId = glTex
+    private fun refreshImageBrowserEntries() {
+        val directory = imageBrowserDir.takeIf { it.exists() && it.isDirectory } ?: songEntry.songDir
+        imageBrowserDir = directory
+        val listed = directory.listFiles().orEmpty()
+            .filter { child ->
+                child.isDirectory || child.extension.lowercase() in IMAGE_FILE_EXTENSIONS
+            }
+            .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
+
+        imageBrowserEntries = listed.map { file ->
+            ImageBrowserEntry(
+                file = file,
+                displayName = if (file.isDirectory) "[DIR] ${file.name}" else file.name,
+                isDirectory = file.isDirectory
             )
         }
 
-        // ── 2. 타임라인 노트 아이템 ──────────────────────────────────────────
-        val tlH   = NOTE_TL_H
-        val laneH = tlH / 4
-        val noteY = noteTrackY
-        val viewMs = visibleWindowMs.toDouble()
-        val w = mainW
+        if (imageBrowserSelectedFile?.exists() != true) imageBrowserSelectedFile = null
+    }
 
-        val notes = synchronized(notesLock) { mutableChart.notes.toList() }
-        for ((idx, note) in notes.withIndex()) {
-            val nx = ((note.time - timelineScrollMs).toDouble() / viewMs * w).toFloat()
-            if (nx < -20f || nx > w + 20f) continue
+    private fun selectImageFromBrowser(file: File) {
+        val relative = runCatching {
+            file.toRelativeString(songEntry.songDir).replace("\\", "/")
+        }.getOrDefault(file.absolutePath)
+        imImage.set(relative)
+        closeImageBrowser()
+    }
 
-            val isSelected = idx in selectedIndices
-            val laneIdx    = note.lane % 4
-            val ly         = (noteY + note.lane * laneH).toFloat()
+    private fun renderImageBrowser() {
+        if (!imageBrowserOpen) return
 
-            if (note.type == NoteType.SHORT) {
-                // 단노트: 사전 캐시된 하이라이트 색상(밝게) 한 번만 그림
-                val drawColor = if (isSelected) TL_SELECTED_COLOR else TL_BRIGHT_COLORS[laneIdx]
-                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), drawColor)
-            } else {
-                val endMs     = note.endTime ?: note.time
-                val ex        = ((endMs - timelineScrollMs).toDouble() / viewMs * w).toFloat()
-                val left      = minOf(nx, ex)
-                val bw        = abs(ex - nx).coerceAtLeast(4f)
-                // 롱노트 바디: 사전 캐시된 bodyColor (per-lane × selected 조합)
-                val bodyColor = if (isSelected) TL_SELECTED_BODY_COLOR
-                                else TL_LONG_BODY_COLORS[laneIdx][0]
-                val headColor = if (isSelected) TL_SELECTED_COLOR else TL_LANE_COLORS[laneIdx]
-                renderer.drawRect(left, ly + laneH / 3f, bw, laneH / 3f, bodyColor)
-                renderer.drawRect(nx - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), headColor)
-                renderer.drawRect(ex - 4f, ly + 4f, 8f, (laneH - 8).toFloat(), headColor)
+        ImGui.setNextWindowSize(560f, 420f)
+        if (ImGui.begin("Image Browser", ImGuiWindowFlags.NoCollapse)) {
+            ImGui.textWrapped("곡 폴더 기준 이미지 파일을 선택합니다. 전체화면에서도 동일하게 동작합니다.")
+            ImGui.separator()
+            ImGui.textWrapped(imageBrowserDir.absolutePath)
+
+            if (ImGui.button("상위 폴더")) {
+                val parent = imageBrowserDir.parentFile
+                if (parent != null && parent.exists()) {
+                    imageBrowserDir = parent
+                    imageBrowserSelectedFile = null
+                    refreshImageBrowserEntries()
+                }
             }
+            ImGui.sameLine()
+            if (ImGui.button("곡 폴더")) {
+                imageBrowserDir = songEntry.songDir
+                imageBrowserSelectedFile = null
+                refreshImageBrowserEntries()
+            }
+            ImGui.sameLine()
+            if (ImGui.button("새로고침")) refreshImageBrowserEntries()
+
+            ImGui.separator()
+            ImGui.beginChild("ImageBrowserEntries", 0f, 270f, true)
+            if (imageBrowserEntries.isEmpty()) {
+                ImGui.textWrapped("현재 폴더에 선택 가능한 이미지가 없습니다.")
+            } else {
+                for (entry in imageBrowserEntries) {
+                    val isSelected = imageBrowserSelectedFile?.absolutePath == entry.file.absolutePath
+                    if (ImGui.selectable(entry.displayName, isSelected)) {
+                        if (entry.isDirectory) {
+                            imageBrowserDir = entry.file
+                            imageBrowserSelectedFile = null
+                            refreshImageBrowserEntries()
+                        } else {
+                            imageBrowserSelectedFile = entry.file
+                        }
+                    }
+                }
+            }
+            ImGui.endChild()
+
+            val selectedLabel = imageBrowserSelectedFile?.let {
+                runCatching { it.toRelativeString(songEntry.songDir).replace("\\", "/") }.getOrDefault(it.absolutePath)
+            } ?: "선택된 파일 없음"
+            ImGui.textWrapped(selectedLabel)
+
+            if (ImGui.button("선택", 120f, 30f)) {
+                imageBrowserSelectedFile?.let(::selectImageFromBrowser)
+            }
+            ImGui.sameLine()
+            if (ImGui.button("취소", 120f, 30f)) closeImageBrowser()
+            ImGui.end()
         }
     }
-
-    private fun resolveMediaPath(): String? {
-        val song = songEntry.song
-        return when {
-            song.videoPath != null -> File(songEntry.songDir, song.videoPath).absolutePath
-            song.audioPath != null -> File(songEntry.songDir, song.audioPath).absolutePath
-            else                   -> null
-        }
-    }
-
-    // ── Dear ImGui 오버레이 ──────────────────────────────────────────────────
 
     override fun renderImGui() {
-        val io = ImGui.getIO()
-        val screenW = io.displaySizeX
-        val screenH = io.displaySizeY
-        val menuBarH = 20f
-        val btmH = 200f
-        val propsW = 260f
-
-        val dockspaceFlags = imgui.flag.ImGuiDockNodeFlags.PassthruCentralNode
-        ImGui.dockSpaceOverViewport(ImGui.getMainViewport(), dockspaceFlags)
-
-        val windowFlags = imgui.flag.ImGuiWindowFlags.NoMove or imgui.flag.ImGuiWindowFlags.NoCollapse
-
-        // ── 뷰포트 (영상/장식) ──────────────────────────────────────────────
-        ImGui.pushStyleColor(imgui.flag.ImGuiCol.WindowBg, 0)
-        ImGui.pushStyleVar(imgui.flag.ImGuiStyleVar.WindowPadding, 0f, 0f)
-        
-        ImGui.setNextWindowPos(0f, menuBarH, imgui.flag.ImGuiCond.FirstUseEver)
-        ImGui.setNextWindowSize(screenW - propsW, screenH - menuBarH - btmH, imgui.flag.ImGuiCond.FirstUseEver)
-        if (ImGui.begin("뷰포트", windowFlags)) {
-            val pos = ImGui.getCursorScreenPos()
-            val availW = ImGui.getContentRegionAvailX()
-            val availH = ImGui.getContentRegionAvailY()
-            
-            val (lx, ly) = ctx.renderer.toLogical(pos.x.toDouble(), pos.y.toDouble())
-            val scale = ctx.renderer.renderScale
-            val lw = availW / scale
-            val lh = availH / scale
-            
-            val targetH = (lh * vpHeightPct / 100.0).toInt()
-            val targetW = targetH * 16 / 9
-            
-            cachedVpH = targetH
-            cachedVpW = targetW
-            cachedVpX = lx.toInt() + ((lw - targetW) / 2).toInt()
-            cachedVpY = ly.toInt() + ((lh - targetH) / 2).toInt()
-            
-            isViewportHovered = ImGui.isWindowHovered()
-        }
-        ImGui.end()
-
-        // ── 타임라인 ────────────────────────────────────────────────────────
-        ImGui.setNextWindowPos(0f, screenH - btmH, imgui.flag.ImGuiCond.FirstUseEver)
-        ImGui.setNextWindowSize(screenW - propsW, btmH, imgui.flag.ImGuiCond.FirstUseEver)
-        if (ImGui.begin("타임라인", windowFlags)) {
-            val pos = ImGui.getCursorScreenPos()
-            val availW = ImGui.getContentRegionAvailX()
-            val availH = ImGui.getContentRegionAvailY()
-
-            val (lx, ly) = ctx.renderer.toLogical(pos.x.toDouble(), pos.y.toDouble())
-            val scale = ctx.renderer.renderScale
-            val lw = availW / scale
-            val lh = availH / scale
-
-            timelineX = lx.toInt()
-            unifiedTlY = ly.toInt()
-            timelineW = lw.toInt().coerceAtLeast(1)
-            val totalH = lh.toInt().coerceAtLeast(1)
-            
-            if (decorMode) {
-                DECOR_TL_H = (totalH * 0.55).toInt()
-                NOTE_TL_H = totalH - DECOR_TL_H
+        // 입력 콜백에서 설정된 팝업 요청을 ImGui 프레임 내에서 처리합니다.
+        if (pendingContextMenu) { ImGui.openPopup("EditorContextMenu"); pendingContextMenu = false }
+        if (ImGui.beginPopup("EditorContextMenu")) {
+            if (contextMenuNoteIdx >= 0) {
+                if (ImGui.menuItem("노트 삭제")) { saveSnapshot(); synchronized(notesLock) { mutableChart.notes.removeAt(contextMenuNoteIdx) }; selectedIndices.clear(); unsaved = true }
+            } else if (contextMenuDecorIdx >= 0) {
+                if (ImGui.menuItem("장식 편집")) openDecorEditDialog(contextMenuDecorIdx)
+                if (ImGui.menuItem("장식 삭제")) { decorations.removeAt(contextMenuDecorIdx); selectedDecorIdx = -1; unsaved = true; saveDecor() }
             } else {
-                DECOR_TL_H = 0
-                NOTE_TL_H = totalH
-            }
-            isTimelineHovered = ImGui.isWindowHovered()
-        }
-        ImGui.end()
-        ImGui.popStyleVar()
-        ImGui.popStyleColor()
-
-        // ── 우측 프로퍼티 패널 ─────────────────────────────────────────────────
-        ImGui.setNextWindowPos(screenW - propsW, menuBarH, imgui.flag.ImGuiCond.FirstUseEver)
-        ImGui.setNextWindowSize(propsW, screenH - menuBarH, imgui.flag.ImGuiCond.FirstUseEver)
-        if (ImGui.begin("도움말 및 설정", windowFlags)) {
-            if (decorMode) renderDecorPropsPanelImGui()
-            else           renderNoteShortcutPanelImGui()
-        }
-        ImGui.end()
-
-        // ── 메인 메뉴바 ───────────────────────────────────────────────────────
-        if (ImGui.beginMainMenuBar()) {
-            // 곡 제목 (강조색)
-            ImGui.textColored(0.78f, 0.63f, 1.00f, 1.00f, "✏  ${songEntry.song.title}")
-            ImGui.sameLine()
-
-            // 현재 재생 위치 및 상태
-            val pos     = maxOf(ctx.videoBackground.getSmoothTimeMs() - mutableChart.offsetMs, 0L)
-            val timeStr = "%d:%02d.%03d".format(pos / 60_000, (pos % 60_000) / 1000, pos % 1000)
-            val playIcon = if (isPlaying) " ▶" else " ⏸"
-            val modeTag  = if (decorMode) "  田 DECOR" else "  ♩ NOTE"
-            val recStr   = if (recordingMode) "  ⏺REC" else ""
-            val snapStr  = if (quantizeEnabled) "  Snap 1/$quantizeDivision" else "  Free"
-            val zoomStr  = "  ${visibleWindowMs / 1000}s"
-            val dotStr   = if (unsaved) "  ●" else ""
-            ImGui.text("$timeStr$playIcon$modeTag$recStr$snapStr$zoomStr$dotStr")
-
-            // 메뉴
-            if (ImGui.beginMenu("파일")) {
-                if (ImGui.menuItem("저장", "Ctrl+S")) { if (decorMode) saveDecor() else save() }
-                if (ImGui.menuItem("캘리브레이션", "Ctrl+Shift+O")) openCalibration()
-                if (ImGui.menuItem("설정", "Ctrl+,")) openSettings()
-                ImGui.separator()
-                if (ImGui.menuItem("목록으로", "Esc")) {
-                    ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
-                }
-                ImGui.endMenu()
-            }
-            if (ImGui.beginMenu("편집")) {
-                if (ImGui.menuItem("실행 취소", "Ctrl+Z")) undo()
-                if (ImGui.menuItem("다시 실행", "Ctrl+Y")) redo()
-                ImGui.separator()
-                if (ImGui.menuItem("복사", "Ctrl+C")) copy()
-                if (ImGui.menuItem("잘라내기", "Ctrl+X")) cut()
-                if (ImGui.menuItem("붙여넣기", "Ctrl+V")) paste()
-                ImGui.separator()
-                if (ImGui.menuItem("전체 선택", "Ctrl+A")) selectAll()
-                if (ImGui.menuItem("선택 해제", "Ctrl+D")) selectedIndices.clear()
-                if (ImGui.menuItem("삭제", "Delete")) deleteSelected()
-                ImGui.endMenu()
-            }
-            if (ImGui.beginMenu("보기")) {
-                val decChecked = decorMode
-                if (ImGui.menuItem("장식 모드", "Ctrl+Shift+D", decChecked)) toggleDecorMode()
-                ImGui.separator()
-                if (ImGui.menuItem("줌 인", "=")) zoomIn()
-                if (ImGui.menuItem("줌 아웃", "-")) zoomOut()
-                ImGui.separator()
-                val vpArr = intArrayOf(vpHeightPct)
-                if (ImGui.sliderInt("뷰포트 크기 %", vpArr, 30, 100)) {
-                    vpHeightPct = vpArr[0]
-                }
-                ImGui.endMenu()
-            }
-            ImGui.endMainMenuBar()
-        }
-
-        // ── 노트 추가 팝업 ────────────────────────────────────────────────────
-        if (pendingNoteAdd) {
-            ImGui.openPopup("##add_note")
-            pendingNoteAdd = false
-        }
-        if (ImGui.beginPopup("##add_note")) {
-            val laneNames = arrayOf("D", "F", "J", "K")
-            if (ImGui.menuItem("${laneNames[addNotePopupLane]} 레인에 노트 추가")) {
-                saveSnapshot()
-                val type    = if (noteMode == NoteMode.LONG) NoteType.LONG else NoteType.SHORT
-                val endTime = if (type == NoteType.LONG) addNotePopupMs + 500L else null
-                mutableChart.notes.add(MutableNote(addNotePopupMs, addNotePopupLane, type, endTime))
-                mutableChart.notes.sortBy { it.time }
-                unsaved = true
-            }
-            ImGui.endPopup()
-        }
-
-        // ── 장식 팝업 ─────────────────────────────────────────────────────────
-        if (pendingDecorPopup) {
-            ImGui.openPopup("##decor_popup")
-            pendingDecorPopup = false
-        }
-        if (ImGui.beginPopup("##decor_popup")) {
-            if (decorPopupHitIdx >= 0) {
-                if (ImGui.menuItem("편집…")) {
-                    val idx = decorPopupHitIdx
-                    openDecorEditDialog(idx)
-                }
-                if (ImGui.menuItem("삭제")) {
-                    val cur = decorations
-                    cur.removeAt(decorPopupHitIdx)
-                    decorData = DecorationData(cur, decorData.screenEffects)
-                    syncDecorRenderer()
-                    if (selectedDecorIdx >= cur.size) selectedDecorIdx = cur.size - 1
-                }
-            } else {
-                val ms = decorPopupClickMs
-                if (ImGui.menuItem("여기에 장식 추가 (${ms}ms)")) {
-                    openNewDecorDialog(ms)
+                if (decorMode) { if (ImGui.menuItem("여기에 장식 추가")) openNewDecorDialog(contextMenuClickMs) }
+                else {
+                    val laneChar = arrayOf("D","F","J","K")[contextMenuLane]
+                    if (ImGui.menuItem("$laneChar 레인에 노트 추가")) {
+                        saveSnapshot(); synchronized(notesLock) {
+                            mutableChart.notes.add(MutableNote(contextMenuClickMs, contextMenuLane, if (noteMode == NoteMode.NORMAL) NoteType.SHORT else NoteType.LONG, if (noteMode == NoteMode.NORMAL) null else contextMenuClickMs + 500))
+                            mutableChart.notes.sortBy { it.time }
+                        }; unsaved = true
+                    }
                 }
             }
-            ImGui.endPopup()
-        }
-        
-        if (showDecorModal) {
-            renderDecorModalImGui()
-        }
-    }
-
-    // ── ImGui 패널: 단축키 참조 ──────────────────────────────────────────────
-
-    private fun renderNoteShortcutPanelImGui() {
-        fun section(title: String) {
-            ImGui.textColored(0.51f, 0.39f, 0.78f, 1f, title)
-            ImGui.separator()
-        }
-        fun shortcut(keys: String, desc: String) {
-            ImGui.textColored(1.00f, 0.86f, 0.31f, 1f, keys)
-            ImGui.sameLine(90f)
-            ImGui.textColored(0.71f, 0.71f, 0.78f, 1f, desc)
+            ImGui.separator(); if (ImGui.menuItem("취소")) ImGui.closeCurrentPopup(); ImGui.endPopup()
         }
 
-        section("재생 / 탐색")
-        shortcut("Space",     "재생 / 일시정지")
-        shortcut("J",         "5초 뒤로")
-        shortcut("← / →",    "±1초")
-        shortcut("Shift+←→", "±100ms")
-        shortcut("Home/End",  "시작 / 끝")
-        ImGui.spacing()
-
-        section("선택 / 편집")
-        shortcut("Ctrl+A",    "전체 선택")
-        shortcut("Tab",       "노트 이동")
-        shortcut("Ctrl+Z/Y",  "취소 / 재실행")
-        shortcut("Ctrl+C/V",  "복사 / 붙여넣기")
-        shortcut("Delete",    "삭제")
-        ImGui.spacing()
-
-        section("녹음 / 퀀타이즈")
-        shortcut("R",         "녹음 모드")
-        shortcut("N",         "노트 타입")
-        shortcut("Q / 4/8/6", "스냅")
-        shortcut("= / -",     "줌 in / out")
-        ImGui.spacing()
-
-        section("기타")
-        shortcut("Ctrl+S",       "저장")
-        shortcut("Ctrl+Shift+D", "장식 모드")
-        shortcut("Esc",          "뒤로")
-    }
-
-    // ── ImGui 패널: 장식 프로퍼티 ────────────────────────────────────────────
-
-    private fun renderDecorPropsPanelImGui() {
-        val selDec = decorations.getOrNull(selectedDecorIdx)
-
-        ImGui.textColored(0.76f, 0.51f, 1f, 1f, "田 장식 편집")
-        ImGui.separator()
-        ImGui.textColored(0.39f, 0.33f, 0.55f, 1f, "Ctrl+Shift+D: 노트 모드")
-        ImGui.textColored(0.39f, 0.33f, 0.55f, 1f, "우클릭: 추가  E: 편집  Del: 삭제")
-        ImGui.spacing()
-
-        if (selDec == null) {
-            ImGui.textColored(0.31f, 0.27f, 0.43f, 1f, "장식을 선택하세요")
-            ImGui.textColored(0.24f, 0.22f, 0.35f, 1f, "하단 타임라인에서 클릭")
-        } else {
-            ImGui.textColored(0.76f, 0.57f, 1f, 1f, selDec.id.ifEmpty { "(unnamed)" })
-            ImGui.separator()
-
-            fun propRow(label: String, value: String) {
-                ImGui.textColored(0.51f, 0.41f, 0.73f, 1f, label)
-                ImGui.sameLine(90f)
-                ImGui.textColored(0.88f, 0.88f, 0.96f, 1f, value)
-            }
-            propRow("image",    selDec.image.ifEmpty { "(없음)" })
-            propRow("timeMs",   "${selDec.timeMs} ms")
-            propRow("durMs",    "${selDec.durationMs} ms")
-            propRow("x / y",    "%.3f / %.3f".format(selDec.x, selDec.y))
-            propRow("w / h",    "${selDec.width} / ${selDec.height}")
-            propRow("opacity",  "%.2f".format(selDec.opacity))
-            propRow("rotation", "%.1f°".format(selDec.rotation))
-            propRow("depth",    "${selDec.depth}")
-            propRow("effects",  "${selDec.effects.size}개")
-
-            ImGui.spacing()
-            ImGui.textColored(0.27f, 0.22f, 0.39f, 1f, "E: 편집   Del: 삭제")
-        }
-
-        ImGui.spacing()
-        ImGui.separator()
-        ImGui.textColored(0.31f, 0.25f, 0.45f, 1f, "장식 ${decorations.size}개")
-        ImGui.spacing()
-        if (ImGui.button("저장 (Ctrl+S)")) saveDecor()
-    }
-
-    private fun renderDecorModalImGui() {
-        if (!showDecorModal) return
-
-        val flags = ImGuiWindowFlags.AlwaysAutoResize or ImGuiWindowFlags.NoSavedSettings
-        val io = ImGui.getIO()
-        ImGui.setNextWindowPos(io.displaySizeX / 2 - 200f, io.displaySizeY / 2 - 300f, ImGuiCond.Appearing)
-        if (ImGui.begin(if (decorModalIsNew) "새 장식 추가" else "장식 편집", flags)) {
-            ImGui.inputText("ID", bufDecId)
-            ImGui.inputText("Image", bufDecImage)
-            ImGui.inputInt("Time (ms)", bufDecTimeMs)
-            ImGui.inputInt("Duration (ms)", bufDecDurMs)
-            ImGui.sliderFloat2("X / Y", bufDecXY, 0f, 1f)
-            ImGui.inputFloat2("Width / Height", bufDecWH)
-            ImGui.sliderFloat2("Pivot", bufDecPivot, 0f, 1f)
-            ImGui.sliderFloat("Opacity", bufDecOpacity, 0f, 1f)
-            ImGui.inputFloat("Rotation", bufDecRotation)
-            ImGui.inputFloat2("Scale", bufDecScale)
-            ImGui.inputInt("Depth", bufDecDepth)
-
-            ImGui.separator()
-            ImGui.text("Effects (${modalEffects.size})")
-            if (ImGui.button("Clear Effects")) {
-                modalEffects.clear()
-            }
-
-            ImGui.separator()
-            if (ImGui.button("저장")) {
-                val dec = Decoration(
-                    id = bufDecId.get().trim(),
-                    timeMs = bufDecTimeMs.get().toLong(),
-                    durationMs = bufDecDurMs.get().toLong(),
-                    image = bufDecImage.get().trim(),
-                    x = bufDecXY[0], y = bufDecXY[1],
-                    width = bufDecWH[0], height = bufDecWH[1],
-                    pivotX = bufDecPivot[0], pivotY = bufDecPivot[1],
-                    opacity = bufDecOpacity[0],
-                    rotation = bufDecRotation.get(),
-                    scaleX = bufDecScale[0], scaleY = bufDecScale[1],
-                    depth = bufDecDepth.get(),
-                    effects = modalEffects.toList()
-                )
-                if (decorModalIsNew) {
-                    decorations.add(dec)
-                } else if (decorModalEditIdx in decorations.indices) {
-                    decorations[decorModalEditIdx] = dec
+        if (editingDecorIdx != -1) {
+            ImGui.setNextWindowSize(400f, 520f)
+            if (ImGui.begin("Decoration Editor", ImGuiWindowFlags.NoCollapse)) {
+                ImGui.inputText("ID", imId); ImGui.inputText("Image", imImage)
+                if (ImGui.button("파일 선택...")) {
+                    openImageBrowser()
                 }
-                decorData = DecorationData(decorations, decorData.screenEffects)
-                syncDecorRenderer()
-                unsaved = true
-                showDecorModal = false
-            }
-            ImGui.sameLine()
-            if (ImGui.button("취소")) {
-                showDecorModal = false
+                ImGui.separator(); ImGui.inputInt("Time (ms)", imTime); ImGui.inputInt("Duration (ms)", imDuration)
+                ImGui.separator(); ImGui.sliderFloat("X", imX.data, 0f, 1f); ImGui.sliderFloat("Y", imY.data, 0f, 1f); ImGui.inputFloat("Width", imW); ImGui.inputFloat("Height", imH)
+                ImGui.separator(); ImGui.sliderFloat("Opacity", imOpacity.data, 0f, 1f); ImGui.dragFloat("Rotation", imRotation.data, 0.5f, -360f, 360f); ImGui.inputInt("Depth (Z-index)", imDepth)
+                if (ImGui.button("확인", 120f, 30f)) {
+                    val updated = Decoration(id = imId.get(), image = imImage.get(), timeMs = imTime.get().toLong(), durationMs = imDuration.get().toLong(), x = imX.get(), y = imY.get(), width = imW.get(), height = imH.get(), opacity = imOpacity.get(), rotation = imRotation.get(), depth = imDepth.get(), effects = editingDecor?.effects ?: emptyList())
+                    if (editingDecorIdx == -2) { decorations.add(updated); decorations.sortBy { it.timeMs } } else { decorations[editingDecorIdx] = updated }
+                    saveDecor(); unsaved = true; editingDecorIdx = -1; closeImageBrowser()
+                }
+                ImGui.sameLine(); if (ImGui.button("취소", 120f, 30f)) { editingDecorIdx = -1; closeImageBrowser() }
+                ImGui.end()
             }
         }
-        ImGui.end()
+
+        renderImageBrowser()
     }
 }

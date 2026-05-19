@@ -13,6 +13,8 @@ import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.judgment.Judgment
 import io.github.jwyoon1220.core.judgment.JudgmentSystem
 import io.github.jwyoon1220.core.scoring.ScoreEngine
+import io.github.jwyoon1220.core.replay.ReplayFrame
+import io.github.jwyoon1220.core.replay.ReplayFile
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.Keys
@@ -27,10 +29,13 @@ import java.awt.Color
 import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
 import java.io.File
+import java.io.FileWriter
 import java.util.ArrayDeque
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.SerializationFeature
 
 class PlayState(
     private val ctx: GameContext,
@@ -96,6 +101,10 @@ class PlayState(
     private var cachedMaxComboStr = "MAX COMBO: 0"
     private var cachedCombo = -1
     private var cachedComboStr = ""
+    
+    // ── 성능 최적화: 매 프레임 시간 계산 캐싱 ───────────────────────────────
+    private var lastCachedTimeMs = 0L
+    private var lastCacheFrameId = -1L
 
     // ── 레이아웃 상수 ──────────────────────────────────────────────────────────
     private val LANE_COUNT      = 4
@@ -142,6 +151,12 @@ class PlayState(
     @Volatile private var hitLineY = 612
 
     private var mediaStarted = false
+
+    // ── 리플레이 기록 (골든 기준점) ──────────────────────────────────────────
+    private val replayFrames = mutableListOf<ReplayFrame>()
+    private var frameNum = 0
+    @Volatile private var thisFrameLanePressed = mutableListOf<Int>()
+    @Volatile private var thisFrameLaneReleased = mutableListOf<Int>()
 
     // ── 폰트 ──────────────────────────────────────────────────────────────────
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
@@ -212,6 +227,9 @@ class PlayState(
         ctx.videoBackground.stop()
         synchronized(notesLock) { soaSize = 0 }
         ctx.inputManager.clearEvents()
+        
+        // 리플레이 저장
+        if (replayFrames.isNotEmpty()) saveReplay()
     }
 
     override fun update(deltaTime: Double) {
@@ -226,16 +244,24 @@ class PlayState(
             return
         }
         if (!mediaStarted) return
-        // getSmoothTimeMs()로 VLC 33ms 갱신 간격을 nanoTime 보간으로 메워 부드러운 스크롤 구현
-        currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - chart.offsetMs
+        
+        // ── 성능: getSmoothTimeMs() 호출 최소화 (프레임 ID로 캐싱) ──────────────
+        val frameId = ctx.videoBackground.getFrameId()
+        if (frameId != lastCacheFrameId || lastCacheFrameId == -1L) {
+            lastCachedTimeMs = ctx.videoBackground.getSmoothTimeMs() - chart.offsetMs
+            lastCacheFrameId = frameId
+        }
+        currentTimeMs = lastCachedTimeMs
         val now = currentTimeMs
 
         // 입력 이벤트 처리 (handlePress/Release 내부에서 notesLock 사용)
+        thisFrameLanePressed.clear()
+        thisFrameLaneReleased.clear()
         for (event in ctx.inputManager.pollEvents()) {
             laneHeld[event.lane] = event.type == LaneEventType.PRESS
             when (event.type) {
-                LaneEventType.PRESS   -> { HitSound.play(); handlePress(event.lane, now) }
-                LaneEventType.RELEASE -> handleRelease(event.lane, now)
+                LaneEventType.PRESS   -> { thisFrameLanePressed.add(event.lane); HitSound.play(); handlePress(event.lane, now) }
+                LaneEventType.RELEASE -> { thisFrameLaneReleased.add(event.lane); handleRelease(event.lane, now) }
             }
         }
 
@@ -697,6 +723,32 @@ class PlayState(
         judgmentText   = j.name
         judgmentColor  = judgColor(j)
         judgmentFadeMs = JUDGE_FADE_MS
+    }
+
+    private fun saveReplay() {
+        try {
+            val replay = ReplayFile(
+                chartId = "${songEntry.song.title}_${chart.notes.size}",
+                offsetMs = chart.offsetMs,
+                totalNotes = chart.notes.size,
+                bpm = (songEntry.song.bpm ?: 120).toFloat(),
+                targetFps = 60,
+                frames = replayFrames
+            )
+            
+            val mapper = ObjectMapper()
+            mapper.enable(SerializationFeature.INDENT_OUTPUT)
+            val jsonStr = mapper.writeValueAsString(replay)
+            
+            val replayDir = File(songEntry.songDir, "replays").apply { mkdirs() }
+            val outputFile = File(replayDir, "golden_replay.json")
+            
+            FileWriter(outputFile).use { it.write(jsonStr) }
+            println("✓ Replay saved: ${outputFile.absolutePath}")
+        } catch (e: Exception) {
+            System.err.println("✗ Failed to save replay: ${e.message}")
+            e.printStackTrace()
+        }
     }
 
     private fun resolveMediaPath(): String? {
