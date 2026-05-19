@@ -7,10 +7,11 @@ import io.github.jwyoon1220.core.data.Song
 import io.github.jwyoon1220.core.song.ChartParser
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.Keys
+import imgui.ImGui
+import imgui.flag.ImGuiWindowFlags
 import java.awt.Color
-import java.awt.FileDialog
-import java.awt.Frame
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -21,7 +22,7 @@ import java.nio.file.StandardCopyOption
  */
 class NewSongState(
     private val ctx: GameContext
-) : GameState {
+) : GameState, ImGuiRenderable {
 
     // ── 폰트 ─────────────────────────────────────────────────────────────────
     private val titleFont  = FontLoader.bold(22f)
@@ -52,6 +53,15 @@ class NewSongState(
     private var mouseY     = 0f
     private var hoverDiff  = -1
     private var time       = 0.0
+
+    private data class FileBrowserEntry(val file: File, val displayName: String, val isDirectory: Boolean)
+    private var pickerOpen = false
+    private var pickerTitle = ""
+    private var pickerDir: File = File(System.getProperty("user.dir"))
+    private var pickerEntries: List<FileBrowserEntry> = emptyList()
+    private var pickerSelected: File? = null
+    private var pickerExts: Set<String> = emptySet()
+    private var pickerOnPick: ((File) -> Unit)? = null
 
     // ── 레이아웃 상수 ─────────────────────────────────────────────────────────
     private val CX  = 640   // 중앙 x
@@ -212,6 +222,10 @@ class NewSongState(
     }
 
     override fun keyPressed(key: Int, mods: Int) {
+        if (pickerOpen && key == Keys.ESCAPE) {
+            pickerOpen = false
+            return
+        }
         when {
             key == Keys.ESCAPE -> ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
             key == Keys.TAB    -> focusedField = (focusedField + 1) % fields.size
@@ -249,9 +263,9 @@ class NewSongState(
             val btnX = BOX_X + BOX_W - 80
             if (mx in btnX..(btnX + 70) && my in ry..(ry + 26)) {
                 when (idx) {
-                    0 -> coverFile = pickFile("커버 이미지 선택", "png,jpg,jpeg,webp")
-                    1 -> audioFile = pickFile("오디오 파일 선택", "mp3,ogg,wav,flac,m4a")
-                    2 -> videoFile = pickFile("비디오 파일 선택", "mp4,mkv,avi,mov,webm")
+                    0 -> openPicker("커버 이미지 선택", "png,jpg,jpeg,webp") { coverFile = it }
+                    1 -> openPicker("오디오 파일 선택", "mp3,ogg,wav,flac,m4a") { audioFile = it }
+                    2 -> openPicker("비디오 파일 선택", "mp4,mkv,avi,mov,webm") { videoFile = it }
                 }
             }
         }
@@ -292,14 +306,88 @@ class NewSongState(
     override fun mousePressed(x: Float, y: Float, button: Int, mods: Int) { mouseX = x; mouseY = y }
     override fun mouseReleased(x: Float, y: Float, button: Int, mods: Int) {}
 
-    // ── 네이티브 파일 선택 ────────────────────────────────────────────────────
-    private fun pickFile(title: String, extensions: String): File? {
-        val dlg = FileDialog(null as Frame?, title, FileDialog.LOAD).apply {
-            file = extensions.split(",").joinToString(";") { "*.$it" }
+    private fun openPicker(title: String, extensions: String, onPick: (File) -> Unit) {
+        pickerTitle = title
+        pickerExts = extensions.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet()
+        pickerDir = coverFile?.parentFile ?: audioFile?.parentFile ?: videoFile?.parentFile
+            ?: File(ctx.songManager.workingDir, "songs").takeIf { it.exists() }
+            ?: File(System.getProperty("user.dir"))
+        pickerSelected = null
+        pickerOnPick = onPick
+        refreshPickerEntries()
+        pickerOpen = true
+    }
+
+    private fun refreshPickerEntries() {
+        val dir = pickerDir.takeIf { it.exists() && it.isDirectory } ?: return
+        pickerEntries = dir.listFiles().orEmpty()
+            .filter { it.isDirectory || it.extension.lowercase() in pickerExts }
+            .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
+            .map {
+                FileBrowserEntry(
+                    file = it,
+                    displayName = if (it.isDirectory) "[DIR] ${it.name}" else it.name,
+                    isDirectory = it.isDirectory
+                )
+            }
+    }
+
+    override fun renderImGui() {
+        if (!pickerOpen) return
+
+        ImGui.setNextWindowSize(560f, 430f)
+        if (ImGui.begin(pickerTitle, ImGuiWindowFlags.NoCollapse)) {
+            ImGui.textWrapped("내부 파일 브라우저")
+            ImGui.separator()
+            ImGui.textWrapped(pickerDir.absolutePath)
+
+            if (ImGui.button("상위 폴더")) {
+                pickerDir.parentFile?.takeIf { it.exists() && it.isDirectory }?.let {
+                    pickerDir = it
+                    pickerSelected = null
+                    refreshPickerEntries()
+                }
+            }
+            ImGui.sameLine()
+            if (ImGui.button("songs 폴더")) {
+                val songsDir = File(ctx.songManager.workingDir, "songs")
+                if (songsDir.exists() && songsDir.isDirectory) {
+                    pickerDir = songsDir
+                    pickerSelected = null
+                    refreshPickerEntries()
+                }
+            }
+            ImGui.sameLine()
+            if (ImGui.button("새로고침")) refreshPickerEntries()
+
+            ImGui.separator()
+            ImGui.beginChild("NewSongPickerList", 0f, 270f, true)
+            if (pickerEntries.isEmpty()) {
+                ImGui.textWrapped("선택 가능한 파일이 없습니다.")
+            } else {
+                for (entry in pickerEntries) {
+                    val isSelected = pickerSelected?.absolutePath == entry.file.absolutePath
+                    if (ImGui.selectable(entry.displayName, isSelected)) {
+                        if (entry.isDirectory) {
+                            pickerDir = entry.file
+                            pickerSelected = null
+                            refreshPickerEntries()
+                        } else {
+                            pickerSelected = entry.file
+                        }
+                    }
+                }
+            }
+            ImGui.endChild()
+
+            ImGui.textWrapped(pickerSelected?.name ?: "선택된 파일 없음")
+            if (ImGui.button("선택", 120f, 30f)) {
+                pickerSelected?.let { file -> pickerOnPick?.invoke(file); pickerOpen = false }
+            }
+            ImGui.sameLine()
+            if (ImGui.button("취소", 120f, 30f)) pickerOpen = false
+            ImGui.end()
         }
-        dlg.isVisible = true
-        val name = dlg.file ?: return null
-        return File(dlg.directory, name)
     }
 
     // ── 생성 로직 ─────────────────────────────────────────────────────────────
