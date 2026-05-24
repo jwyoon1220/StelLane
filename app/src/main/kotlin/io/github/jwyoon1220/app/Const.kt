@@ -3,7 +3,7 @@ package io.github.jwyoon1220.app
 /** 게임 내 전역 상수 보관 객체 */
 object Const {
     /** 게임 버전 정보 */
-    const val VERSION = "R1.0.2"
+    const val VERSION = "R1.0.3"
 
     /** 리듬게임 기본 레인 설정 */
     const val LANE_COUNT = 4
