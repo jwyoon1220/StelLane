@@ -45,6 +45,10 @@ object Keys {
     const val END       = GLFW_KEY_END           // 269
     const val PAGE_UP   = GLFW_KEY_PAGE_UP       // 266
     const val PAGE_DOWN = GLFW_KEY_PAGE_DOWN     // 267
+    const val LEFT_SHIFT    = GLFW_KEY_LEFT_SHIFT    // 340
+    const val RIGHT_SHIFT   = GLFW_KEY_RIGHT_SHIFT   // 344
+    const val LEFT_CONTROL  = GLFW_KEY_LEFT_CONTROL  // 341
+    const val RIGHT_CONTROL = GLFW_KEY_RIGHT_CONTROL // 345
 
     // ── 문자 키 (GLFW 값 = ASCII 대문자) ─────────────────────────────────────
     const val A = 65; const val B = 66; const val C = 67; const val D = 68

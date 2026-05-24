@@ -12,6 +12,8 @@ import io.github.jwyoon1220.engine.VideoBackground
 import io.github.jwyoon1220.engine.WindowMode
 import io.github.jwyoon1220.engine.data.pool.ObjectPool
 import io.github.jwyoon1220.engine.data.pool.VisualNote
+import io.github.jwyoon1220.app.render.GameRenderer
+import io.github.jwyoon1220.app.render.Renderer as PlayRenderer
 import org.apache.commons.cli.DefaultParser
 import org.apache.commons.cli.HelpFormatter
 import org.apache.commons.cli.Options
@@ -38,6 +40,9 @@ fun main(args: Array<String>) {
         debug   = cmd.hasOption("debug"),
         console = cmd.hasOption("console")
     )
+
+    // ── 플레이 렌더러 등록 ──────────────────────────────────────────────────────
+    GameRenderer.registerRenderer(PlayRenderer())
 
     log.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
 

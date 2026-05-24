@@ -56,7 +56,7 @@ import org.lwjgl.opengl.GL30.glBindVertexArray
 import org.lwjgl.opengl.GL30.glDeleteVertexArrays
 import org.lwjgl.opengl.GL30.glGenVertexArrays
 import org.lwjgl.system.MemoryUtil
-import java.awt.Color
+import io.github.jwyoon1220.engine.render.RenderColor
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 
@@ -241,7 +241,7 @@ class GlQuadBatchRenderer(
         frameBegun = false
     }
 
-    fun drawRect(x: Float, y: Float, w: Float, h: Float, color: Color, textureId: Int = whiteTexture) {
+    fun drawRect(x: Float, y: Float, w: Float, h: Float, color: RenderColor, textureId: Int = whiteTexture) {
         drawGradientRect(x, y, w, h, color, color, color, color, textureId)
     }
 
@@ -266,7 +266,7 @@ class GlQuadBatchRenderer(
     /** 텍스처 샘플 결과와 정점 색상을 곱해 그립니다(기본: whiteTexture). */
     fun drawGradientRect(
         x: Float, y: Float, w: Float, h: Float,
-        topLeft: Color, topRight: Color, bottomRight: Color, bottomLeft: Color,
+        topLeft: RenderColor, topRight: RenderColor, bottomRight: RenderColor, bottomLeft: RenderColor,
         textureId: Int = whiteTexture
     ) {
         if (!frameBegun || w <= 0f || h <= 0f) return
@@ -278,23 +278,23 @@ class GlQuadBatchRenderer(
         val x1 = x + w
         val y1 = y + h
 
-        // 4개 코너 색상을 미리 정규화 (int→float 변환을 6 정점 × 4채널 24회 → 4 × 4채널 16회로 감소)
-        val tlR = topLeft.red   / COLOR_DIV
-        val tlG = topLeft.green / COLOR_DIV
-        val tlB = topLeft.blue  / COLOR_DIV
-        val tlA = topLeft.alpha / COLOR_DIV
-        val trR = topRight.red  / COLOR_DIV
-        val trG = topRight.green / COLOR_DIV
-        val trB = topRight.blue / COLOR_DIV
-        val trA = topRight.alpha / COLOR_DIV
-        val brR = bottomRight.red   / COLOR_DIV
-        val brG = bottomRight.green / COLOR_DIV
-        val brB = bottomRight.blue  / COLOR_DIV
-        val brA = bottomRight.alpha / COLOR_DIV
-        val blR = bottomLeft.red   / COLOR_DIV
-        val blG = bottomLeft.green / COLOR_DIV
-        val blB = bottomLeft.blue  / COLOR_DIV
-        val blA = bottomLeft.alpha / COLOR_DIV
+        // 4개 코너 색상을 미리 float으로 직접 접근하여 AWT Color 생성 및 정밀도 나눗셈 연산 배제
+        val tlR = topLeft.rf
+        val tlG = topLeft.gf
+        val tlB = topLeft.bf
+        val tlA = topLeft.af
+        val trR = topRight.rf
+        val trG = topRight.gf
+        val trB = topRight.bf
+        val trA = topRight.af
+        val brR = bottomRight.rf
+        val brG = bottomRight.gf
+        val brB = bottomRight.bf
+        val brA = bottomRight.af
+        val blR = bottomLeft.rf
+        val blG = bottomLeft.gf
+        val blB = bottomLeft.bf
+        val blA = bottomLeft.af
 
         putVertexF(x0, y0, 0f, 0f, tlR, tlG, tlB, tlA)
         putVertexF(x1, y0, 1f, 0f, trR, trG, trB, trA)

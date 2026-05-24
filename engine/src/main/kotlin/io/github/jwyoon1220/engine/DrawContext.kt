@@ -21,6 +21,7 @@ import java.awt.image.DataBufferByte
 import java.awt.image.DataBufferInt
 import java.nio.ByteBuffer
 import org.lwjgl.system.MemoryUtil
+import io.github.jwyoon1220.engine.render.RenderColor
 
 /**
  * NanoVG 위에 java.awt.Graphics2D 에 가까운 API 를 제공하는 렌더링 컨텍스트.
@@ -36,7 +37,28 @@ class DrawContext(
     val height: Int
 ) {
     // ── 상태 ────────────────────────────────────────────────────────────────
-    var color: Color = Color.WHITE
+    private var _color: Color? = null
+    var color: Color
+        get() {
+            var c = _color
+            if (c == null) {
+                c = Color(renderColor.r, renderColor.g, renderColor.b, renderColor.a)
+                _color = c
+            }
+            return c
+        }
+        set(value) {
+            _color = value
+            _renderColor = RenderColor.fromAwt(value)
+        }
+
+    private var _renderColor: RenderColor = RenderColor.WHITE
+    var renderColor: RenderColor
+        get() = _renderColor
+        set(value) {
+            _renderColor = value
+            _color = null
+        }
     var font: DrawFont? = null
 
     private var _alpha: Float = 1f          // nvgGlobalAlpha 와 동기화
@@ -164,12 +186,20 @@ class DrawContext(
 
     // ── 내부: 색상 설정 ─────────────────────────────────────────────────────
     private fun applyFillColor(c: Color = color) {
-        nvgRGBAf(c.red / 255f, c.green / 255f, c.blue / 255f, c.alpha / 255f, nvgColor)
+        if (c === color && _color == null) {
+            nvgRGBAf(_renderColor.rf, _renderColor.gf, _renderColor.bf, _renderColor.af, nvgColor)
+        } else {
+            nvgRGBAf(c.red / 255f, c.green / 255f, c.blue / 255f, c.alpha / 255f, nvgColor)
+        }
         nvgFillColor(vg, nvgColor)
     }
 
     private fun applyStrokeColor(c: Color = color) {
-        nvgRGBAf(c.red / 255f, c.green / 255f, c.blue / 255f, c.alpha / 255f, nvgColor)
+        if (c === color && _color == null) {
+            nvgRGBAf(_renderColor.rf, _renderColor.gf, _renderColor.bf, _renderColor.af, nvgColor)
+        } else {
+            nvgRGBAf(c.red / 255f, c.green / 255f, c.blue / 255f, c.alpha / 255f, nvgColor)
+        }
         nvgStrokeColor(vg, nvgColor)
         nvgStrokeWidth(vg, _strokeWidth)
     }

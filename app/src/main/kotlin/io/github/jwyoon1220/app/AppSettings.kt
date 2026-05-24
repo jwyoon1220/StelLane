@@ -33,6 +33,11 @@ object AppSettings {
         get() = try { EditorRenderBackend.valueOf(prefs.get("editorRenderBackend", EditorRenderBackend.CUSTOM.name)) }
         catch (_: Exception) { EditorRenderBackend.CUSTOM }
         set(v) { prefs.put("editorRenderBackend", v.name) }
+
+    /** 곡 속도 설정 값 (0.5 ~ 35.0). 기본값은 7.0. */
+    var playSpeed: Float
+        get() = prefs.getFloat("playSpeed", 7.0f).coerceIn(0.5f, 35.0f)
+        set(v) { prefs.putFloat("playSpeed", v.coerceIn(0.5f, 35.0f)) }
 }
 
 enum class PlayRenderBackend {

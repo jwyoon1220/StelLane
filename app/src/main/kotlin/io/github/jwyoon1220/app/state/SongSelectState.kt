@@ -17,6 +17,8 @@ import java.awt.AlphaComposite
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import javax.imageio.ImageIO
 import kotlin.math.*
 
@@ -56,6 +58,12 @@ class SongSelectState(
         override fun removeEldestEntry(eldest: Map.Entry<String, BufferedImage?>) = size > 20
     }
 
+    // ── 메인 패널 용 단일 곡 커버/속도 캐시 ─────────────────────────────────
+    private var curCoverImage: BufferedImage? = null
+    private var lastCoverSong: String? = null
+    private var lastSpeedVal = -1f
+    private var cachedSpeedText = ""
+
     // ── 비디오 프리뷰 ────────────────────────────────────────────────────────
     private val PREVIEW_START_MS = 20_000L
     private var lastPreviewSong: String? = null
@@ -71,6 +79,8 @@ class SongSelectState(
 
     @Volatile private var exportInProgress = false
     @Volatile private var exportMessage = ""
+    @Volatile private var importInProgress = false
+    @Volatile private var importMessage = ""
 
     private data class FileBrowserEntry(val file: File, val displayName: String, val isDirectory: Boolean)
     private var exportDialogOpen = false
@@ -78,6 +88,10 @@ class SongSelectState(
     private var exportDialogEntries: List<FileBrowserEntry> = emptyList()
     private var exportDialogSelected: File? = null
     private val exportFileName = ImString(256)
+    private var importDialogOpen = false
+    private var importDialogDir: File = ctx.songManager.workingDir
+    private var importDialogEntries: List<FileBrowserEntry> = emptyList()
+    private var importDialogSelected: File? = null
 
     private val songs    get() = ctx.songManager.songs
     private val curSong  get() = songs.getOrNull(songIndex)
@@ -88,6 +102,7 @@ class SongSelectState(
         log.info("SongSelectState enter mode={} songs={}", mode, ctx.songManager.songs.size)
         songIndex = 0; diffIndex = 0; lastPreviewSong = null; time = 0.0
         ctx.inputManager.clearEvents()
+        ctx.videoBackground.setRate(1.0f)
         playPreviewForCurrent()
     }
 
@@ -170,9 +185,9 @@ class SongSelectState(
 
         // 힌트 (헤더 우측)
         val hint = if (mode == SelectMode.EDIT)
-            "↑↓  탐색   Enter  선택   N  새 곡   E  내보내기   Esc  뒤로"
+            "↑↓  탐색   Enter  선택   N  새 곡   I  가져오기   E  내보내기   Esc  뒤로"
         else
-            "↑↓  탐색   ←→  난이도   Enter  선택   Esc  뒤로"
+            "↑↓  탐색   ←→ 난이도   Shift/Ctrl 속도   Enter  선택   Esc  뒤로"
         g.font  = hintFont
         g.color = Color(65, 55, 90)
         g.drawString(hint, (w / 2 + 60).toFloat(), 33f)
@@ -181,13 +196,25 @@ class SongSelectState(
             g.color = if (exportInProgress) Color(220, 190, 120) else Color(120, 200, 140)
             g.drawString(exportMessage, (w / 2 + 60).toFloat(), 48f)
         }
+        if (importMessage.isNotEmpty()) {
+            g.font = hintFont
+            g.color = if (importInProgress) Color(220, 190, 120) else Color(120, 200, 140)
+            g.drawString(importMessage, (w / 2 + 60).toFloat(), 62f)
+        }
 
         // ── 왼쪽: 선택된 곡 상세 ─────────────────────────────────────────────
         curSong?.let { entry ->
             val coverX = (PANEL_W - COVER_S) / 2
             val coverY = HEADER_H + 24
 
-            val cover = getCoverImage(entry)
+            val currentSongPath = entry.metaFile.absolutePath
+            val cover = if (currentSongPath == lastCoverSong) {
+                curCoverImage
+            } else {
+                lastCoverSong = currentSongPath
+                getCoverImage(entry).also { curCoverImage = it }
+            }
+
             if (cover != null) {
                 g.scoped {
                     setClip(coverX.toFloat(), coverY.toFloat(), COVER_S.toFloat(), COVER_S.toFloat())
@@ -244,7 +271,30 @@ class SongSelectState(
                 g.font  = diffFont
                 g.color = Color(220, 185, 80)
                 g.drawStringCentered("◀  $diff  ▶", PANEL_W / 2f, ty)
+                ty += 42f
+            } else {
+                ty += 20f
             }
+
+            // 속도 조절 UI (속도가 바뀔 때만 포맷팅하여 가비지 생성 방지)
+            val speedVal = io.github.jwyoon1220.app.AppSettings.playSpeed
+            if (speedVal != lastSpeedVal) {
+                lastSpeedVal = speedVal
+                val actualRate = if (speedVal <= 7.0f) {
+                    0.5f + ((speedVal - 0.5f) / 6.5f) * 0.5f
+                } else {
+                    1.0f + ((speedVal - 7.0f) / 28.0f) * 1.0f
+                }
+                cachedSpeedText = "SPEED  %.1f  (%.2fx)".format(speedVal, actualRate)
+            }
+            g.font = metaFont
+            g.color = Color(180, 160, 220)
+            g.drawStringCentered(cachedSpeedText, PANEL_W / 2f, ty)
+
+            ty += 18f
+            g.font = hintFont
+            g.color = Color(100, 85, 130)
+            g.drawStringCentered("Ctrl / Shift 로 속도 조절", PANEL_W / 2f, ty)
         }
 
         // 곡이 없을 때
@@ -368,13 +418,28 @@ class SongSelectState(
             exportDialogOpen = false
             return
         }
+        if (importDialogOpen && key == Keys.ESCAPE) {
+            importDialogOpen = false
+            return
+        }
         when (key) {
             Keys.UP     -> if (songs.isNotEmpty()) { songIndex = (songIndex - 1 + songs.size) % songs.size; diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
             Keys.DOWN   -> if (songs.isNotEmpty()) { songIndex = (songIndex + 1) % songs.size;             diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
-            Keys.LEFT   -> if (curDiffs.isNotEmpty()) diffIndex = (diffIndex - 1 + curDiffs.size) % curDiffs.size
-            Keys.RIGHT  -> if (curDiffs.isNotEmpty()) diffIndex = (diffIndex + 1) % curDiffs.size
+            Keys.LEFT   -> {
+                if (curDiffs.isNotEmpty()) diffIndex = (diffIndex - 1 + curDiffs.size) % curDiffs.size
+            }
+            Keys.RIGHT  -> {
+                if (curDiffs.isNotEmpty()) diffIndex = (diffIndex + 1) % curDiffs.size
+            }
+            Keys.LEFT_SHIFT, Keys.RIGHT_SHIFT -> {
+                io.github.jwyoon1220.app.AppSettings.playSpeed = (io.github.jwyoon1220.app.AppSettings.playSpeed + 0.5f).coerceAtMost(35.0f)
+            }
+            Keys.LEFT_CONTROL, Keys.RIGHT_CONTROL -> {
+                io.github.jwyoon1220.app.AppSettings.playSpeed = (io.github.jwyoon1220.app.AppSettings.playSpeed - 0.5f).coerceAtLeast(0.5f)
+            }
             Keys.ENTER  -> onConfirm()
             Keys.N      -> if (mode == SelectMode.EDIT) ctx.stateManager.changeState(NewSongState(ctx))
+            Keys.I      -> if (mode == SelectMode.EDIT) openImportDialog()
             Keys.E      -> if (mode == SelectMode.EDIT) openExportDialog()
             Keys.ESCAPE -> ctx.stateManager.changeState(MainMenuState(ctx))
         }
@@ -471,6 +536,85 @@ class SongSelectState(
         }, "song-export-${entry.song.title}").apply { isDaemon = true }.start()
     }
 
+    private fun openImportDialog() {
+        if (importInProgress) return
+        importDialogDir = ctx.songManager.workingDir.takeIf { it.exists() && it.isDirectory } ?: File(System.getProperty("user.dir"))
+        importDialogSelected = null
+        refreshImportDialogEntries()
+        importDialogOpen = true
+    }
+
+    private fun refreshImportDialogEntries() {
+        val dir = importDialogDir.takeIf { it.exists() && it.isDirectory } ?: return
+        importDialogEntries = dir.listFiles().orEmpty()
+            .filter {
+                it.isDirectory || it.extension.equals("json", ignoreCase = true) || it.extension.equals("zip", ignoreCase = true)
+            }
+            .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
+            .map {
+                FileBrowserEntry(
+                    file = it,
+                    displayName = if (it.isDirectory) "[DIR] ${it.name}" else it.name,
+                    isDirectory = it.isDirectory
+                )
+            }
+    }
+
+    private fun importSelectedFile(selected: File) {
+        if (importInProgress) return
+        if (selected.isDirectory) return
+
+        importInProgress = true
+        importMessage = "가져오는 중... ${selected.name}"
+
+        Thread({
+            runCatching {
+                val songsDir = File(ctx.songManager.workingDir, "songs").also { it.mkdirs() }
+                when {
+                    selected.name.endsWith(".zip", ignoreCase = true) -> {
+                        val ok = SongZipUtil.import(selected, songsDir) { false }
+                        if (!ok) error("동일한 곡이 이미 존재합니다.")
+                    }
+                    selected.name.endsWith(".json", ignoreCase = true) -> {
+                        Files.copy(
+                            selected.toPath(),
+                            File(songsDir, selected.name).toPath(),
+                            StandardCopyOption.REPLACE_EXISTING
+                        )
+                        val resourceFolder = File(selected.parentFile, selected.nameWithoutExtension)
+                        if (resourceFolder.exists() && resourceFolder.isDirectory) {
+                            copyDirectory(resourceFolder, File(songsDir, selected.nameWithoutExtension))
+                        }
+                    }
+                    else -> error("JSON 또는 ZIP 파일만 가져올 수 있습니다.")
+                }
+            }
+                .onSuccess {
+                    ctx.songManager.refresh()
+                    songIndex = songIndex.coerceIn(0, maxOf(0, songs.lastIndex))
+                    diffIndex = 0
+                    lastPreviewSong = null
+                    playPreviewForCurrent()
+                    importMessage = "가져오기 완료: ${selected.name}"
+                }
+                .onFailure {
+                    importMessage = "가져오기 실패: ${it.message ?: "알 수 없는 오류"}"
+                    log.error("가져오기 실패", it)
+                }
+
+            importInProgress = false
+        }, "song-import-${selected.name}").apply { isDaemon = true }.start()
+    }
+
+    private fun copyDirectory(src: File, dest: File) {
+        dest.mkdirs()
+        src.walkTopDown().forEach { file ->
+            val target = File(dest, file.relativeTo(src).path)
+            if (file.isDirectory) target.mkdirs()
+            else Files.copy(file.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
     private fun refreshExportDialogEntries() {
         val dir = exportDialogDir.takeIf { it.exists() && it.isDirectory } ?: return
         exportDialogEntries = dir.listFiles().orEmpty()
@@ -491,10 +635,65 @@ class SongSelectState(
     }
 
     override fun renderImGui() {
-        if (!exportDialogOpen) return
+        if (importDialogOpen) {
+            ImGui.setNextWindowSize(560f, 430f)
+            if (ImGui.begin("곡 가져오기", ImGuiWindowFlags.NoCollapse)) {
+                ImGui.textWrapped("JSON 또는 ZIP 파일을 선택해 songs 폴더로 가져옵니다.")
+                ImGui.separator()
+                ImGui.textWrapped(importDialogDir.absolutePath)
 
-        ImGui.setNextWindowSize(560f, 430f)
-        if (ImGui.begin("곡 내보내기", ImGuiWindowFlags.NoCollapse)) {
+                if (ImGui.button("상위 폴더##import")) {
+                    importDialogDir.parentFile?.takeIf { it.exists() && it.isDirectory }?.let {
+                        importDialogDir = it
+                        importDialogSelected = null
+                        refreshImportDialogEntries()
+                    }
+                }
+                ImGui.sameLine()
+                if (ImGui.button("기본 경로##import")) {
+                    importDialogDir = ctx.songManager.workingDir.takeIf { it.exists() && it.isDirectory } ?: importDialogDir
+                    importDialogSelected = null
+                    refreshImportDialogEntries()
+                }
+                ImGui.sameLine()
+                if (ImGui.button("새로고침##import")) refreshImportDialogEntries()
+
+                ImGui.separator()
+                ImGui.beginChild("ImportFileList", 0f, 250f, true)
+                if (importDialogEntries.isEmpty()) {
+                    ImGui.textWrapped("표시할 폴더/JSON/ZIP 파일이 없습니다.")
+                } else {
+                    for (entry in importDialogEntries) {
+                        val selected = importDialogSelected?.absolutePath == entry.file.absolutePath
+                        if (ImGui.selectable(entry.displayName, selected)) {
+                            if (entry.isDirectory) {
+                                importDialogDir = entry.file
+                                importDialogSelected = null
+                                refreshImportDialogEntries()
+                            } else {
+                                importDialogSelected = entry.file
+                            }
+                        }
+                    }
+                }
+                ImGui.endChild()
+
+                ImGui.textWrapped(importDialogSelected?.name ?: "선택된 파일 없음")
+                if (ImGui.button("가져오기", 120f, 30f)) {
+                    importDialogSelected?.let {
+                        importSelectedFile(it)
+                        importDialogOpen = false
+                    }
+                }
+                ImGui.sameLine()
+                if (ImGui.button("취소##import", 120f, 30f)) importDialogOpen = false
+                ImGui.end()
+            }
+        }
+
+        if (exportDialogOpen) {
+            ImGui.setNextWindowSize(560f, 430f)
+            if (ImGui.begin("곡 내보내기", ImGuiWindowFlags.NoCollapse)) {
             ImGui.textWrapped("내부 파일 브라우저에서 저장 위치와 파일명을 선택합니다.")
             ImGui.separator()
             ImGui.textWrapped(exportDialogDir.absolutePath)
@@ -549,6 +748,7 @@ class SongSelectState(
             ImGui.sameLine()
             if (ImGui.button("취소", 120f, 30f)) exportDialogOpen = false
             ImGui.end()
+        }
         }
     }
 }
