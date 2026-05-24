@@ -515,8 +515,14 @@ class EditorState(
                 val lane = idx % 5; val by = unifiedTlY + 18 + lane * laneH
                 val startPx = timelineX + ((dec.timeMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
                 val endPx = timelineX + ((dec.timeMs + dec.durationMs - timelineScrollMs).toDouble() / visibleWindowMs * timelineW).toInt()
-                val bx = startPx.coerceAtLeast(timelineX); val bw2 = (endPx - bx).coerceIn(4, timelineW - (bx - timelineX))
-                if (bx < timelineX + timelineW && bw2 > 0) {
+                
+                // 완전히 화면 밖에 있는 경우 렌더링 스킵
+                if (endPx <= timelineX || startPx >= timelineX + timelineW) return@forEachIndexed
+                
+                val bx = startPx.coerceAtLeast(timelineX)
+                val maxW = timelineW - (bx - timelineX)
+                if (maxW >= 4) {
+                    val bw2 = (endPx - bx).coerceIn(4, maxW)
                     val hue = (idx * 53) % 360; val bright = if (idx == selectedDecorIdx) 1.0f else 0.6f
                     g.color = Color.getHSBColor(hue / 360f, 0.7f, bright)
                     g.fillRoundRect(bx, by, bw2, laneH - 3, 4, 4)

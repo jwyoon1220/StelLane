@@ -191,7 +191,7 @@ class MainMenuState(private val ctx: GameContext) : GameState {
         // ── 7. 버전 / 힌트 ────────────────────────────────────────────────────
         g.font  = verFont
         g.color = Color(80, 68, 110)
-        g.drawString("v B0.1.2", logoX, h - 36f)
+        g.drawString("v ${io.github.jwyoon1220.app.Const.VERSION}", logoX, h - 36f)
 
         g.font  = hintFont
         g.color = Color(90, 78, 120)

@@ -9,7 +9,7 @@ val lwjglNatives = "natives-windows"
 
 allprojects {
     group = "io.github.jwyoon1220"
-    version = "R1.0.0"
+    version = "R1.0.1"
     
     repositories {
         mavenCentral()

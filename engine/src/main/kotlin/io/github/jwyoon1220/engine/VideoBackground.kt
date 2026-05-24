@@ -65,10 +65,13 @@ class VideoBackground private constructor(
     // VLC getTime() 보간용 앵커 (VLC 시간 갱신 주기가 ~33ms이므로 nanoTime으로 보간)
     private data class TimeAnchor(val vlcMs: Long, val nanoTime: Long)
     @Volatile private var timeAnchor = TimeAnchor(0L, System.nanoTime())
+    // play/seek 직후에는 VLC 내부 시계가 짧게 되감길 수 있으므로 역행 허용 유예 구간을 둡니다.
+    @Volatile private var rewindGraceUntilNs: Long = 0L
 
     // VLC playing/paused/stopped/finished 이벤트로 유지되는 재생 상태 캐시.
     // getSmoothTimeMs/Double 에서 JNI player.status().isPlaying 폴링을 대체합니다.
     @Volatile private var isCurrentlyPlaying = false
+    @Volatile private var currentRate = 1.0f
 
     // VLC 오디오 장치 재초기화/필터 재적용으로 음량이 흔들릴 때 강제로 복원할 목표 볼륨(%)
     @Volatile private var targetVolumePercent = 100
@@ -191,10 +194,13 @@ class VideoBackground private constructor(
             // 게임 루프 핫패스에서 JNI를 전혀 호출하지 않아도 됩니다.
             override fun timeChanged(mp: MediaPlayer, newTime: Long) {
                 if (newTime >= 0) {
-                    timeAnchor = TimeAnchor(newTime, System.nanoTime())
+                    val nowNs = System.nanoTime()
+                    val prev = timeAnchor.vlcMs
+                    val clamped = if (nowNs >= rewindGraceUntilNs && newTime < prev) prev else newTime
+                    timeAnchor = TimeAnchor(clamped, nowNs)
                     // 일부 환경에서 seek/출력장치 변경 직후 음량이 낮아지는 현상을 주기적으로 교정
-                    if (newTime - lastVolumeGuardAtMs >= 500L) {
-                        lastVolumeGuardAtMs = newTime
+                    if (clamped - lastVolumeGuardAtMs >= 500L) {
+                        lastVolumeGuardAtMs = clamped
                         enforceVolumeNow()
                     }
                 }
@@ -220,7 +226,8 @@ class VideoBackground private constructor(
         val anchor = timeAnchor
         if (anchor.vlcMs < 0) return 0L
         if (!isCurrentlyPlaying) return anchor.vlcMs
-        return anchor.vlcMs + (System.nanoTime() - anchor.nanoTime) / 1_000_000L
+        val elapsedRealMs = (System.nanoTime() - anchor.nanoTime) / 1_000_000L
+        return anchor.vlcMs + (elapsedRealMs * currentRate).toLong()
     }
 
     /**
@@ -230,13 +237,21 @@ class VideoBackground private constructor(
     fun getSmoothTimeDouble(): Double {
         val anchor = timeAnchor
         if (!isCurrentlyPlaying) return anchor.vlcMs.toDouble()
-        return anchor.vlcMs + (System.nanoTime() - anchor.nanoTime) / 1_000_000.0
+        val elapsedRealMs = (System.nanoTime() - anchor.nanoTime) / 1_000_000.0
+        return anchor.vlcMs + elapsedRealMs * currentRate
+    }
+
+    fun setRate(rate: Float) {
+        log.debug("[VLC] setRate 요청: {}", rate)
+        currentRate = rate
+        vlcExecutor.submit { mediaPlayer?.controls()?.setRate(rate) }
     }
 
     fun play(path: String) {
         log.info("[VLC] play 요청: {}", path)
         isCurrentlyPlaying = false  // playing 이벤트 수신 전까지 보간 억제
         timeAnchor = TimeAnchor(0L, System.nanoTime())
+        rewindGraceUntilNs = System.nanoTime() + 150_000_000L
         lastVolumeGuardAtMs = 0L
         // ":avcodec-hw=none" — 미디어별 소프트웨어 디코딩 강제 (팩토리 옵션과 이중 보호).
         // 하드웨어 디코더(D3D11VA 등)가 켜지면 GPU 메모리 프레임을 콜백 서피스(CPU)로
@@ -270,6 +285,7 @@ class VideoBackground private constructor(
     fun seek(ms: Long) {
         //log.debug("[VLC] seek 요청: {}ms", ms)
         timeAnchor = TimeAnchor(ms, System.nanoTime())
+        rewindGraceUntilNs = System.nanoTime() + 1_000_000_000L
         vlcExecutor.submit {
             mediaPlayer?.controls()?.setTime(ms)
             enforceVolumeInternal(mediaPlayer)

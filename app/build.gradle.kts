@@ -23,7 +23,7 @@ tasks.test {
 
 application {
     mainClass.set("io.github.jwyoon1220.app.MainKt")
-    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8")
+    applicationDefaultJvmArgs = listOf("-Dfile.encoding=UTF-8", "-XX:+UseZGC")
 }
 
 // run을 위한 작업 디렉토리 설정
@@ -82,6 +82,7 @@ tasks.register<JavaExec>("runGame") {
     description = "prepareRunEnv 수행 후 run/ 디렉토리에서 게임을 실행합니다."
     dependsOn(prepareRunEnv)
     args("--debug", "--console")
+    jvmArgs("-XX:+UseZGC")
 
     mainClass.set(application.mainClass)
     classpath = sourceSets["main"].runtimeClasspath
@@ -145,7 +146,9 @@ val jpackageImage by tasks.registering(Exec::class) {
         "--runtime-image", jreDir.absolutePath,
         "--dest",          outputDir.absolutePath,
         "--java-options",  "-Dfile.encoding=UTF-8",
-        "--java-options",  "-Djna.library.path=\$APPDIR/vlc"
+        "--java-options",  "-XX:+UseZGC",
+        // app-image 레이아웃에서 APPDIR는 dist/StelLane/app 이므로 VLC 폴더는 한 단계 위를 가리켜야 함
+        "--java-options",  "-Djna.library.path=\$APPDIR/../vlc"
     )
 }
 
@@ -191,6 +194,33 @@ tasks.register("deploy") {
             }
             println("WARNING: run/songs/ folder not found. Created an empty songs directory.")
         }
+
+        // 3. EXE 런처 실패 환경 대비 배치 런처 생성 (일부 PC에서 "Failed to launch JVM" 우회)
+        val launchBat = File(appDir, "Launch-StelLane.bat")
+        launchBat.writeText(
+            """
+            @echo off
+            setlocal
+            set APPDIR=%~dp0
+            "%APPDIR%runtime\\bin\\javaw.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -Djna.library.path="%APPDIR%vlc" -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt %*
+            endlocal
+            """.trimIndent()
+        )
+
+        val debugBat = File(appDir, "Launch-StelLane-Debug.bat")
+        debugBat.writeText(
+            """
+            @echo off
+            setlocal
+            set APPDIR=%~dp0
+            echo [StelLane] Starting debug launcher...
+            "%APPDIR%runtime\\bin\\java.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -Djna.library.path="%APPDIR%vlc" -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt --debug --console %*
+            echo.
+            echo [StelLane] Exit code: %ERRORLEVEL%
+            pause
+            endlocal
+            """.trimIndent()
+        )
 
         println("Deploy complete: ${appDir.absolutePath}")
     }
