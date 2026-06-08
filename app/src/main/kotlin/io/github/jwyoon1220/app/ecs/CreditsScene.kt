@@ -1,14 +1,19 @@
-package io.github.jwyoon1220.app.state
+package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.engine.DrawContext
-import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.Keys
-import java.awt.Color
+import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.render.RenderColor
 import kotlin.math.sin
 
-class CreditsState(private val ctx: GameContext) : GameState {
+/**
+ * 크레딧 화면 (ECS Scene).
+ *
+ * 순수 UI 화면이라 도메인 엔터티 없이 Scene 백본 위에서 렌더링만 수행합니다.
+ */
+class CreditsScene(private val ctx: GameContext) : Scene() {
 
     private val sections = listOf(
         Section("StelLane", listOf(
@@ -49,9 +54,13 @@ class CreditsState(private val ctx: GameContext) : GameState {
 
     private var time = 0.0
 
-    override fun enter() { ctx.inputManager.clearEvents(); time = 0.0 }
-    override fun exit()  {}
-    override fun update(deltaTime: Double) { time += deltaTime }
+    override fun enter() {
+        super.enter()
+        ctx.inputManager.clearEvents()
+        time = 0.0
+    }
+
+    override fun onUpdate(deltaTime: Double) { time += deltaTime }
 
     override fun render(g: DrawContext) {
         val w = g.clipBounds.width
@@ -59,20 +68,20 @@ class CreditsState(private val ctx: GameContext) : GameState {
         val t = time.toFloat()
 
         // ── 배경 ─────────────────────────────────────────────────────────────
-        g.color = Color(6, 4, 16)
+        g.renderColor = RenderColor.of(6, 4, 16)
         g.fillRect(0, 0, w, h)
 
         // 상단 보라 그라디언트
         g.fillLinearGradient(
             0f, 0f, w.toFloat(), 280f,
             0f, 0f, 0f, 280f,
-            Color(30, 10, 70, 180), Color(0, 0, 0, 0)
+            RenderColor.of(30, 10, 70, 180), RenderColor.of(0, 0, 0, 0)
         )
         // 하단 페이드
         g.fillLinearGradient(
             0f, (h - 80).toFloat(), w.toFloat(), 80f,
             0f, (h - 80).toFloat(), 0f, h.toFloat(),
-            Color(0, 0, 0, 0), Color(6, 4, 16, 255)
+            RenderColor.of(0, 0, 0, 0), RenderColor.of(6, 4, 16, 255)
         )
 
         // ── 장식 원 ───────────────────────────────────────────────────────────
@@ -80,25 +89,25 @@ class CreditsState(private val ctx: GameContext) : GameState {
         g.fillRadialGradient(
             w / 2f - circleR, 120f - circleR, circleR * 2, circleR * 2,
             w / 2f, 120f, 0f, circleR,
-            Color(80, 35, 160, 28), Color(0, 0, 0, 0)
+            RenderColor.of(80, 35, 160, 28), RenderColor.of(0, 0, 0, 0)
         )
 
         // ── 타이틀 ────────────────────────────────────────────────────────────
         g.font  = titleFont
-        g.color = Color(140, 70, 255, 55)
+        g.renderColor = RenderColor.of(140, 70, 255, 55)
         g.setFontBlur(10f)
         g.drawStringCentered("StelLane", w / 2f, 96f)
         g.setFontBlur(0f)
-        g.color = Color(220, 195, 255)
+        g.renderColor = RenderColor.of(220, 195, 255)
         g.drawStringCentered("StelLane", w / 2f, 96f)
 
         g.font  = subtitleFont
-        g.color = Color(110, 85, 160, 200)
+        g.renderColor = RenderColor.of(110, 85, 160, 200)
         g.drawStringCentered("CREDITS", w / 2f, 116f)
 
         // 구분선
         val lineAlpha = (sin(t * 1.2f) * 20 + 80).toInt()
-        g.color = Color(80, 50, 140, lineAlpha)
+        g.renderColor = RenderColor.of(80, 50, 140, lineAlpha)
         g.stroke = java.awt.BasicStroke(1f)
         g.drawLine(w / 2 - 180, 130, w / 2 + 180, 130)
 
@@ -109,30 +118,30 @@ class CreditsState(private val ctx: GameContext) : GameState {
 
         for (section in sections) {
             // 섹션 헤더 배경
-            g.color = Color(35, 18, 75, 120)
+            g.renderColor = RenderColor.of(35, 18, 75, 120)
             g.fillRoundRect(colKey - 12f, cy - 16f, 580f, 26f, 6f)
 
             // 섹션 제목 글로우
             g.font  = sectionFont
-            g.color = Color(120, 60, 220, 60)
+            g.renderColor = RenderColor.of(120, 60, 220, 60)
             g.setFontBlur(2f)
             g.drawString(section.title, colKey, cy)
             g.setFontBlur(0f)
-            g.color = Color(170, 115, 255)
+            g.renderColor = RenderColor.of(170, 115, 255)
             g.drawString(section.title, colKey, cy)
 
             cy += 6f
-            g.color = Color(55, 30, 100, 100)
+            g.renderColor = RenderColor.of(55, 30, 100, 100)
             g.drawLine((colKey - 12).toInt(), cy.toInt(), (colKey + 568).toInt(), cy.toInt())
             cy += 18f
 
             for (entry in section.entries) {
                 g.font = bodyFont
                 if (entry.key.isNotEmpty()) {
-                    g.color = Color(150, 135, 185)
+                    g.renderColor = RenderColor.of(150, 135, 185)
                     g.drawString(entry.key, colKey + 12f, cy)
                 }
-                g.color = Color(210, 205, 225)
+                g.renderColor = RenderColor.of(210, 205, 225)
                 g.drawString(entry.value, colVal, cy)
                 cy += 22f
             }
@@ -141,17 +150,17 @@ class CreditsState(private val ctx: GameContext) : GameState {
 
         // ── 하단 힌트 ─────────────────────────────────────────────────────────
         g.font  = hintFont
-        g.color = Color(65, 52, 95)
+        g.renderColor = RenderColor.of(65, 52, 95)
         g.drawStringCentered("Esc 또는 Enter — 메인으로 돌아가기   클릭으로도 돌아갑니다", w / 2f, (h - 20).toFloat())
     }
 
     override fun keyPressed(key: Int, mods: Int) {
         when (key) {
-            Keys.ESCAPE, Keys.ENTER -> ctx.stateManager.changeState(MainMenuState(ctx))
+            Keys.ESCAPE, Keys.ENTER -> ctx.stateManager.changeState(MainMenuScene(ctx))
         }
     }
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
-        ctx.stateManager.changeState(MainMenuState(ctx))
+        ctx.stateManager.changeState(MainMenuScene(ctx))
     }
 }

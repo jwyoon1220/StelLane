@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.engine
 
+import org.slf4j.LoggerFactory
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.Clip
@@ -16,6 +17,8 @@ import kotlin.random.Random
  * 3. play() 호출 시 스레드 생성 없이 라운드 로빈 방식으로 즉시 재생합니다. (Zero-Latency)
  */
 object HitSound {
+
+    private val log = LoggerFactory.getLogger(HitSound::class.java)
 
     private const val SAMPLE_RATE = 44100f
     private const val CHANNELS    = 1
@@ -53,8 +56,9 @@ object HitSound {
                 clip.open(format, buf, 0, buf.size)
                 clips[i] = clip
             }
+            log.info("[HitSound] {} 클립 초기화 완료", POLYPHONY)
         } catch (e: Exception) {
-            e.printStackTrace()
+            log.warn("[HitSound] 초기화 실패 — 타격음이 비활성화됩니다: {}", e.message)
         }
     }
 

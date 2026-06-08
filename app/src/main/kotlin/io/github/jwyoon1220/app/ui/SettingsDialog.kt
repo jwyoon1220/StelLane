@@ -19,6 +19,7 @@ import javax.swing.JFrame
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JRadioButton
+import javax.swing.JSlider
 
 class SettingsDialog(
     owner: JFrame,
@@ -33,7 +34,7 @@ class SettingsDialog(
 
     init {
         isUndecorated = false
-        preferredSize = Dimension(420, 260)
+        preferredSize = Dimension(420, 360)
 
         contentPane.background = bg
         layout = BorderLayout(0, 0)
@@ -80,6 +81,41 @@ class SettingsDialog(
             content.add(rb, gbc)
         }
 
+        // ── 볼륨 설정 ──────────────────────────────────────────────────────────
+        gbc.gridy++
+        gbc.insets = Insets(12, 20, 4, 20)
+        val volumeSectionLabel = JLabel("음악 볼륨").apply {
+            foreground = Color(130, 100, 200)
+            font = Font("SansSerif", Font.BOLD, 13)
+        }
+        content.add(volumeSectionLabel, gbc)
+
+        val initialVol = (AppSettings.musicVolume * 100).toInt()
+        val volumeLabel = JLabel("$initialVol%").apply {
+            foreground = fg
+            font = Font("SansSerif", Font.PLAIN, 13)
+            preferredSize = Dimension(40, 20)
+        }
+
+        val volumeSlider = JSlider(0, 100, initialVol).apply {
+            background = bg
+            foreground = fg
+            preferredSize = Dimension(200, 20)
+            addChangeListener {
+                volumeLabel.text = "$value%"
+            }
+        }
+
+        val sliderPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+            background = bg
+        }
+        sliderPanel.add(volumeSlider)
+        sliderPanel.add(volumeLabel)
+
+        gbc.gridy++
+        gbc.insets = Insets(4, 20, 4, 20)
+        content.add(sliderPanel, gbc)
+
         add(content, BorderLayout.CENTER)
 
         // ── 버튼 ──────────────────────────────────────────────────────────
@@ -91,6 +127,7 @@ class SettingsDialog(
             font = Font("SansSerif", Font.BOLD, 13)
             isFocusPainted = false
             addActionListener {
+                AppSettings.musicVolume = volumeSlider.value / 100f
                 dispose()
                 windowManager.applyMode(selectedMode)
             }

@@ -46,6 +46,12 @@ class InputManager(
         Keys.K to 3
     )
 
+    private val laneEventCache = Array(4) { lane ->
+        Array(2) { typeIdx ->
+            LaneEvent(lane, if (typeIdx == 0) LaneEventType.PRESS else LaneEventType.RELEASE)
+        }
+    }
+
     // 마우스 드래그용 버튼 추적
     private var pressedButton = -1
 
@@ -62,8 +68,8 @@ class InputManager(
             val lane = laneKeyMap[key]
             if (lane != null) {
                 when (action) {
-                    Keys.PRESS   -> eventQueue.offer(LaneEvent(lane, LaneEventType.PRESS))
-                    Keys.RELEASE -> eventQueue.offer(LaneEvent(lane, LaneEventType.RELEASE))
+                    Keys.PRESS   -> eventQueue.offer(laneEventCache[lane][0])
+                    Keys.RELEASE -> eventQueue.offer(laneEventCache[lane][1])
                 }
             }
             // 일반 키 → ImGui 텍스트 입력 중이 아닐 때만 State 에 전달

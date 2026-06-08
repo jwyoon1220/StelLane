@@ -29,24 +29,8 @@ import org.lwjgl.opengl.GL15.glBufferData
 import org.lwjgl.opengl.GL15.glBufferSubData
 import org.lwjgl.opengl.GL15.glDeleteBuffers
 import org.lwjgl.opengl.GL15.glGenBuffers
-import org.lwjgl.opengl.GL20.GL_COMPILE_STATUS
-import org.lwjgl.opengl.GL20.GL_FRAGMENT_SHADER
-import org.lwjgl.opengl.GL20.GL_LINK_STATUS
-import org.lwjgl.opengl.GL20.GL_VERTEX_SHADER
-import org.lwjgl.opengl.GL20.glAttachShader
-import org.lwjgl.opengl.GL20.glCompileShader
-import org.lwjgl.opengl.GL20.glCreateProgram
-import org.lwjgl.opengl.GL20.glCreateShader
-import org.lwjgl.opengl.GL20.glDeleteProgram
-import org.lwjgl.opengl.GL20.glDeleteShader
 import org.lwjgl.opengl.GL20.glEnableVertexAttribArray
-import org.lwjgl.opengl.GL20.glGetProgramInfoLog
-import org.lwjgl.opengl.GL20.glGetProgrami
-import org.lwjgl.opengl.GL20.glGetShaderInfoLog
-import org.lwjgl.opengl.GL20.glGetShaderi
 import org.lwjgl.opengl.GL20.glGetUniformLocation
-import org.lwjgl.opengl.GL20.glLinkProgram
-import org.lwjgl.opengl.GL20.glShaderSource
 import org.lwjgl.opengl.GL20.glUniform1i
 import org.lwjgl.opengl.GL20.glUniform2f
 import org.lwjgl.opengl.GL20.glUniform4f
@@ -75,29 +59,8 @@ class GlQuadBatchRenderer(
         private const val STRIDE_FLOATS = 8 // pos2 + uv2 + color4
         private const val VERTS_PER_QUAD = 6
         private const val COLOR_DIV = 255f
-    }
 
-    private var program = 0
-    private var vao = 0
-    private var vbo = 0
-    private var whiteTexture = 0
-
-    private var uViewportLoc = -1
-    private var uDesignLoc = -1
-    private var uFramebufferLoc = -1
-    private var uTexLoc = -1
-
-    private val maxVertices = maxQuads * VERTS_PER_QUAD
-    private val vertexData = FloatArray(maxVertices * STRIDE_FLOATS)
-    private var vertexCount = 0
-    private var boundTexture = -1
-    private var frameBegun = false
-    private lateinit var uploadBuffer: FloatBuffer
-
-    fun init() {
-        if (program != 0) return
-
-        val vs = """
+        private val VS = """
             #version 330 core
             layout (location = 0) in vec2 aPos;
             layout (location = 1) in vec2 aUV;
@@ -123,7 +86,7 @@ class GlQuadBatchRenderer(
             }
         """.trimIndent()
 
-        val fs = """
+        private val FS = """
             #version 330 core
             in vec2 vUV;
             in vec4 vColor;
@@ -134,27 +97,30 @@ class GlQuadBatchRenderer(
                 FragColor = texture(uTex, vUV) * vColor;
             }
         """.trimIndent()
+    }
 
-        var vertexShader = 0
-        var fragmentShader = 0
-        val programId = glCreateProgram()
-        try {
-            vertexShader = compileShader(GL_VERTEX_SHADER, vs)
-            fragmentShader = compileShader(GL_FRAGMENT_SHADER, fs)
-            glAttachShader(programId, vertexShader)
-            glAttachShader(programId, fragmentShader)
-            glLinkProgram(programId)
-            check(glGetProgrami(programId, GL_LINK_STATUS) != 0) {
-                "OpenGL program link failed: ${glGetProgramInfoLog(programId)}"
-            }
-        } catch (e: Exception) {
-            glDeleteProgram(programId)
-            throw e
-        } finally {
-            if (vertexShader != 0) glDeleteShader(vertexShader)
-            if (fragmentShader != 0) glDeleteShader(fragmentShader)
-        }
-        program = programId
+    private var quadShader: Shader? = null
+    private var vao = 0
+    private var vbo = 0
+    private var whiteTexture = 0
+
+    private var uViewportLoc = -1
+    private var uDesignLoc = -1
+    private var uFramebufferLoc = -1
+    private var uTexLoc = -1
+
+    private val maxVertices = maxQuads * VERTS_PER_QUAD
+    private val vertexData = FloatArray(maxVertices * STRIDE_FLOATS)
+    private var vertexCount = 0
+    private var boundTexture = -1
+    private var frameBegun = false
+    private lateinit var uploadBuffer: FloatBuffer
+
+    fun init() {
+        if (quadShader != null) return
+
+        quadShader = Shader(VS, FS)
+        val prog = quadShader!!.programId
 
         vao = glGenVertexArrays()
         vbo = glGenBuffers()
@@ -170,10 +136,10 @@ class GlQuadBatchRenderer(
         glBindBuffer(GL_ARRAY_BUFFER, 0)
         glBindVertexArray(0)
 
-        uViewportLoc = glGetUniformLocation(program, "uViewport")
-        uDesignLoc = glGetUniformLocation(program, "uDesign")
-        uFramebufferLoc = glGetUniformLocation(program, "uFramebuffer")
-        uTexLoc = glGetUniformLocation(program, "uTex")
+        uViewportLoc   = glGetUniformLocation(prog, "uViewport")
+        uDesignLoc     = glGetUniformLocation(prog, "uDesign")
+        uFramebufferLoc = glGetUniformLocation(prog, "uFramebuffer")
+        uTexLoc        = glGetUniformLocation(prog, "uTex")
 
         whiteTexture = glGenTextures()
         glBindTexture(GL_TEXTURE_2D, whiteTexture)
@@ -192,22 +158,22 @@ class GlQuadBatchRenderer(
     }
 
     fun destroy() {
-        if (program == 0) return
+        if (quadShader == null) return
         flush()
         if (::uploadBuffer.isInitialized) MemoryUtil.memFree(uploadBuffer)
         glDeleteTextures(whiteTexture)
         glDeleteBuffers(vbo)
         glDeleteVertexArrays(vao)
-        glDeleteProgram(program)
+        quadShader?.destroy()
         whiteTexture = 0
         vbo = 0
         vao = 0
-        program = 0
+        quadShader = null
         frameBegun = false
     }
 
     fun begin(framebufferWidth: Int, framebufferHeight: Int, offsetX: Float, offsetY: Float, drawW: Float, drawH: Float) {
-        if (program == 0) init()
+        if (quadShader == null) init()
         if (frameBegun) end()
         if (framebufferWidth <= 0 || framebufferHeight <= 0 || drawW <= 0f || drawH <= 0f) {
             frameBegun = false
@@ -220,7 +186,7 @@ class GlQuadBatchRenderer(
 
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        glUseProgram(program)
+        glUseProgram(quadShader!!.programId)
         glUniform4f(uViewportLoc, offsetX, offsetY, drawW, drawH)
         glUniform2f(uDesignLoc, designWidth, designHeight)
         glUniform2f(uFramebufferLoc, framebufferWidth.toFloat(), framebufferHeight.toFloat())
@@ -278,23 +244,10 @@ class GlQuadBatchRenderer(
         val x1 = x + w
         val y1 = y + h
 
-        // 4개 코너 색상을 미리 float으로 직접 접근하여 AWT Color 생성 및 정밀도 나눗셈 연산 배제
-        val tlR = topLeft.rf
-        val tlG = topLeft.gf
-        val tlB = topLeft.bf
-        val tlA = topLeft.af
-        val trR = topRight.rf
-        val trG = topRight.gf
-        val trB = topRight.bf
-        val trA = topRight.af
-        val brR = bottomRight.rf
-        val brG = bottomRight.gf
-        val brB = bottomRight.bf
-        val brA = bottomRight.af
-        val blR = bottomLeft.rf
-        val blG = bottomLeft.gf
-        val blB = bottomLeft.bf
-        val blA = bottomLeft.af
+        val tlR = topLeft.rf;    val tlG = topLeft.gf;    val tlB = topLeft.bf;    val tlA = topLeft.af
+        val trR = topRight.rf;   val trG = topRight.gf;   val trB = topRight.bf;   val trA = topRight.af
+        val brR = bottomRight.rf; val brG = bottomRight.gf; val brB = bottomRight.bf; val brA = bottomRight.af
+        val blR = bottomLeft.rf; val blG = bottomLeft.gf; val blB = bottomLeft.bf; val blA = bottomLeft.af
 
         putVertexF(x0, y0, 0f, 0f, tlR, tlG, tlB, tlA)
         putVertexF(x1, y0, 1f, 0f, trR, trG, trB, trA)
@@ -337,15 +290,5 @@ class GlQuadBatchRenderer(
         glBufferSubData(GL_ARRAY_BUFFER, 0L, uploadBuffer)
         glDrawArrays(GL_TRIANGLES, 0, vertexCount)
         vertexCount = 0
-    }
-
-    private fun compileShader(type: Int, source: String): Int {
-        val shader = glCreateShader(type)
-        glShaderSource(shader, source)
-        glCompileShader(shader)
-        check(glGetShaderi(shader, GL_COMPILE_STATUS) != 0) {
-            "OpenGL shader compile failed: ${glGetShaderInfoLog(shader)}"
-        }
-        return shader
     }
 }

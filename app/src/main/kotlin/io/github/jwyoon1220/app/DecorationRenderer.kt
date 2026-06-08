@@ -5,8 +5,9 @@ import io.github.jwyoon1220.core.data.Decoration
 import io.github.jwyoon1220.core.data.DecorationData
 import io.github.jwyoon1220.core.data.ScreenEffect
 import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.GlScreenEffectData
+import io.github.jwyoon1220.engine.render.RenderColor
 import java.awt.AlphaComposite
-import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -22,6 +23,9 @@ class DecorationRenderer(
     private val data: DecorationData,
     private val songDir: File
 ) {
+    companion object {
+        private val GL_EFFECT_TYPES = setOf("grayscale", "fade", "blur", "shader")
+    }
     /** 이미지 캐시 (DrawContext가 GPU 업로드 담당). */
     private val imageCache = HashMap<String, BufferedImage?>()
 
@@ -51,6 +55,50 @@ class DecorationRenderer(
         for (dec in active) {
             renderDecoration(g, dec, currentMs - dec.timeMs)
         }
+    }
+
+    /**
+     * 현재 활성화된 GL 후처리 효과 목록을 반환합니다.
+     * [Renderer]가 FBO 캡처 전에 호출해 후처리 효과를 적용합니다.
+     */
+    fun collectGlEffects(currentMs: Long): List<GlScreenEffectData> {
+        val result = mutableListOf<GlScreenEffectData>()
+        for (eff in data.screenEffects) {
+            if (eff.type !in GL_EFFECT_TYPES) continue
+            if (currentMs < eff.timeMs || currentMs >= eff.timeMs + eff.durationMs) continue
+            val elapsed = currentMs - eff.timeMs
+            val rawT = if (eff.durationMs <= 0L) 1f else (elapsed.toFloat() / eff.durationMs).coerceIn(0f, 1f)
+            val t = ease(rawT, eff.easing)
+            val intensity = lerp(eff.fromIntensity, eff.toIntensity, t)
+            val shaderFile = if (eff.type == "shader" && eff.shaderFile.isNotEmpty()) File(songDir, eff.shaderFile) else null
+            result.add(GlScreenEffectData(
+                type       = eff.type,
+                intensity  = intensity,
+                r          = eff.r / 255f,
+                g          = eff.g / 255f,
+                b          = eff.b / 255f,
+                a          = eff.a / 255f,
+                shaderFile = shaderFile
+            ))
+        }
+        return result
+    }
+
+    /**
+     * audioFade 효과가 활성화된 경우 현재 목표 볼륨(0~100)을 반환합니다.
+     * 활성 효과가 없으면 null 을 반환합니다.
+     */
+    fun computeTargetVolumePercent(currentMs: Long): Int? {
+        var target: Int? = null
+        for (eff in data.screenEffects) {
+            if (eff.type != "audioFade") continue
+            if (currentMs < eff.timeMs || currentMs >= eff.timeMs + eff.durationMs) continue
+            val elapsed = currentMs - eff.timeMs
+            val rawT = if (eff.durationMs <= 0L) 1f else (elapsed.toFloat() / eff.durationMs).coerceIn(0f, 1f)
+            val t = ease(rawT, eff.easing)
+            target = lerp(eff.fromVolume.toFloat(), eff.toVolume.toFloat(), t).toInt().coerceIn(0, 100)
+        }
+        return target
     }
 
     /** 화면 전체 효과 (flash, vignette 등) — HUD 렌더링 전에 호출. */
@@ -146,7 +194,7 @@ class DecorationRenderer(
                 g.translate(screenX.toDouble(), screenY.toDouble())
                 if (rotation != 0f) g.rotate(Math.toRadians(rotation.toDouble()))
                 g.translate(-pivX.toDouble(), -pivY.toDouble())
-                g.color = Color(tintR, tintG, tintB)
+                g.renderColor = RenderColor.of(tintR, tintG, tintB)
                 g.fillRect(0, 0, finalW, finalH)
                 g.restore()
             }
@@ -159,7 +207,7 @@ class DecorationRenderer(
             if (rotation != 0f) g.rotate(Math.toRadians(rotation.toDouble()))
             g.translate(-pivX.toDouble(), -pivY.toDouble())
             g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity.coerceIn(0f, 1f))
-            g.color = Color.YELLOW
+            g.renderColor = RenderColor.YELLOW
             val random = java.util.Random(dec.timeMs + elapsedMs / 100)
             val count = (sparkleIntensity * 10).toInt().coerceIn(1, 100)
             for (i in 0 until count) {
@@ -188,7 +236,7 @@ class DecorationRenderer(
                 if (alpha <= 0f) return
                 val old = g.composite
                 g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
-                g.color = Color(eff.r, eff.g, eff.b)
+                g.renderColor = RenderColor.of(eff.r, eff.g, eff.b)
                 g.fillRect(0, 0, 1280, 720)
                 g.composite = old
             }
@@ -197,7 +245,7 @@ class DecorationRenderer(
                 if (alpha <= 0f) return
                 val old = g.composite
                 g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
-                g.color = Color(eff.r, eff.g, eff.b)
+                g.renderColor = RenderColor.of(eff.r, eff.g, eff.b)
                 g.fillRect(0, 0, 1280, 720)
                 g.composite = old
             }
@@ -208,7 +256,7 @@ class DecorationRenderer(
                 val old = g.composite
                 g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f)
                 g.fillRadialGradient(0f, 0f, 1280f, 720f, 640f, 360f, 280f, 700f,
-                    Color(0, 0, 0, 0), Color(0, 0, 0, darkAlpha))
+                    RenderColor.of(0, 0, 0, 0), RenderColor.of(0, 0, 0, darkAlpha))
                 g.composite = old
             }
         }

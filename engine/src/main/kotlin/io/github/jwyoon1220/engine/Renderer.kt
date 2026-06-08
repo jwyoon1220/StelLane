@@ -27,6 +27,7 @@ class Renderer(
     lateinit var drawContext: DrawContext
         private set
     private val glQuadBatchRenderer = GlQuadBatchRenderer(DESIGN_W.toFloat(), DESIGN_H.toFloat())
+    private val postProcessPass = PostProcessPass()
 
     /** 옵션: Main 에서 ImGuiManager 를 생성 후 주입합니다. null 이면 ImGui 패스 건너뜀. */
     var imGuiManager: ImGuiManager? = null
@@ -53,6 +54,7 @@ class Renderer(
     }
 
     fun destroy() {
+        postProcessPass.destroy()
         glQuadBatchRenderer.destroy()
         if (vg != 0L) { nvgDelete(vg); vg = 0L }
     }
@@ -67,13 +69,23 @@ class Renderer(
         if (fbW <= 0 || fbH <= 0) return
         val current = stateManager.currentState
 
+        // GL 후처리 효과 수집 (FBO 사용 여부 결정)
+        val glEffects = (current as? GlEffectProvider)?.collectActiveGlEffects() ?: emptyList()
+        val hasGlEffects = glEffects.isNotEmpty()
+
         // 1. 비디오 프레임 GL 텍스처 업로드 (새 프레임 있을 때만)
         videoBackground.uploadPendingFrame()
 
-        // 2. OpenGL 배경 클리어
-        glViewport(0, 0, fbW, fbH)
-        glClearColor(0f, 0f, 0f, 1f)
-        glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT or GL_STENCIL_BUFFER_BIT)
+        // 2. 렌더 대상 설정 및 클리어
+        if (hasGlEffects) {
+            // 효과 활성화 — FBO-A에 캡처 (beginCapture 내부에서 클리어)
+            postProcessPass.beginCapture(fbW, fbH)
+        } else {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            glViewport(0, 0, fbW, fbH)
+            glClearColor(0f, 0f, 0f, 1f)
+            glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT or GL_STENCIL_BUFFER_BIT)
+        }
 
         // 3. letterbox / pillarbox 계산 (논리 1280×720 → 물리 픽셀)
         val s  = minOf(fbW.toFloat() / DESIGN_W, fbH.toFloat() / DESIGN_H)
@@ -120,7 +132,13 @@ class Renderer(
             glQuadBatchRenderer.end()
         }
 
-        // 9. Dear ImGui 패스 (ImGuiRenderable 구현 State 에서만, 또는 빈 프레임)
+        // 9. GL 후처리 효과 적용 — FBO 캡처 종료 후 화면에 출력
+        if (hasGlEffects) {
+            postProcessPass.endCapture()
+            postProcessPass.apply(glEffects, fbW, fbH)
+        }
+
+        // 10. Dear ImGui 패스 (ImGuiRenderable 구현 State 에서만, 또는 빈 프레임)
         val imgui = imGuiManager
         if (imgui != null) {
             imgui.newFrame()

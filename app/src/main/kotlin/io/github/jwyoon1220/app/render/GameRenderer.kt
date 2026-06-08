@@ -1,7 +1,6 @@
 package io.github.jwyoon1220.app.render
 
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
-import io.github.jwyoon1220.app.state.PlayState
 
 object GameRenderer {
     private var activeRenderer: Renderer? = null

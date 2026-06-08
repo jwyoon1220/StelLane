@@ -1,4 +1,4 @@
-package io.github.jwyoon1220.app.state
+package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.FontLoader
@@ -20,7 +20,9 @@ import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.LaneEventType
 import io.github.jwyoon1220.engine.CustomGLRenderable
 import io.github.jwyoon1220.engine.DrawContext
-import io.github.jwyoon1220.engine.GameState
+import io.github.jwyoon1220.engine.GlEffectProvider
+import io.github.jwyoon1220.engine.GlScreenEffectData
+import io.github.jwyoon1220.engine.ecs.Scene
 import io.github.jwyoon1220.engine.ImGuiRenderable
 import imgui.ImGui
 import imgui.type.ImFloat
@@ -33,15 +35,18 @@ import java.awt.Color
 import java.io.File
 import kotlin.math.abs
 
-class EditorState(
+class EditorScene(
     private val ctx: GameContext,
     val songEntry: SongEntry,
     private val chartFile: File,
     chart: Chart
-) : GameState, CustomGLRenderable, ImGuiRenderable {
+) : Scene(), CustomGLRenderable, ImGuiRenderable, GlEffectProvider {
     override val rendersBackground = true
     // 에디터는 마딩으로 NanoVG 패스로 비디오를 그림 (커스텀 GL 패스 불필요)
     override val useCustomGlRenderer: Boolean = false
+
+    override fun collectActiveGlEffects(): List<GlScreenEffectData> =
+        decorRenderer?.collectGlEffects(cachedCurrentTimeMs) ?: emptyList()
 
     // ── 노트 모드 ──────────────────────────────────────────────────────────────
     private enum class NoteMode { NORMAL, LONG }
@@ -249,6 +254,7 @@ class EditorState(
     // ── GameState ─────────────────────────────────────────────────────────────
 
     override fun enter() {
+        super.enter()
         isPlaying = false
         ctx.inputManager.clearEvents()
         heldLaneStartMs.fill(-1L)
@@ -278,12 +284,24 @@ class EditorState(
         ctx.videoBackground.onPlayingStarted = null
         ctx.videoBackground.stop()
         ctx.inputManager.clearEvents()
+        super.exit()
     }
 
     // ── 캐시된 현재 시간 (프레임당 1회 계산으로 제한)
     private var cachedCurrentTimeMs = 0L
     private var lastCacheFrameId = -1L
     private var frameCounter = 0L
+
+    // statusStr caching fields
+    private var cachedTimeMs = -1L
+    private var cachedTimeStr = ""
+    private var lastIsPlaying = false
+    private var lastDecorMode = false
+    private var lastRecordingMode = false
+    private var lastQuantizeEnabled = false
+    private var lastQuantizeDivision = 0
+    private var lastVisibleWindowMs = 0L
+    private var cachedStatusStr = ""
 
     override fun update(deltaTime: Double) {
         frameCounter++
@@ -305,7 +323,14 @@ class EditorState(
             lastCacheFrameId = frameId
         }
         val currentTimeMs = cachedCurrentTimeMs
-        
+
+        // audioFade 효과 적용 (재생 중에만)
+        if (isPlaying) {
+            decorRenderer?.computeTargetVolumePercent(currentTimeMs)?.let {
+                ctx.videoBackground.setTargetVolumePercent(it)
+            }
+        }
+
         // 재생 중일 때 타임라인 스크롤 자동 전진 (페이지 넘김 방식 또는 부드러운 스크롤)
         if (isPlaying) {
             if (currentTimeMs > timelineScrollMs + visibleWindowMs * 0.9) {
@@ -352,7 +377,20 @@ class EditorState(
         // 캐시된 현재 시간 사용 (update()에서 계산됨)
         val currentTimeMs = cachedCurrentTimeMs
         val pos     = maxOf(currentTimeMs, 0L)
-        val timeStr = "%d:%02d.%03d".format(pos / 60_000, (pos % 60_000) / 1000, pos % 1000)
+        val timeChanged = (pos != cachedTimeMs)
+        val timeStr: String
+        if (!timeChanged) {
+            timeStr = cachedTimeStr
+        } else {
+            val min = pos / 60_000
+            val sec = (pos % 60_000) / 1000
+            val ms = pos % 1000
+            val secStr = if (sec < 10) "0$sec" else "$sec"
+            val msStr = if (ms < 10) "00$ms" else if (ms < 100) "0$ms" else "$ms"
+            timeStr = "$min:$secStr.$msStr"
+            cachedTimeMs = pos
+            cachedTimeStr = timeStr
+        }
 
         // ── 레이아웃 계산 ──────────────────────────────────────────────────────
         val topH = headerH
@@ -488,7 +526,33 @@ class EditorState(
         g.drawString("✏  ${songEntry.song.title}", 16f, 30f)
         // 오른쪽: 상태 + 버전
         g.font = infoFont
-        val statusStr = "B1.2.2  ·  ${timeStr}  ${if (isPlaying) "▶" else "⏸"}  ${if (decorMode) "田 DECOR" else "♩ NOTE"}  ${if (recordingMode) "● REC" else ""}  ${if (quantizeEnabled) "1/$quantizeDivision" else "Free"}  ${visibleWindowMs/1000}s"
+        val statusNeedsUpdate = timeChanged ||
+               isPlaying != lastIsPlaying ||
+               decorMode != lastDecorMode ||
+               recordingMode != lastRecordingMode ||
+               quantizeEnabled != lastQuantizeEnabled ||
+               quantizeDivision != lastQuantizeDivision ||
+               visibleWindowMs != lastVisibleWindowMs
+
+        val statusStr = if (statusNeedsUpdate) {
+            val playIcon = if (isPlaying) "▶" else "⏸"
+            val modeStr = if (decorMode) "田 DECOR" else "♩ NOTE"
+            val recStr = if (recordingMode) "● REC" else ""
+            val quantStr = if (quantizeEnabled) "1/$quantizeDivision" else "Free"
+            val winSec = visibleWindowMs / 1000
+            val res = "B1.2.2  ·  $timeStr  $playIcon  $modeStr  $recStr  $quantStr  ${winSec}s"
+
+            lastIsPlaying = isPlaying
+            lastDecorMode = decorMode
+            lastRecordingMode = recordingMode
+            lastQuantizeEnabled = quantizeEnabled
+            lastQuantizeDivision = quantizeDivision
+            lastVisibleWindowMs = visibleWindowMs
+            cachedStatusStr = res
+            res
+        } else {
+            cachedStatusStr
+        }
         g.color = Color(140, 125, 185); g.drawStringRight(statusStr, (w - 12).toFloat(), 30f)
         if (unsaved) { g.color = Color(255, 90, 90); g.fillOval(w - 8, 10, 5, 5) }
 
@@ -606,7 +670,7 @@ class EditorState(
             ctrl && shift && key == Keys.O          -> openCalibration()
             key == Keys.ESCAPE                      -> {
                 if (selectedIndices.isNotEmpty()) selectedIndices.clear()
-                else ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
+                else ctx.stateManager.changeState(io.github.jwyoon1220.app.ecs.SongSelectScene(ctx, io.github.jwyoon1220.app.ecs.SelectMode.EDIT))
             }
         }
     }
@@ -745,7 +809,7 @@ class EditorState(
         val totalRangeMs = getTimelineOverviewRangeMs()
         val maxScrollMs = getTimelineMaxScrollMs()
         val selectionRatio = (visibleWindowMs.toDouble() / totalRangeMs).coerceIn(0.05, 1.0)
-        val selectionW = (timelineW * selectionRatio).toInt().coerceIn(24, timelineW)
+        val selectionW = (timelineW * selectionRatio).toInt().coerceIn(minOf(24, timelineW), timelineW)
         val selectionX = if (maxScrollMs == 0L) {
             timelineX
         } else {
@@ -888,6 +952,7 @@ class EditorState(
     }
 
     override fun mouseDragged(x: Float, y: Float, button: Int) {
+        if (timelineW <= 0 || cachedVpW <= 0 || cachedVpH <= 0) return
         val mx = x.toInt(); val my = y.toInt()
         if (overviewDragActive && button == Keys.MOUSE_LEFT) {
             updateTimelineOverviewFromMouse(mx)
@@ -930,8 +995,8 @@ class EditorState(
         }
     }
 
-    private fun openSettings() { ctx.stateManager.changeState(SettingsState(ctx, this)) }
-    private fun openCalibration() { ctx.stateManager.changeState(SettingsState(ctx, this, startAt = 1)) }
+    private fun openSettings() { ctx.stateManager.changeState(io.github.jwyoon1220.app.ecs.SettingsScene(ctx, this)) }
+    private fun openCalibration() { ctx.stateManager.changeState(io.github.jwyoon1220.app.ecs.SettingsScene(ctx, this, startAt = 1)) }
     private fun cycleNoteMode() { noteMode = if (noteMode == NoteMode.NORMAL) NoteMode.LONG else NoteMode.NORMAL }
 
     private fun save() { runCatching { ChartParser.serializeChart(mutableChart.toChart(), chartFile) }.onSuccess { unsaved = false } }

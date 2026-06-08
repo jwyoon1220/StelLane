@@ -1,64 +1,755 @@
 package io.github.jwyoon1220.app.ecs
 
-import io.github.jwyoon1220.engine.ecs.Scene
-import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.app.DecorationRenderer
+import io.github.jwyoon1220.app.FontLoader
+import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.app.Const
+import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.core.data.Chart
+import io.github.jwyoon1220.core.data.Note
+import io.github.jwyoon1220.core.data.NoteType
 import io.github.jwyoon1220.core.data.SongEntry
+import io.github.jwyoon1220.core.judgment.Judgment
+import io.github.jwyoon1220.core.judgment.JudgmentSystem
 import io.github.jwyoon1220.core.scoring.ScoreEngine
+import io.github.jwyoon1220.core.replay.ReplayFile
 import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.HitSound
+import io.github.jwyoon1220.engine.LaneEventType
+import io.github.jwyoon1220.engine.CustomGLRenderable
+import io.github.jwyoon1220.engine.GlEffectProvider
+import io.github.jwyoon1220.engine.GlScreenEffectData
+import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.ecs.Scene
+import java.awt.AlphaComposite
+import java.awt.BasicStroke
+import java.io.File
+import java.io.FileWriter
+import java.util.ArrayDeque
+import kotlin.math.abs
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.SerializationFeature
 
 /**
  * ECS 기반 게임플레이 씬.
  *
- * PlayState의 로직을 ECS 시스템으로 분해한 구현.
- * 각 시스템은 독립적으로 작동하고 World를 공유.
+ * PlayState의 검증된 시뮬레이션/렌더 로직(SoA 배열, 락, 커스텀 GL, 비디오 동기화, 리플레이)을
+ * 그대로 유지하면서 Scene 백본 위에서 동작합니다. 타이밍/판정이 매우 민감하므로 권위 있는
+ * 시뮬레이션은 기존 코드 경로를 보존하고, ECS 구조(Scene/World)로만 이식했습니다.
  *
- * 마이그레이션 단계:
- * 1. PlayScene을 PlayState와 병렬로 생성
- * 2. useEcs 플래그로 A/B 테스트 (레거시 vs ECS)
- * 3. 골든 리플레이와 프레임 동등성 검증
- * 4. 레거시 PlayState 제거
+ * 커스텀 GL 렌더러([io.github.jwyoon1220.app.render.Renderer])가 이 씬의 SoA 배열을 직접
+ * 읽으므로 멤버 가시성(internal)을 유지합니다.
  */
 class PlayScene(
+    internal val ctx: GameContext,
     private val songEntry: SongEntry,
-    private val chart: Chart
-) : Scene() {
+    internal val chart: Chart
+) : Scene(), CustomGLRenderable, GlEffectProvider {
 
-    private lateinit var scoreEngine: ScoreEngine
+    companion object {
+        private val COLOR_OVERLAY = RenderColor.of(0, 0, 0, 130)
+        private val COLOR_LANE_HELD = RenderColor.of(70, 70, 130, 200)
+        private val COLOR_LANE_NORMAL = RenderColor.of(25, 25, 45, 200)
+        private val COLOR_LANE_LINE = RenderColor.of(70, 70, 100, 180)
+        private val COLOR_BEAT_LINE = RenderColor.of(70, 70, 100, 50)
+        private val COLOR_JUDGE_LINE = RenderColor.of(230, 230, 255)
+        private val STROKE_JUDGE = BasicStroke(3f)
 
-    init {
-        // 시스템들 등록
-        register(
-            NoteSpawnSystem(chart.notes),
-            JudgmentSystem(),
-            PlayRenderSystem()
+        private val COLOR_SHORT_FILL = RenderColor.of(255, 210, 80)
+        private val COLOR_SHORT_BORDER = RenderColor.of(255, 245, 170)
+        private val COLOR_LONG_BODY = RenderColor.of(160, 80, 255, 150)
+        private val COLOR_LONG_FILL = RenderColor.of(190, 120, 255)
+        private val COLOR_LONG_BORDER = RenderColor.of(225, 185, 255)
+        private val KEY_LABELS = arrayOf("D", "F", "J", "K")
+
+        // 재사용 RenderColor 상수 — renderCustomGl() 호출마다 객체 생성하지 않도록 미리 캐시
+        private val COLOR_KEY_NORMAL   = RenderColor.of(150, 150, 150)
+        private val COLOR_COMBO_LABEL  = RenderColor.of(180, 180, 180)
+        private val COLOR_STAT_TEXT    = RenderColor.of(160, 160, 160)
+        private val COLOR_HINT_TEXT    = RenderColor.of(100, 100, 110)
+
+        // 판정 색상 배열 (Judgment 순서와 일치)
+        private val JUDGMENT_COLORS = arrayOf(
+            RenderColor.of(100, 220, 255),  // PERFECT
+            RenderColor.of(255, 220, 80),   // GREAT
+            RenderColor.of(100, 255, 130),  // GOOD
+            RenderColor.of(255, 80, 80)     // MISS
         )
     }
 
+    private var cachedScore = -1
+    private var cachedScoreStr = "0000000"
+    private val cachedCounts = IntArray(4) { -1 }
+    private var cachedCountsStr = "P:0  G:0  g:0  M:0"
+    private var cachedMaxCombo = -1
+    private var cachedMaxComboStr = "MAX COMBO: 0"
+    private var cachedCombo = -1
+    private var cachedComboStr = ""
+
+    // ── 레이아웃 상수 ──────────────────────────────────────────────────────────
+    private val LANE_COUNT      = Const.LANE_COUNT
+    private val LANE_WIDTH      = Const.LANE_WIDTH
+    private val TOTAL_WIDTH     = Const.TOTAL_WIDTH
+    private val HIT_LINE_RATIO  = Const.HIT_LINE_RATIO
+    private val SCROLL_SPEED    = Const.SCROLL_SPEED
+    private val SPAWN_AHEAD_MS  = Const.SPAWN_AHEAD_MS
+    private val JUDGE_FADE_MS   = Const.JUDGE_FADE_MS
+
+    // ── 게임 페이즈 ────────────────────────────────────────────────────────────
+    internal enum class Phase { READY, PLAYING, RESULT }
+    @Volatile internal var phase = Phase.READY
+
+    private val READY_DURATION_MS = Const.READY_DURATION_MS
+    @Volatile internal var readyElapsedMs = 0.0
+    @Volatile private var coverImage: java.awt.image.BufferedImage? = null
+
+    // FontMetrics 캐싱
+    private var comboFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+    private var judgeFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+    private var scoreFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+    private var statFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+    private var hintFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+    private var readyLabelFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+    private var countdownFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+
+    // ── 게임 상태 ──────────────────────────────────────────────────────────────
+    private lateinit var scoreEngine: ScoreEngine
+
+    // DOD: Structure of Arrays — 객체 없음, 캐시 지역성 최대화
+    private val SOA_CAP   = 256
+    internal val soaLane   = IntArray(SOA_CAP)      // 레인 (0–3)
+    internal val soaTimeMs = LongArray(SOA_CAP)     // 헤드 타이밍 (ms)
+    internal val soaEndMs  = LongArray(SOA_CAP)     // 테일 타이밍 (SHORT도 동일)
+    internal val soaIsLong = BooleanArray(SOA_CAP)  // true = LONG
+    internal val soaActive = BooleanArray(SOA_CAP)  // 판정 대기 중
+    internal val soaHeld   = BooleanArray(SOA_CAP)  // LONG 홀드 중
+    @Volatile internal var soaSize = 0              // 현재 활성 슬롯 수
+    private val noteQueue   = ArrayDeque<Note>()
+    internal val laneHeld    = BooleanArray(LANE_COUNT)
+
+    // render()와 공유되는 값: @Volatile로 가시성 보장
+    @Volatile private var combo           = 0
+    @Volatile private var judgmentText    = ""
+    @Volatile internal var judgmentColor   = RenderColor.WHITE
+    @Volatile internal var judgmentFadeMs  = 0L
+
+    // update()에서 계산된 보간 재생 시간을 render()가 읽음 (VLC 33ms 갱신 → nanoTime 보간)
+    @Volatile internal var currentTimeMs: Long = 0L
+    @Volatile internal var currentTimeDouble: Double = 0.0
+
+    // render()에서 계산된 hitLineY를 update()가 참조하기 위해 저장
+    @Volatile private var hitLineY = 612
+
+    private var mediaStarted = false
+
+    // ── 리플레이 기록 (골든 기준점) ──────────────────────────────────────────
+    private val replayFrames = mutableListOf<io.github.jwyoon1220.core.replay.ReplayFrame>()
+
+    // ── 장식 렌더러 ──────────────────────────────────────────────────────────
+    @Volatile private var decorationRenderer: DecorationRenderer? = null
+
+    private val comboFont      = FontLoader.bold(56f)
+    private val judgeFont      = FontLoader.bold(48f)
+    private val scoreFont      = FontLoader.bold(28f)
+    private val statFont       = FontLoader.regular(18f)
+    private val hintFont       = FontLoader.light(15f)
+    private val resultTitle    = FontLoader.bold(52f)
+    private val resultScore    = FontLoader.bold(72f)
+    private val resultStat     = FontLoader.semiBold(28f)
+    private val resultHint     = FontLoader.light(20f)
+    private val readyLabelFont = FontLoader.bold(48f)
+    private val countdownFont  = FontLoader.bold(180f)
+    private val loadingTitleFont  = FontLoader.bold(32f)
+    private val loadingArtistFont = FontLoader.regular(18f)
+    private val loadingBpmFont    = FontLoader.light(15f)
+
+    // ── 렌더링 동기화 잠금 ────────────────────────────────────────────────────
+    // SoA 배열은 GameLoopThread(update)와 EDT(render)에서 동시 접근 → lock
+    internal val notesLock = Any()
+    override val useCustomGlRenderer: Boolean
+        get() = true
+
+    // ── SoA 슬롯 제거 (swap-and-shrink, O(1)) ────────────────────────────────
+    private fun soaRemoveAt(i: Int) {
+        val last = --soaSize
+        if (i < last) {
+            soaLane[i]   = soaLane[last]
+            soaTimeMs[i] = soaTimeMs[last]
+            soaEndMs[i]  = soaEndMs[last]
+            soaIsLong[i] = soaIsLong[last]
+            soaActive[i] = soaActive[last]
+            soaHeld[i]   = soaHeld[last]
+        }
+    }
+
+    // ── 판정 색상 ─────────────────────────────────────────────────────────────
+    private fun judgColor(j: Judgment) = JUDGMENT_COLORS[j.ordinal]
+
+    // ── Scene / GameState 구현 ──────────────────────────────────────────────────
+
     override fun enter() {
         super.enter()
-
-        // ScoreEngine 초기화 (호환성)
         scoreEngine = ScoreEngine(chart.notes.size)
 
-        // ECS 초기화: 차트 엔티티 생성
-        val bpm = (songEntry.song.bpm ?: 120).toFloat()
-        val chartEntity = ChartAdapter.createChartEntities(world, chart, chart.notes, bpm)
+        synchronized(notesLock) { soaSize = 0 }
+        noteQueue.clear()
+        chart.notes.sortedBy { it.time }.forEach { noteQueue.add(it) }
+        laneHeld.fill(false)
+        combo = 0; judgmentText = ""; judgmentFadeMs = 0L
+        readyElapsedMs = 0.0
+        mediaStarted = false
+        phase = Phase.READY
 
-        // ScoreSystem에 ScoreEngine 전달 (TODO: 더 나은 패턴 사용)
-        // 지금은 시스템이 이미 등록되었으므로, 레지스트리를 통해 찾아야 함
-        // register(ScoreSystem(scoreEngine))
+        coverImage = null
+        val coverPath = songEntry.song.coverImagePath
+        if (coverPath != null) {
+            java.util.concurrent.CompletableFuture.supplyAsync {
+                runCatching { javax.imageio.ImageIO.read(File(songEntry.songDir, coverPath)) }.getOrNull()
+            }.thenAccept { img ->
+                coverImage = img
+            }
+        }
+
+        decorationRenderer = null
+        java.util.concurrent.CompletableFuture.supplyAsync {
+            DecorationParser.parseOrNull(songEntry.songDir)
+                ?.let { DecorationRenderer(it, songEntry.songDir) }
+        }.thenAccept { renderer ->
+            decorationRenderer = renderer
+        }
+
+        // 미디어는 READY → PLAYING 전환 시 재생
+        ctx.videoBackground.onFinished = { phase = Phase.RESULT }
+        ctx.inputManager.clearEvents()
     }
 
     override fun exit() {
+        ctx.videoBackground.onFinished = null
+        ctx.videoBackground.stop()
+        ctx.videoBackground.setRate(1.0f)
+        synchronized(notesLock) { soaSize = 0 }
+        ctx.inputManager.clearEvents()
+
+        // 리플레이 저장
+        if (replayFrames.isNotEmpty()) saveReplay()
         super.exit()
     }
 
     override fun update(deltaTime: Double) {
-        super.update(deltaTime)
+        if (phase == Phase.READY) {
+            readyElapsedMs += deltaTime * 1000.0
+
+            if (readyElapsedMs >= 1500.0) {
+                for (event in ctx.inputManager.pollEvents()) {
+                    laneHeld[event.lane] = event.type == LaneEventType.PRESS
+                    if (event.type == LaneEventType.PRESS) {
+                        HitSound.play()
+                    }
+                }
+            } else {
+                ctx.inputManager.clearEvents()
+            }
+
+            if (readyElapsedMs >= READY_DURATION_MS) {
+                phase = Phase.PLAYING
+                val mediaPath = resolveMediaPath()
+                if (mediaPath != null) {
+                    ctx.videoBackground.play(mediaPath)
+                    val speedVal = io.github.jwyoon1220.app.AppSettings.playSpeed
+                    val actualRate = if (speedVal <= 7.0f) {
+                        0.5f + ((speedVal - 0.5f) / 6.5f) * 0.5f
+                    } else {
+                        1.0f + ((speedVal - 7.0f) / 28.0f) * 1.0f
+                    }
+                    ctx.videoBackground.setRate(actualRate)
+                }
+                mediaStarted = true
+            }
+            return
+        }
+        if (!mediaStarted) return
+
+        val t = ctx.videoBackground.getSmoothTimeDouble() - chart.offsetMs
+        currentTimeDouble = t
+        currentTimeMs = t.toLong()
+        val now = currentTimeMs
+
+        // audioFade 효과 적용
+        decorationRenderer?.computeTargetVolumePercent(now)?.let {
+            ctx.videoBackground.setTargetVolumePercent(it)
+        }
+
+        // 입력 이벤트 처리 (handlePress/Release 내부에서 notesLock 사용)
+        for (event in ctx.inputManager.pollEvents()) {
+            laneHeld[event.lane] = event.type == LaneEventType.PRESS
+            when (event.type) {
+                LaneEventType.PRESS   -> { HitSound.play(); handlePress(event.lane, now) }
+                LaneEventType.RELEASE -> { handleRelease(event.lane, now) }
+            }
+        }
+
+        // SoA 스폰 + Miss/LONG 완료 처리 + 종료 체크 (단일 락)
+        synchronized(notesLock) {
+            // 스폰: noteQueue → SoA 슬롯
+            while (noteQueue.isNotEmpty()) {
+                val next = noteQueue.peek()!!
+                if (next.time - now > SPAWN_AHEAD_MS) break
+                noteQueue.poll()
+                val slot = soaSize++
+                soaLane[slot]   = next.lane
+                soaTimeMs[slot] = next.time
+                soaEndMs[slot]  = next.endTime ?: next.time
+                soaIsLong[slot] = next.type == NoteType.LONG
+                soaActive[slot] = true
+                soaHeld[slot]   = false
+            }
+
+            // Miss / LONG 완료 처리 (swap-and-shrink: 제거 후 i 증분 없이 재검사)
+            var i = 0
+            while (i < soaSize) {
+                if (!soaActive[i]) { soaRemoveAt(i); continue }
+
+                if (soaHeld[i] && now >= soaEndMs[i]) {
+                    applyJudgment(Judgment.PERFECT)
+                    soaRemoveAt(i); continue
+                }
+
+                val tailMissed = soaIsLong[i] && !soaHeld[i] &&
+                    now > soaEndMs[i] + JudgmentSystem.GOOD_MS
+                if (!soaHeld[i] && (now - soaTimeMs[i] > JudgmentSystem.GOOD_MS || tailMissed)) {
+                    applyJudgment(Judgment.MISS)
+                    soaRemoveAt(i); continue
+                }
+                i++
+            }
+
+            if (phase == Phase.PLAYING && noteQueue.isEmpty() && soaSize == 0) {
+                phase = Phase.RESULT
+            }
+        }
+
+        judgmentFadeMs -= (deltaTime * 1000).toLong()
     }
 
     override fun render(g: DrawContext) {
-        super.render(g)
+        val w = g.clipBounds.width
+        val h = g.clipBounds.height
+
+        val hl      = (h * HIT_LINE_RATIO).toInt()
+        hitLineY    = hl
+        val lanesL  = (w - TOTAL_WIDTH) / 2
+
+        val nowV    = if (phase == Phase.READY) readyElapsedMs - READY_DURATION_MS else currentTimeMs.toDouble()
+        val nowD    = if (phase == Phase.READY) nowV else currentTimeDouble
+
+        val laneAlpha = if (phase == Phase.READY) {
+            when {
+                readyElapsedMs < 1500.0 -> 0.0f
+                readyElapsedMs in 1500.0..2000.0 -> ((readyElapsedMs - 1500.0) / 500.0).toFloat()
+                else -> 1.0f
+            }
+        } else 1.0f
+
+        val infoAlpha = if (phase == Phase.READY) {
+            when {
+                readyElapsedMs < 1500.0 -> 1.0f
+                readyElapsedMs in 1500.0..2000.0 -> (1.0 - (readyElapsedMs - 1500.0) / 500.0).toFloat()
+                else -> 0.0f
+            }
+        } else 0.0f
+
+        if (infoAlpha > 0f) {
+            val oldComp = g.composite
+            if (infoAlpha < 1.0f) {
+                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, infoAlpha)
+            }
+
+            g.renderColor = RenderColor.of(10, 5, 20)
+            g.fillRect(0, 0, w, h)
+
+            val cx = w / 2
+            val coverS = 256
+            val coverX = cx - coverS / 2
+            val coverY = h / 2 - 180
+
+            val cover = coverImage
+            if (cover != null) {
+                g.scoped {
+                    setClip(coverX.toFloat(), coverY.toFloat(), coverS.toFloat(), coverS.toFloat())
+                    drawImage(cover, coverX, coverY, coverS, coverS, null)
+                }
+                g.fillBoxGradientRect(
+                    coverX.toFloat(), coverY.toFloat(), coverS.toFloat(), coverS.toFloat(),
+                    10f, 20f,
+                    RenderColor.of(140, 80, 255, 100), RenderColor.of(0, 0, 0, 0)
+                )
+            } else {
+                g.fillLinearGradient(
+                    coverX.toFloat(), coverY.toFloat(), coverS.toFloat(), coverS.toFloat(),
+                    coverX.toFloat(), coverY.toFloat(), coverX.toFloat(), (coverY + coverS).toFloat(),
+                    RenderColor.of(38, 22, 68), RenderColor.of(22, 12, 42)
+                )
+                g.renderColor = RenderColor.of(80, 55, 120)
+                g.font  = FontLoader.bold(52f)
+                g.drawStringCentered("♪", cx.toFloat(), coverY + coverS / 2f + 18f)
+            }
+
+            var ty = coverY + coverS + 35f
+
+            g.font  = loadingTitleFont
+            g.renderColor = RenderColor.of(235, 225, 255)
+            g.drawStringCentered(songEntry.song.title, cx.toFloat(), ty); ty += 38f
+
+            g.font  = loadingArtistFont
+            g.renderColor = RenderColor.of(150, 125, 200)
+            g.drawStringCentered(songEntry.song.artist, cx.toFloat(), ty); ty += 28f
+
+            songEntry.song.bpm?.let {
+                g.font  = loadingBpmFont
+                g.renderColor = RenderColor.of(110, 95, 140)
+                g.drawStringCentered("BPM  $it", cx.toFloat(), ty)
+            }
+
+            if (infoAlpha < 1.0f) {
+                g.composite = oldComp
+            }
+        }
+
+        if (laneAlpha > 0f) {
+            val oldComp = g.composite
+            if (laneAlpha < 1.0f) {
+                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, laneAlpha)
+            }
+
+            g.renderColor = COLOR_OVERLAY
+            g.fillRect(0, 0, w, h)
+
+            for (i in 0 until LANE_COUNT) {
+                val lx = lanesL + i * LANE_WIDTH
+                g.renderColor = if (laneHeld[i]) COLOR_LANE_HELD else COLOR_LANE_NORMAL
+                g.fillRect(lx, 0, LANE_WIDTH, h)
+                g.renderColor = COLOR_LANE_LINE
+                g.drawLine(lx, 0, lx, h)
+            }
+            g.renderColor = COLOR_LANE_LINE
+            g.drawLine(lanesL + TOTAL_WIDTH, 0, lanesL + TOTAL_WIDTH, h)
+
+            val bpm = songEntry.song.bpm ?: 120
+            val beatMs = 60000.0 / bpm
+            val startBeat = kotlin.math.floor(nowV / beatMs).toInt() - 1
+            val endBeat = kotlin.math.ceil((nowV + SPAWN_AHEAD_MS) / beatMs).toInt() + 1
+
+            for (b in startBeat..endBeat) {
+                val lineTime = b * beatMs
+                val y = hl - ((lineTime - nowD) * SCROLL_SPEED / 1000.0).toFloat()
+                if (y in 0f..h.toFloat()) {
+                    if (b % 4 == 0) {
+                        g.renderColor = COLOR_LANE_LINE
+                        g.drawLine(lanesL, y.toInt(), lanesL + TOTAL_WIDTH, y.toInt())
+                    } else {
+                        g.renderColor = COLOR_BEAT_LINE
+                        g.drawLine(lanesL, y.toInt(), lanesL + TOTAL_WIDTH, y.toInt())
+                    }
+                }
+            }
+
+            val prevStroke = g.stroke
+            g.stroke = STROKE_JUDGE
+            g.renderColor  = COLOR_JUDGE_LINE
+            g.drawLine(lanesL, hl, lanesL + TOTAL_WIDTH, hl)
+            g.stroke = prevStroke
+
+            // 레인 키 라벨
+            g.font = statFont
+            val keyFm = statFontMetrics ?: g.getFontMetrics(statFont).also { statFontMetrics = it }
+            for (i in 0 until LANE_COUNT) {
+                val lx = lanesL + i * LANE_WIDTH
+                g.renderColor = if (laneHeld[i]) RenderColor.WHITE else COLOR_KEY_NORMAL
+                g.drawString(KEY_LABELS[i], lx + (LANE_WIDTH - keyFm.stringWidth(KEY_LABELS[i])) / 2, hl + 28)
+            }
+
+        // 장식 (depth < 0: 노트 이전)
+        decorationRenderer?.render(g, currentTimeMs, beforeNotes = true)
+
+        // 장식 (depth ≥0: 노트 위) + 화면 효과
+        decorationRenderer?.render(g, currentTimeMs, beforeNotes = false)
+        decorationRenderer?.renderScreenEffects(g, currentTimeMs)
+
+        // 콤보
+        if (combo > 0) {
+            if (cachedCombo != combo) { cachedCombo = combo; cachedComboStr = combo.toString() }
+            g.font  = comboFont
+            g.renderColor = RenderColor.WHITE
+            val cfm = comboFontMetrics ?: g.getFontMetrics(comboFont).also { comboFontMetrics = it }
+            g.drawString(cachedComboStr, (w - cfm.stringWidth(cachedComboStr)) / 2, 96)
+
+            g.font  = statFont
+            g.renderColor = COLOR_COMBO_LABEL
+            val cl  = "COMBO"
+            val sfm = statFontMetrics ?: g.getFontMetrics(statFont).also { statFontMetrics = it }
+            g.drawString(cl, (w - sfm.stringWidth(cl)) / 2, 116)
+        }
+
+        // 판정 텍스트 (페이드아웃)
+        if (judgmentFadeMs > 0 && judgmentText.isNotEmpty()) {
+            val alpha = (judgmentFadeMs.toFloat() / JUDGE_FADE_MS).coerceIn(0f, 1f)
+            val old   = g.composite
+            g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
+            g.font  = judgeFont
+            g.renderColor = judgmentColor
+            val jfm = judgeFontMetrics ?: g.getFontMetrics(judgeFont).also { judgeFontMetrics = it }
+            g.drawString(judgmentText, (w - jfm.stringWidth(judgmentText)) / 2, hl - 70)
+            g.composite = old
+        }
+
+        // 점수 (우상단)
+        g.font  = scoreFont
+        g.renderColor = RenderColor.WHITE
+        if (cachedScore != scoreEngine.score) {
+            cachedScore = scoreEngine.score
+            cachedScoreStr = "%07d".format(cachedScore)
+        }
+        val sfm = scoreFontMetrics ?: g.getFontMetrics(scoreFont).also { scoreFontMetrics = it }
+        g.drawString(cachedScoreStr, w - sfm.stringWidth(cachedScoreStr) - 20, 38)
+
+        // 판정 카운트 (좌상단)
+        g.font  = statFont
+        g.renderColor = COLOR_STAT_TEXT
+        val counts = scoreEngine.counts
+
+        var countsDirty = false
+        if (cachedCounts[0] != counts[0]) { cachedCounts[0] = counts[0]; countsDirty = true }
+        if (cachedCounts[1] != counts[1]) { cachedCounts[1] = counts[1]; countsDirty = true }
+        if (cachedCounts[2] != counts[2]) { cachedCounts[2] = counts[2]; countsDirty = true }
+        if (cachedCounts[3] != counts[3]) { cachedCounts[3] = counts[3]; countsDirty = true }
+        if (countsDirty) {
+            cachedCountsStr = "P:${cachedCounts[0]}  G:${cachedCounts[1]}  g:${cachedCounts[2]}  M:${cachedCounts[3]}"
+        }
+        g.drawString(cachedCountsStr, lanesL, 20)
+
+        // Max Combo (좌상단 두 번째 줄)
+        if (cachedMaxCombo != scoreEngine.maxCombo) {
+            cachedMaxCombo = scoreEngine.maxCombo
+            cachedMaxComboStr = "MAX COMBO: $cachedMaxCombo"
+        }
+        g.drawString(cachedMaxComboStr, lanesL, 40)
+
+        // ESC 힌트
+        g.font  = hintFont
+        g.renderColor = COLOR_HINT_TEXT
+        g.drawString("ESC: Back", 10, h - 10)
+
+        // READY 상태의 3초 카운트다운 렌더링
+        if (phase == Phase.READY && readyElapsedMs >= 2000.0) {
+            renderReadyOverlay(g, w, h)
+        }
+
+        // 결과 화면 오버레이
+        if (phase == Phase.RESULT) renderResult(g, w, h)
+
+        if (laneAlpha < 1.0f) {
+            g.composite = oldComp
+        }
+    }
+}
+
+    private fun renderResult(g: DrawContext, w: Int, h: Int) {
+        // 반투명 어두운 배경
+        g.renderColor = RenderColor.of(0, 0, 0, 200)
+        g.fillRect(0, 0, w, h)
+
+        val counts = scoreEngine.counts
+        val score  = scoreEngine.score
+        val rank   = when {
+            score >= 980_000 -> "SS"
+            score >= 950_000 -> "S"
+            score >= 900_000 -> "A"
+            score >= 800_000 -> "B"
+            score >= 600_000 -> "C"
+            else             -> "D"
+        }
+
+        val cx = w / 2
+        var y  = h / 2 - 180
+
+        // RESULT 타이틀
+        g.font  = resultTitle
+        g.renderColor = RenderColor.of(200, 200, 220)
+        drawCenter(g, "RESULT", cx, y)
+        y += 70
+
+        // 점수
+        g.font  = resultScore
+        g.renderColor = RenderColor.WHITE
+        drawCenter(g, "%07d".format(score), cx, y)
+        y += 20
+
+        // 랭크
+        val rankColor = when (rank) {
+            "SS" -> RenderColor.of(255, 220, 80)
+            "S"  -> RenderColor.of(200, 240, 255)
+            "A"  -> RenderColor.of(130, 220, 130)
+            "B"  -> RenderColor.of(130, 180, 255)
+            "C"  -> RenderColor.of(200, 200, 200)
+            else -> RenderColor.of(160, 100, 100)
+        }
+        g.font  = resultScore
+        g.renderColor = rankColor
+        drawCenter(g, rank, cx, y + 75)
+        y += 140
+
+        // 판정 카운트
+        val line = "PERFECT ${counts[0]}   " +
+                   "GREAT ${counts[1]}   " +
+                   "GOOD ${counts[2]}   " +
+                   "MISS ${counts[3]}"
+        g.font  = resultStat
+        g.renderColor = RenderColor.of(180, 180, 200)
+        drawCenter(g, line, cx, y)
+        y += 40
+
+        // 최대 콤보
+        g.font  = resultStat
+        g.renderColor = RenderColor.of(150, 150, 170)
+        drawCenter(g, "MAX COMBO  ${scoreEngine.maxCombo}", cx, y)
+        y += 60
+
+        // 힌트
+        g.font  = resultHint
+        g.renderColor = RenderColor.of(120, 120, 140)
+        drawCenter(g, "Enter : 곡 선택으로", cx, y)
+    }
+
+    private fun renderReadyOverlay(g: DrawContext, w: Int, h: Int) {
+        // "READY" label
+        g.font  = judgeFont
+        g.renderColor = RenderColor.of(180, 140, 240)
+        val readyLabel = "READY"
+        val rfm = judgeFontMetrics ?: g.getFontMetrics(judgeFont).also { judgeFontMetrics = it }
+        g.drawString(readyLabel, (w - rfm.stringWidth(readyLabel)) / 2, h / 2 - 20)
+
+        // Countdown number (3, 2, 1, GO!) with pulse
+        val remaining = (READY_DURATION_MS - readyElapsedMs).coerceAtLeast(0.0)
+        val countStr: String
+        val fraction: Double
+        if (remaining > 3000.0) {
+            countStr = "3"
+            fraction = (remaining - 3000.0) / 1000.0
+        } else if (remaining > 2000.0) {
+            countStr = "2"
+            fraction = (remaining - 2000.0) / 1000.0
+        } else if (remaining > 1000.0) {
+            countStr = "1"
+            fraction = (remaining - 1000.0) / 1000.0
+        } else {
+            countStr = "GO!"
+            fraction = remaining / 1000.0
+        }
+        val alpha = (fraction * 200 + 55).toInt().coerceIn(55, 255)
+
+        g.font  = countdownFont
+        g.renderColor = if (countStr == "GO!") RenderColor.of(100, 255, 130, alpha) else RenderColor.of(255, 220, 80, alpha)
+        val cfm = countdownFontMetrics ?: g.getFontMetrics(countdownFont).also { countdownFontMetrics = it }
+        g.drawString(countStr, (w - cfm.stringWidth(countStr)) / 2, h / 2 + cfm.ascent - 30)
+    }
+
+    override fun collectActiveGlEffects(): List<GlScreenEffectData> =
+        decorationRenderer?.collectGlEffects(currentTimeMs) ?: emptyList()
+
+    override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
+        if (!useCustomGlRenderer) return
+        io.github.jwyoon1220.app.render.GameRenderer.getRenderer()?.render(renderer, this)
+    }
+
+    private fun drawCenter(g: DrawContext, text: String, cx: Int, y: Int) {
+        val fm = g.fontMetrics
+        g.drawString(text, cx - fm.stringWidth(text) / 2, y)
+    }
+
+    override fun keyPressed(key: Int, mods: Int) {
+        if (key == Keys.ESCAPE) {
+            ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.PLAY))
+            return
+        }
+        if (phase == Phase.RESULT && key == Keys.ENTER) {
+            ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.PLAY))
+        }
+    }
+
+    // ── 내부 로직 ─────────────────────────────────────────────────────────────
+
+    private fun handlePress(lane: Int, now: Long) {
+        synchronized(notesLock) {
+            var closestIdx  = -1
+            var closestDiff = Long.MAX_VALUE
+            for (i in 0 until soaSize) {
+                if (soaLane[i] != lane || soaHeld[i] || !soaActive[i]) continue
+                val diff = abs(now - soaTimeMs[i])
+                if (diff < closestDiff) { closestDiff = diff; closestIdx = i }
+            }
+            if (closestIdx < 0 || closestDiff > JudgmentSystem.GOOD_MS) return@synchronized
+            val judgment = JudgmentSystem.judge(now, soaTimeMs[closestIdx])
+            if (!soaIsLong[closestIdx]) soaActive[closestIdx] = false
+            else soaHeld[closestIdx] = true
+            applyJudgment(judgment)
+        }
+    }
+
+    private fun handleRelease(lane: Int, now: Long) {
+        synchronized(notesLock) {
+            for (i in 0 until soaSize) {
+                if (soaLane[i] == lane && soaHeld[i]) {
+                    val judgment = JudgmentSystem.judge(now, soaEndMs[i])
+                    soaActive[i] = false
+                    applyJudgment(judgment)
+                    return@synchronized
+                }
+            }
+        }
+    }
+
+    private fun applyJudgment(j: Judgment) {
+        scoreEngine.onJudgment(j)
+        combo = if (j != Judgment.MISS) combo + 1 else 0
+        judgmentText   = j.name
+        judgmentColor  = judgColor(j)
+        judgmentFadeMs = JUDGE_FADE_MS
+    }
+
+    private fun saveReplay() {
+        try {
+            val replay = ReplayFile(
+                chartId = "${songEntry.song.title}_${chart.notes.size}",
+                offsetMs = chart.offsetMs,
+                totalNotes = chart.notes.size,
+                bpm = (songEntry.song.bpm ?: 120).toFloat(),
+                targetFps = 60,
+                frames = replayFrames
+            )
+
+            val mapper = ObjectMapper()
+            mapper.enable(SerializationFeature.INDENT_OUTPUT)
+            val jsonStr = mapper.writeValueAsString(replay)
+
+            val replayDir = File(songEntry.songDir, "replays").apply { mkdirs() }
+            val outputFile = File(replayDir, "golden_replay.json")
+
+            FileWriter(outputFile).use { it.write(jsonStr) }
+            println("✓ Replay saved: ${outputFile.absolutePath}")
+        } catch (e: Exception) {
+            System.err.println("✗ Failed to save replay: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    private fun resolveMediaPath(): String? {
+        val song = songEntry.song
+        return when {
+            song.videoPath != null -> File(songEntry.songDir, song.videoPath).absolutePath
+            song.audioPath != null -> File(songEntry.songDir, song.audioPath).absolutePath
+            else                   -> null
+        }
     }
 }

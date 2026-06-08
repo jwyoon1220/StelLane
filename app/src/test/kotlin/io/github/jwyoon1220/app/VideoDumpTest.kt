@@ -43,7 +43,8 @@ class VideoDumpTest {
         // 최대 10초 대기
         val success = latch.await(10, TimeUnit.SECONDS)
         videoBackground.stop()
+        videoBackground.release()
 
-        assertTrue(success, "10초 내에 VLC로부터 프레임을 넘겨받지 못했습니다 (화면 렌더링 실패)")
+        assertTrue(success, "10초 내에 FFmpeg로부터 프레임을 넘겨받지 못했습니다 (화면 렌더링 실패)")
     }
 }
