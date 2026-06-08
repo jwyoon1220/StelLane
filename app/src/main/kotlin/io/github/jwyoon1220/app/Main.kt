@@ -1,6 +1,6 @@
 package io.github.jwyoon1220.app
 
-import io.github.jwyoon1220.app.state.MainMenuState
+import io.github.jwyoon1220.app.ecs.MainMenuScene
 import io.github.jwyoon1220.core.song.SongManager
 import io.github.jwyoon1220.engine.GLFWWindow
 import io.github.jwyoon1220.engine.GameLoop
@@ -20,6 +20,8 @@ import org.apache.commons.cli.Options
 import org.apache.commons.cli.ParseException
 import org.slf4j.LoggerFactory
 import java.io.File
+import java.util.concurrent.CompletableFuture
+import kotlin.concurrent.thread
 
 private val log = LoggerFactory.getLogger("io.github.jwyoon1220.app.Main")
 
@@ -57,14 +59,18 @@ fun main(args: Array<String>) {
 
     // ── 공유 의존성 생성 ──────────────────────────────────────────────────────
     val stateManager    = StateManager()
-    val videoBackground = VideoBackground.create()
+    val videoBackground = VideoBackground.create().apply {
+        setTargetVolumePercent((AppSettings.musicVolume * 100).toInt())
+    }
 
     val notePool = ObjectPool(
         initialCapacity = 2048,
         factory = { VisualNote() },
         reset   = { vn -> vn.active = false; vn.held = false }
     )
-    notePool.preAllocate(2048)
+    CompletableFuture.runAsync {
+        notePool.preAllocate(2048)
+    }.thenAccept { log.info("[Main] NotePool 초기 할당 완료: poolSize={}", notePool.poolSize) }
 
     val renderer     = Renderer(window, stateManager, videoBackground)
     val inputManager = InputManager(window, renderer)
@@ -97,7 +103,7 @@ fun main(args: Array<String>) {
 
     // ── 초기 화면: MainMenu ──────────────────────────────────────────────────
     songManager.load()
-    stateManager.changeState(MainMenuState(ctx))
+    stateManager.changeState(MainMenuScene(ctx))
 
     // ── 게임 루프 시작 (블로킹, 창이 닫힐 때까지 반환되지 않음) ─────────────────
     val gameLoop = GameLoop(window, stateManager, renderer, inputManager)
@@ -111,5 +117,5 @@ fun main(args: Array<String>) {
     renderer.destroy()
     window.destroy()
     videoBackground.release()
-    Runtime.getRuntime().halt(0)   // VLC 네이티브 스레드 hang 방어
+    System.exit(0)
 }

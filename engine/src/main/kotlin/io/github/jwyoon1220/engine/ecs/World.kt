@@ -1,5 +1,7 @@
 package io.github.jwyoon1220.engine.ecs
 
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import kotlin.reflect.KClass
 
 /**
@@ -21,10 +23,10 @@ import kotlin.reflect.KClass
 class World {
 
     private var nextId: Long = 1L
-    @PublishedApi internal val alive = HashSet<Entity>()
+    @PublishedApi internal val alive = ObjectOpenHashSet<Entity>()
 
     @PublishedApi
-    internal val storages = HashMap<KClass<out Component>, ComponentStorage<*>>()
+    internal val storages = Object2ObjectOpenHashMap<KClass<out Component>, ComponentStorage<*>>()
 
     // ── 엔터티 수명 주기 ────────────────────────────────────────────────────
 

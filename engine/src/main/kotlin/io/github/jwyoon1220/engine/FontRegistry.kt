@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.engine
 
+import it.unimi.dsi.fastutil.objects.ObjectArrayList
 import org.lwjgl.nanovg.NanoVG.*
 import org.lwjgl.system.MemoryUtil
 import org.slf4j.LoggerFactory
@@ -19,7 +20,7 @@ object FontRegistry {
     private var extraLightId: Int = -1
 
     // 메모리에 고정(pin)된 폰트 버퍼 목록 (JVM GC 로부터 보호)
-    private val pinnedBuffers = mutableListOf<ByteBuffer>()
+    private val pinnedBuffers = ObjectArrayList<ByteBuffer>()
 
     /**
      * 클래스패스(assets 모듈)에서 MaruBuri 폰트들을 로드해 NanoVG 에 등록합니다.

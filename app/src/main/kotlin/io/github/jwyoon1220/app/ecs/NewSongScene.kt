@@ -1,4 +1,4 @@
-package io.github.jwyoon1220.app.state
+package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
@@ -6,23 +6,24 @@ import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Song
 import io.github.jwyoon1220.core.song.ChartParser
 import io.github.jwyoon1220.engine.DrawContext
-import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.render.RenderColor
 import imgui.ImGui
 import imgui.flag.ImGuiWindowFlags
-import java.awt.Color
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * NanoVG 기반 새 곡 만들기 화면.
- * Swing 의존성 없음 — 네이티브 AWT FileDialog 사용.
+ * 새 곡 만들기 화면 (ECS Scene + Dear ImGui 파일 브라우저).
+ *
+ * 순수 UI/폼 화면이라 도메인 엔터티 없이 Scene 백본의 update/render 경로만 사용합니다.
  */
-class NewSongState(
+class NewSongScene(
     private val ctx: GameContext
-) : GameState, ImGuiRenderable {
+) : Scene(), ImGuiRenderable {
 
     // ── 폰트 ─────────────────────────────────────────────────────────────────
     private val titleFont  = FontLoader.bold(22f)
@@ -70,33 +71,33 @@ class NewSongState(
     private val FIELD_H = 34
     private val FIELD_GAP = 14
 
-    override fun enter() { ctx.inputManager.clearEvents() }
-    override fun exit()  { ctx.inputManager.clearEvents() }
-    override fun update(dt: Double) { time += dt }
+    override fun enter() { super.enter(); ctx.inputManager.clearEvents() }
+    override fun exit()  { ctx.inputManager.clearEvents(); super.exit() }
+    override fun onUpdate(deltaTime: Double) { time += deltaTime }
 
     override fun render(g: DrawContext) {
         val w = g.clipBounds.width; val h = g.clipBounds.height
 
         // ── 배경 그라디언트 ──────────────────────────────────────────────────
-        g.color = Color(8, 5, 18)
+        g.renderColor = RenderColor.of(8, 5, 18)
         g.fillRect(0, 0, w, h)
         // 은은한 중앙 글로우
         g.fillBoxGradientRect(
             (CX - 300).toFloat(), 40f, 600f, (h - 80).toFloat(),
             20f, 120f,
-            Color(40, 20, 80, 40), Color(0, 0, 0, 0)
+            RenderColor.of(40, 20, 80, 40), RenderColor.of(0, 0, 0, 0)
         )
 
         // ── 타이틀 ──────────────────────────────────────────────────────────
-        g.font = titleFont; g.color = Color(200, 160, 255)
+        g.font = titleFont; g.renderColor = RenderColor.of(200, 160, 255)
         g.drawStringCentered("✦ 새 곡 만들기", CX.toFloat(), 60f)
-        g.font = hintFont; g.color = Color(100, 80, 140)
+        g.font = hintFont; g.renderColor = RenderColor.of(100, 80, 140)
         g.drawStringCentered("B1.2.2  ·  StelLane Editor", CX.toFloat(), 80f)
 
         // ── 패널 배경 ────────────────────────────────────────────────────────
-        g.color = Color(18, 12, 35, 220)
+        g.renderColor = RenderColor.of(18, 12, 35, 220)
         g.fillRoundRect(BOX_X, 95, BOX_W, 530, 14, 14)
-        g.color = Color(80, 55, 130, 100)
+        g.renderColor = RenderColor.of(80, 55, 130, 100)
         g.drawRoundRect(BOX_X.toFloat(), 95f, BOX_W.toFloat(), 530f, 14f)
 
         var cy = 125
@@ -108,26 +109,26 @@ class NewSongState(
         }
 
         cy += 4
-        g.color = Color(50, 38, 78); g.drawLine(BOX_X + 16, cy, BOX_X + BOX_W - 16, cy)
+        g.renderColor = RenderColor.of(50, 38, 78); g.drawLine(BOX_X + 16, cy, BOX_X + BOX_W - 16, cy)
         cy += 14
 
         // ── 파일 선택 버튼들 ─────────────────────────────────────────────────
         fun fileRow(label: String, file: File?, btnId: Int) {
-            g.font = labelFont; g.color = Color(150, 120, 200)
+            g.font = labelFont; g.renderColor = RenderColor.of(150, 120, 200)
             g.drawString(label, (BOX_X + 20).toFloat(), (cy + 13).toFloat())
 
             val name = file?.name ?: "선택 안 됨"
             g.font = hintFont
-            g.color = if (file != null) Color(160, 230, 160) else Color(100, 80, 130)
+            g.renderColor = if (file != null) RenderColor.of(160, 230, 160) else RenderColor.of(100, 80, 130)
             g.drawString(name, (BOX_X + 115).toFloat(), (cy + 13).toFloat())
 
             val btnX = BOX_X + BOX_W - 80; val btnY = cy
             val hovering = mouseX in btnX.toFloat()..(btnX + 70f) && mouseY in btnY.toFloat()..(btnY + 26f)
-            g.color = if (hovering) Color(90, 60, 150, 220) else Color(55, 38, 90, 180)
+            g.renderColor = if (hovering) RenderColor.of(90, 60, 150, 220) else RenderColor.of(55, 38, 90, 180)
             g.fillRoundRect(btnX, btnY, 70, 26, 6, 6)
-            g.color = Color(150, 110, 220)
+            g.renderColor = RenderColor.of(150, 110, 220)
             g.drawRoundRect(btnX.toFloat(), btnY.toFloat(), 70f, 26f, 6f)
-            g.font = hintFont; g.color = Color.WHITE
+            g.font = hintFont; g.renderColor = RenderColor.WHITE
             g.drawStringCentered("탐색…", (btnX + 35).toFloat(), (btnY + 17).toFloat())
             cy += 32
         }
@@ -136,11 +137,11 @@ class NewSongState(
         fileRow("비디오 파일", videoFile, 2)
 
         cy += 4
-        g.color = Color(50, 38, 78); g.drawLine(BOX_X + 16, cy, BOX_X + BOX_W - 16, cy)
+        g.renderColor = RenderColor.of(50, 38, 78); g.drawLine(BOX_X + 16, cy, BOX_X + BOX_W - 16, cy)
         cy += 14
 
         // ── 난이도 목록 ──────────────────────────────────────────────────────
-        g.font = labelFont; g.color = Color(150, 120, 200)
+        g.font = labelFont; g.renderColor = RenderColor.of(150, 120, 200)
         g.drawString("난이도", (BOX_X + 20).toFloat(), (cy + 2).toFloat()); cy += 20
 
         hoverDiff = -1
@@ -148,75 +149,75 @@ class NewSongState(
             val dy = cy + idx * 28
             val hovering = mouseX in (BOX_X + 18f)..(BOX_X + BOX_W - 18f) && mouseY in dy.toFloat()..(dy + 24f)
             if (hovering) hoverDiff = idx
-            g.color = if (hovering) Color(55, 38, 90, 200) else Color(30, 20, 55, 160)
+            g.renderColor = if (hovering) RenderColor.of(55, 38, 90, 200) else RenderColor.of(30, 20, 55, 160)
             g.fillRoundRect(BOX_X + 18, dy, BOX_W - 56, 24, 4, 4)
-            g.font = inputFont; g.color = Color(200, 180, 240)
+            g.font = inputFont; g.renderColor = RenderColor.of(200, 180, 240)
             g.drawString(diff, (BOX_X + 28).toFloat(), (dy + 17).toFloat())
             // 삭제 버튼
             val dBtnX = BOX_X + BOX_W - 36; val dBtnY = dy + 3
             val delHover = mouseX in dBtnX.toFloat()..(dBtnX + 18f) && mouseY in dBtnY.toFloat()..(dBtnY + 18f)
-            g.color = if (delHover) Color(200, 80, 80) else Color(120, 60, 60, 160)
+            g.renderColor = if (delHover) RenderColor.of(200, 80, 80) else RenderColor.of(120, 60, 60, 160)
             g.fillRoundRect(dBtnX, dBtnY, 18, 18, 4, 4)
-            g.font = hintFont; g.color = Color.WHITE
+            g.font = hintFont; g.renderColor = RenderColor.WHITE
             g.drawStringCentered("✕", (dBtnX + 9).toFloat(), (dBtnY + 13).toFloat())
         }
         cy += fDiffs.size * 28 + 6
 
         // 난이도 추가 버튼
         val addHover = mouseX in (BOX_X + 18f)..(BOX_X + 90f) && mouseY in cy.toFloat()..(cy + 24f)
-        g.color = if (addHover) Color(55, 90, 55, 200) else Color(30, 55, 30, 150)
+        g.renderColor = if (addHover) RenderColor.of(55, 90, 55, 200) else RenderColor.of(30, 55, 30, 150)
         g.fillRoundRect(BOX_X + 18, cy, 72, 24, 4, 4)
-        g.color = Color(100, 200, 100, 180)
+        g.renderColor = RenderColor.of(100, 200, 100, 180)
         g.drawRoundRect((BOX_X + 18).toFloat(), cy.toFloat(), 72f, 24f, 4f)
-        g.font = hintFont; g.color = Color(140, 230, 140)
+        g.font = hintFont; g.renderColor = RenderColor.of(140, 230, 140)
         g.drawStringCentered("+ 추가", (BOX_X + 54).toFloat(), (cy + 16).toFloat())
         cy += 36
 
         // ── 상태 메시지 ──────────────────────────────────────────────────────
         if (statusMsg.isNotEmpty()) {
             g.font = hintFont
-            g.color = if (statusOk) Color(100, 230, 130) else Color(255, 110, 110)
+            g.renderColor = if (statusOk) RenderColor.of(100, 230, 130) else RenderColor.of(255, 110, 110)
             g.drawStringCentered(statusMsg, CX.toFloat(), (BOX_X + 600).toFloat().coerceAtLeast((cy + 14).toFloat()))
         }
 
         // ── 하단 버튼 ────────────────────────────────────────────────────────
         val btY = 95 + 540 - 10
         val cancelHov = mouseX in (BOX_X + 20f)..(BOX_X + 140f) && mouseY in btY.toFloat()..(btY + 36f)
-        g.color = if (cancelHov) Color(65, 45, 100, 220) else Color(40, 28, 65, 180)
+        g.renderColor = if (cancelHov) RenderColor.of(65, 45, 100, 220) else RenderColor.of(40, 28, 65, 180)
         g.fillRoundRect(BOX_X + 20, btY, 120, 36, 8, 8)
-        g.color = Color(120, 90, 180); g.drawRoundRect((BOX_X + 20).toFloat(), btY.toFloat(), 120f, 36f, 8f)
-        g.font = btnFont; g.color = Color(200, 175, 240)
+        g.renderColor = RenderColor.of(120, 90, 180); g.drawRoundRect((BOX_X + 20).toFloat(), btY.toFloat(), 120f, 36f, 8f)
+        g.font = btnFont; g.renderColor = RenderColor.of(200, 175, 240)
         g.drawStringCentered("취소", (BOX_X + 80).toFloat(), (btY + 24).toFloat())
 
         val createHov = mouseX in (BOX_X + BOX_W - 140f)..(BOX_X + BOX_W - 20f) && mouseY in btY.toFloat()..(btY + 36f)
         val pulse = (0.85f + 0.15f * kotlin.math.sin(time * 2.5).toFloat()).coerceIn(0f, 1f)
-        g.color = if (createHov) Color(120, 70, 200, 230) else Color((70 * pulse).toInt(), (40 * pulse).toInt(), (140 * pulse).toInt(), 200)
+        g.renderColor = if (createHov) RenderColor.of(120, 70, 200, 230) else RenderColor.of((70 * pulse).toInt(), (40 * pulse).toInt(), (140 * pulse).toInt(), 200)
         g.fillRoundRect(BOX_X + BOX_W - 140, btY, 120, 36, 8, 8)
-        g.color = if (createHov) Color(200, 150, 255) else Color(140, 100, 220)
+        g.renderColor = if (createHov) RenderColor.of(200, 150, 255) else RenderColor.of(140, 100, 220)
         g.drawRoundRect((BOX_X + BOX_W - 140).toFloat(), btY.toFloat(), 120f, 36f, 8f)
-        g.font = btnFont; g.color = Color.WHITE
+        g.font = btnFont; g.renderColor = RenderColor.WHITE
         g.drawStringCentered("Create ✦", (BOX_X + BOX_W - 80).toFloat(), (btY + 24).toFloat())
 
         // ESC 힌트
-        g.font = hintFont; g.color = Color(70, 58, 100)
+        g.font = hintFont; g.renderColor = RenderColor.of(70, 58, 100)
         g.drawStringCentered("Esc: 취소  ·  Tab: 다음 필드  ·  Enter: 생성", CX.toFloat(), (h - 16).toFloat())
     }
 
     private fun drawField(g: DrawContext, field: Field, focused: Boolean, x: Int, y: Int, fw: Int, fh: Int) {
         // 배경
-        g.color = if (focused) Color(30, 20, 55, 220) else Color(20, 14, 38, 190)
+        g.renderColor = if (focused) RenderColor.of(30, 20, 55, 220) else RenderColor.of(20, 14, 38, 190)
         g.fillRoundRect(x, y, fw, fh, 6, 6)
-        g.color = if (focused) Color(140, 90, 230, 220) else Color(60, 45, 95, 160)
+        g.renderColor = if (focused) RenderColor.of(140, 90, 230, 220) else RenderColor.of(60, 45, 95, 160)
         g.drawRoundRect(x.toFloat(), y.toFloat(), fw.toFloat(), fh.toFloat(), 6f)
 
         // 라벨
-        g.font = hintFont; g.color = Color(120, 95, 175)
+        g.font = hintFont; g.renderColor = RenderColor.of(120, 95, 175)
         g.drawString(field.label, (x + 8).toFloat(), (y + fh / 2 - 4).toFloat())
 
         // 값
         val displayText = field.value + if (focused && (System.currentTimeMillis() % 1000) < 500) "|" else ""
         g.font = inputFont
-        g.color = if (field.value.isEmpty() && !focused) Color(60, 50, 85) else Color(230, 215, 255)
+        g.renderColor = if (field.value.isEmpty() && !focused) RenderColor.of(60, 50, 85) else RenderColor.of(230, 215, 255)
         val textX = x + 100
         g.drawString(if (field.value.isEmpty() && !focused) field.hint else displayText, textX.toFloat(), (y + fh / 2 + 6).toFloat())
     }
@@ -227,7 +228,7 @@ class NewSongState(
             return
         }
         when {
-            key == Keys.ESCAPE -> ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
+            key == Keys.ESCAPE -> ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.EDIT))
             key == Keys.TAB    -> focusedField = (focusedField + 1) % fields.size
             key == Keys.ENTER  -> tryCreate()
             key == Keys.BACKSPACE -> {
@@ -289,7 +290,7 @@ class NewSongState(
         // 취소
         val btY = 95 + 540 - 10
         if (mx in (BOX_X + 20)..(BOX_X + 140) && my in btY..(btY + 36)) {
-            ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
+            ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.EDIT))
         }
         // Create
         if (mx in (BOX_X + BOX_W - 140)..(BOX_X + BOX_W - 20) && my in btY..(btY + 36)) {
@@ -301,8 +302,6 @@ class NewSongState(
 
     override fun mouseScrolled(dy: Double) {}
 
-    // GameState.mouseMoved 는 인터페이스에 없으므로 mouseClicked에서 처리
-    // InputManager가 cursorPos를 dragged로만 전달하므로 mousePressed로 좌표 갱신
     override fun mousePressed(x: Float, y: Float, button: Int, mods: Int) { mouseX = x; mouseY = y }
     override fun mouseReleased(x: Float, y: Float, button: Int, mods: Int) {}
 
@@ -399,7 +398,7 @@ class NewSongState(
         runCatching { createSong(title) }
             .onSuccess { statusMsg = "'$title' 생성 완료!"; statusOk = true
                 ctx.songManager.refresh()
-                ctx.stateManager.changeState(SongSelectState(ctx, SelectMode.EDIT))
+                ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.EDIT))
             }
             .onFailure { e -> statusMsg = "오류: ${e.message}"; statusOk = false }
     }

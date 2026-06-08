@@ -463,6 +463,18 @@ class DrawContext(
         nvgFill(vg)
     }
 
+    /** NanoVG 방사형 그라디언트로 사각형을 채웁니다 (RenderColor 오버로드). */
+    fun fillRadialGradient(
+        x: Float, y: Float, w: Float, h: Float,
+        cx: Float, cy: Float, inR: Float, outR: Float,
+        innerColor: RenderColor, outerColor: RenderColor
+    ) {
+        nvgRGBAf(innerColor.rf, innerColor.gf, innerColor.bf, innerColor.af, nvgColor)
+        nvgRGBAf(outerColor.rf, outerColor.gf, outerColor.bf, outerColor.af, nvgColor2)
+        nvgRadialGradient(vg, cx, cy, inR, outR, nvgColor, nvgColor2, nvgPaint)
+        nvgBeginPath(vg); nvgRect(vg, x, y, w, h); nvgFillPaint(vg, nvgPaint); nvgFill(vg)
+    }
+
     /** NanoVG 선형 그라디언트로 사각형을 채웁니다. */
     fun fillLinearGradient(
         x: Float, y: Float, w: Float, h: Float,
@@ -476,6 +488,18 @@ class DrawContext(
         nvgRect(vg, x, y, w, h)
         nvgFillPaint(vg, nvgPaint)
         nvgFill(vg)
+    }
+
+    /** NanoVG 선형 그라디언트로 사각형을 채웁니다 (RenderColor 오버로드). */
+    fun fillLinearGradient(
+        x: Float, y: Float, w: Float, h: Float,
+        x0: Float, y0: Float, x1: Float, y1: Float,
+        startColor: RenderColor, endColor: RenderColor
+    ) {
+        nvgRGBAf(startColor.rf, startColor.gf, startColor.bf, startColor.af, nvgColor)
+        nvgRGBAf(endColor.rf, endColor.gf, endColor.bf, endColor.af, nvgColor2)
+        nvgLinearGradient(vg, x0, y0, x1, y1, nvgColor, nvgColor2, nvgPaint)
+        nvgBeginPath(vg); nvgRect(vg, x, y, w, h); nvgFillPaint(vg, nvgPaint); nvgFill(vg)
     }
 
     // ── 텍스트 정렬 변형 ─────────────────────────────────────────────────────
@@ -546,6 +570,19 @@ class DrawContext(
         nvgRect(vg, x - feather, y - feather, w + feather * 2, h + feather * 2)
         nvgFillPaint(vg, nvgPaint)
         nvgFill(vg)
+    }
+
+    /** 박스 그라디언트를 채웁니다 (RenderColor 오버로드). */
+    fun fillBoxGradientRect(
+        x: Float, y: Float, w: Float, h: Float,
+        r: Float, feather: Float,
+        innerColor: RenderColor, outerColor: RenderColor
+    ) {
+        nvgRGBAf(innerColor.rf, innerColor.gf, innerColor.bf, innerColor.af, nvgColor)
+        nvgRGBAf(outerColor.rf, outerColor.gf, outerColor.bf, outerColor.af, nvgColor2)
+        nvgBoxGradient(vg, x, y, w, h, r, feather, nvgColor, nvgColor2, nvgPaint)
+        nvgBeginPath(vg); nvgRect(vg, x - feather, y - feather, w + feather * 2, h + feather * 2)
+        nvgFillPaint(vg, nvgPaint); nvgFill(vg)
     }
 
     // ── 내부 유틸 ───────────────────────────────────────────────────────────

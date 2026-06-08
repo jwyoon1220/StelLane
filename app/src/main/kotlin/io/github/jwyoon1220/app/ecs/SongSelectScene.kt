@@ -1,4 +1,4 @@
-package io.github.jwyoon1220.app.state
+package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
@@ -6,15 +6,15 @@ import io.github.jwyoon1220.app.ui.SongZipUtil
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.ChartParser
 import io.github.jwyoon1220.engine.DrawContext
-import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.render.RenderColor
 import imgui.ImGui
 import imgui.flag.ImGuiWindowFlags
 import imgui.type.ImString
 import org.slf4j.LoggerFactory
 import java.awt.AlphaComposite
-import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
 import java.nio.file.Files
@@ -24,12 +24,63 @@ import kotlin.math.*
 
 enum class SelectMode { PLAY, EDIT }
 
-class SongSelectState(
+/**
+ * 곡 선택 화면 (ECS Scene + Dear ImGui 가져오기/내보내기 다이얼로그).
+ *
+ * 리스트 UI라 도메인 엔터티 없이 Scene 백본의 update/render 경로만 사용합니다.
+ */
+class SongSelectScene(
     private val ctx: GameContext,
     private val mode: SelectMode
-) : GameState, ImGuiRenderable {
+) : Scene(), ImGuiRenderable {
 
-    private val log = LoggerFactory.getLogger(SongSelectState::class.java)
+    companion object {
+        private val COLOR_BG = RenderColor.of(8, 5, 18)
+        private val COLOR_PANEL_GRAD_TOP = RenderColor.of(22, 14, 44, 250)
+        private val COLOR_PANEL_GRAD_BTM = RenderColor.of(12, 8, 28, 250)
+        private val COLOR_LINE_GRAD_LEFT = RenderColor.of(100, 60, 180, 160)
+        private val COLOR_LINE_GRAD_RIGHT = RenderColor.of(40, 20, 80, 60)
+        private val COLOR_HEADER_BG = RenderColor.of(16, 10, 34, 240)
+        private val COLOR_HEADER_LINE = RenderColor.of(50, 30, 90, 180)
+        private val COLOR_MODE_LABEL = RenderColor.of(180, 130, 255)
+        private val COLOR_SONGS_COUNT = RenderColor.of(80, 65, 110)
+        private val COLOR_HINT = RenderColor.of(65, 55, 90)
+        private val COLOR_EXPORT_MSG = RenderColor.of(220, 190, 120)
+        private val COLOR_EXPORT_MSG_DONE = RenderColor.of(120, 200, 140)
+        private val COLOR_COVER_GLOW_START = RenderColor.of(140, 80, 255, 0)
+        private val COLOR_COVER_GLOW_END = RenderColor.of(0, 0, 0, 0)
+        private val COLOR_COVER_PLACEHOLDER_TOP = RenderColor.of(38, 22, 68)
+        private val COLOR_COVER_PLACEHOLDER_BTM = RenderColor.of(22, 12, 42)
+        private val COLOR_COVER_NOTE_ICON = RenderColor.of(80, 55, 120)
+        private val COLOR_TITLE = RenderColor.of(235, 225, 255)
+        private val COLOR_ARTIST = RenderColor.of(150, 125, 200)
+        private val COLOR_DIFF_BG = RenderColor.of(50, 30, 90, 160)
+        private val COLOR_DIFF_BORDER = RenderColor.of(100, 60, 180, 120)
+        private val COLOR_DIFF_ARROW = RenderColor.of(220, 185, 80)
+        private val COLOR_SPEED = RenderColor.of(180, 160, 220)
+        private val COLOR_SPEED_HINT = RenderColor.of(100, 85, 130)
+        private val COLOR_ROW_SEL_GRAD_LEFT = RenderColor.of(80, 45, 150, 210)
+        private val COLOR_ROW_SEL_GRAD_RIGHT = RenderColor.of(40, 20, 80, 60)
+        private val COLOR_ROW_SEL_INDICATOR = RenderColor.of(180, 120, 255)
+        private val COLOR_ROW_HOVER = RenderColor.of(255, 255, 255, 12)
+        private val COLOR_ROW_EVEN = RenderColor.of(255, 255, 255, 4)
+        private val COLOR_ROW_LINE = RenderColor.of(40, 30, 60)
+        private val COLOR_THUMB_SEL_BORDER = RenderColor.of(150, 90, 255, 120)
+        private val COLOR_THUMB_BORDER = RenderColor.of(60, 45, 80, 100)
+        private val COLOR_THUMB_PLACEHOLDER = RenderColor.of(30, 20, 50)
+        private val COLOR_THUMB_PLACEHOLDER_BORDER = RenderColor.of(60, 45, 80)
+        private val COLOR_ROW_SEL_TITLE = RenderColor.of(245, 235, 255)
+        private val COLOR_ROW_TITLE = RenderColor.of(170, 158, 200)
+        private val COLOR_ROW_SEL_ARTIST = RenderColor.of(170, 140, 220)
+        private val COLOR_ROW_ARTIST = RenderColor.of(90, 78, 118)
+        private val COLOR_BADGE_BG = RenderColor.of(60, 35, 100, 180)
+        private val COLOR_BADGE_TEXT = RenderColor.of(200, 160, 80)
+        private val COLOR_SCROLL_BAR_BG = RenderColor.of(30, 20, 50)
+        private val COLOR_SCROLL_BAR_THUMB = RenderColor.of(100, 65, 160, 180)
+        private val COLOR_EMPTY_SONGS = RenderColor.of(100, 85, 140)
+    }
+
+    private val log = LoggerFactory.getLogger(SongSelectScene::class.java)
 
     private var songIndex = 0
     private var diffIndex = 0
@@ -98,8 +149,9 @@ class SongSelectState(
     private val curDiffs get() = curSong?.song?.difficulties?.keys?.toList() ?: emptyList()
 
     override fun enter() {
+        super.enter()
         ctx.songManager.refresh()
-        log.info("SongSelectState enter mode={} songs={}", mode, ctx.songManager.songs.size)
+        log.info("SongSelectScene enter mode={} songs={}", mode, ctx.songManager.songs.size)
         songIndex = 0; diffIndex = 0; lastPreviewSong = null; time = 0.0
         ctx.inputManager.clearEvents()
         ctx.videoBackground.setRate(1.0f)
@@ -111,6 +163,7 @@ class SongSelectState(
         ctx.videoBackground.onPlayingStarted = null
         ctx.videoBackground.stop()
         lastPreviewSong = null
+        super.exit()
     }
 
     private fun playPreviewForCurrent() {
@@ -125,7 +178,7 @@ class SongSelectState(
         ctx.videoBackground.play(videoPath.absolutePath)
     }
 
-    override fun update(deltaTime: Double) {
+    override fun onUpdate(deltaTime: Double) {
         time += deltaTime
         val targetY = songIndex * ROW_H.toFloat()
         scrollAnim += (targetY - scrollAnim) * (1f - exp(-deltaTime.toFloat() * 12f))
@@ -147,7 +200,7 @@ class SongSelectState(
         // ── 전체 어두운 오버레이 ─────────────────────────────────────────────
         val old = g.composite
         g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.88f)
-        g.color = Color(8, 5, 18)
+        g.renderColor = COLOR_BG
         g.fillRect(0, 0, w, h)
         g.composite = old
 
@@ -155,31 +208,31 @@ class SongSelectState(
         g.fillLinearGradient(
             0f, 0f, PANEL_W.toFloat(), h.toFloat(),
             0f, 0f, PANEL_W.toFloat(), 0f,
-            Color(22, 14, 44, 250), Color(12, 8, 28, 250)
+            COLOR_PANEL_GRAD_TOP, COLOR_PANEL_GRAD_BTM
         )
         // 구분선 (그라디언트)
         g.fillLinearGradient(
             (PANEL_W - 1).toFloat(), 0f, 2f, h.toFloat(),
             (PANEL_W - 1).toFloat(), 0f, (PANEL_W + 1).toFloat(), 0f,
-            Color(100, 60, 180, 160), Color(40, 20, 80, 60)
+            COLOR_LINE_GRAD_LEFT, COLOR_LINE_GRAD_RIGHT
         )
 
         // ── 헤더 바 ──────────────────────────────────────────────────────────
-        g.color = Color(16, 10, 34, 240)
+        g.renderColor = COLOR_HEADER_BG
         g.fillRect(0, 0, w, HEADER_H)
-        g.color = Color(50, 30, 90, 180)
+        g.renderColor = COLOR_HEADER_LINE
         g.drawLine(0, HEADER_H, w, HEADER_H)
 
         // 모드 레이블
         val modeLabel = if (mode == SelectMode.PLAY) "▶  PLAY" else "✏  EDIT"
         g.font  = headerFont
-        g.color = Color(180, 130, 255)
+        g.renderColor = COLOR_MODE_LABEL
         g.drawString(modeLabel, PAD.toFloat(), 33f)
 
         // 곡 수
         if (songs.isNotEmpty()) {
             g.font  = metaFont
-            g.color = Color(80, 65, 110)
+            g.renderColor = COLOR_SONGS_COUNT
             g.drawStringRight("${songs.size} songs", (PANEL_W - PAD).toFloat(), 33f)
         }
 
@@ -189,16 +242,16 @@ class SongSelectState(
         else
             "↑↓  탐색   ←→ 난이도   Shift/Ctrl 속도   Enter  선택   Esc  뒤로"
         g.font  = hintFont
-        g.color = Color(65, 55, 90)
+        g.renderColor = COLOR_HINT
         g.drawString(hint, (w / 2 + 60).toFloat(), 33f)
         if (exportMessage.isNotEmpty()) {
             g.font = hintFont
-            g.color = if (exportInProgress) Color(220, 190, 120) else Color(120, 200, 140)
+            g.renderColor = if (exportInProgress) COLOR_EXPORT_MSG else COLOR_EXPORT_MSG_DONE
             g.drawString(exportMessage, (w / 2 + 60).toFloat(), 48f)
         }
         if (importMessage.isNotEmpty()) {
             g.font = hintFont
-            g.color = if (importInProgress) Color(220, 190, 120) else Color(120, 200, 140)
+            g.renderColor = if (importInProgress) COLOR_EXPORT_MSG else COLOR_EXPORT_MSG_DONE
             g.drawString(importMessage, (w / 2 + 60).toFloat(), 62f)
         }
 
@@ -218,7 +271,7 @@ class SongSelectState(
             if (cover != null) {
                 g.scoped {
                     setClip(coverX.toFloat(), coverY.toFloat(), COVER_S.toFloat(), COVER_S.toFloat())
-                    val pscale = 1f + sin(t * 0.6f).toFloat() * 0.005f
+                    val pscale = 1f + sin(t * 0.6f) * 0.005f
                     val ox = coverX + COVER_S / 2f * (1 - pscale)
                     val oy = coverY + COVER_S / 2f * (1 - pscale)
                     drawImage(cover, ox.toInt(), oy.toInt(),
@@ -228,15 +281,15 @@ class SongSelectState(
                 g.fillBoxGradientRect(
                     coverX.toFloat(), coverY.toFloat(), COVER_S.toFloat(), COVER_S.toFloat(),
                     10f, 20f,
-                    Color(140, 80, 255, 0), Color(0, 0, 0, 0)
+                    COLOR_COVER_GLOW_START, COLOR_COVER_GLOW_END
                 )
             } else {
                 g.fillLinearGradient(
                     coverX.toFloat(), coverY.toFloat(), COVER_S.toFloat(), COVER_S.toFloat(),
                     coverX.toFloat(), coverY.toFloat(), coverX.toFloat(), (coverY + COVER_S).toFloat(),
-                    Color(38, 22, 68), Color(22, 12, 42)
+                    COLOR_COVER_PLACEHOLDER_TOP, COLOR_COVER_PLACEHOLDER_BTM
                 )
-                g.color = Color(80, 55, 120)
+                g.renderColor = COLOR_COVER_NOTE_ICON
                 g.font  = FontLoader.bold(52f)
                 g.drawStringCentered("♪", PANEL_W / 2f, coverY + COVER_S / 2f + 18f)
             }
@@ -245,16 +298,16 @@ class SongSelectState(
             var ty = coverY + COVER_S + 22f
 
             g.font  = titleBigFont
-            g.color = Color(235, 225, 255)
+            g.renderColor = COLOR_TITLE
             g.drawStringCentered(entry.song.title, PANEL_W / 2f, ty); ty += 26f
 
             g.font  = artistFont
-            g.color = Color(150, 125, 200)
+            g.renderColor = COLOR_ARTIST
             g.drawStringCentered(entry.song.artist, PANEL_W / 2f, ty); ty += 20f
 
             entry.song.bpm?.let {
                 g.font  = metaFont
-                g.color = Color(80, 65, 110)
+                g.renderColor = COLOR_SONGS_COUNT
                 g.drawStringCentered("BPM  $it", PANEL_W / 2f, ty); ty += 18f
             }
 
@@ -264,12 +317,12 @@ class SongSelectState(
                 val diff = curDiffs.getOrNull(diffIndex) ?: ""
                 val btnW = 180f; val btnH = 34f
                 val btnX = (PANEL_W - btnW) / 2f; val btnY = ty - 22f
-                g.color = Color(50, 30, 90, 160)
+                g.renderColor = COLOR_DIFF_BG
                 g.fillRoundRect(btnX, btnY, btnW, btnH, 17f)
-                g.color = Color(100, 60, 180, 120)
+                g.renderColor = COLOR_DIFF_BORDER
                 g.drawRoundRect(btnX, btnY, btnW, btnH, 17f)
                 g.font  = diffFont
-                g.color = Color(220, 185, 80)
+                g.renderColor = COLOR_DIFF_ARROW
                 g.drawStringCentered("◀  $diff  ▶", PANEL_W / 2f, ty)
                 ty += 42f
             } else {
@@ -288,22 +341,22 @@ class SongSelectState(
                 cachedSpeedText = "SPEED  %.1f  (%.2fx)".format(speedVal, actualRate)
             }
             g.font = metaFont
-            g.color = Color(180, 160, 220)
+            g.renderColor = COLOR_SPEED
             g.drawStringCentered(cachedSpeedText, PANEL_W / 2f, ty)
 
             ty += 18f
             g.font = hintFont
-            g.color = Color(100, 85, 130)
+            g.renderColor = COLOR_SPEED_HINT
             g.drawStringCentered("Ctrl / Shift 로 속도 조절", PANEL_W / 2f, ty)
         }
 
         // 곡이 없을 때
         if (songs.isEmpty()) {
             g.font  = emptyFont
-            g.color = Color(100, 85, 140)
+            g.renderColor = COLOR_EMPTY_SONGS
             g.drawStringCentered("No songs", PANEL_W / 2f, h / 2f)
             g.font  = hintFont
-            g.color = Color(65, 55, 90)
+            g.renderColor = COLOR_HINT
             g.drawStringCentered("N 를 눌러 새 곡 만들기", PANEL_W / 2f, h / 2f + 24f)
         }
 
@@ -332,25 +385,25 @@ class SongSelectState(
                         fillLinearGradient(
                             listX.toFloat(), rowY.toFloat(), listW.toFloat(), ROW_H.toFloat(),
                             listX.toFloat(), 0f, (listX + listW).toFloat(), 0f,
-                            Color(80, 45, 150, 210), Color(40, 20, 80, 60)
+                            COLOR_ROW_SEL_GRAD_LEFT, COLOR_ROW_SEL_GRAD_RIGHT
                         )
                         val barH = (sin(t * 2f) * 4 + ROW_H - 4).toFloat()
                         val barY = rowY + (ROW_H - barH) / 2
-                        color = Color(180, 120, 255)
+                        renderColor = COLOR_ROW_SEL_INDICATOR
                         fillRoundRect(listX.toFloat(), barY, 3f, barH, 2f)
                     }
                     hovered -> {
-                        color = Color(255, 255, 255, 12)
+                        renderColor = COLOR_ROW_HOVER
                         fillRect(listX, rowY, listW, ROW_H)
                     }
                     i % 2 == 0 -> {
-                        color = Color(255, 255, 255, 4)
+                        renderColor = COLOR_ROW_EVEN
                         fillRect(listX, rowY, listW, ROW_H)
                     }
                 }
 
                 if (!selected) {
-                    color = Color(40, 30, 60)
+                    renderColor = COLOR_ROW_LINE
                     drawLine(listX + THUMB_S + 20, rowY + ROW_H - 1, listX + listW - PAD, rowY + ROW_H - 1)
                 }
 
@@ -363,12 +416,12 @@ class SongSelectState(
                         setClip(thumbX, thumbY, THUMB_S, THUMB_S)
                         drawImage(thumb, thumbX, thumbY, THUMB_S, THUMB_S, null)
                     }
-                    color = if (selected) Color(150, 90, 255, 120) else Color(60, 45, 80, 100)
+                    renderColor = if (selected) COLOR_THUMB_SEL_BORDER else COLOR_THUMB_BORDER
                     drawRoundRect(thumbX.toFloat(), thumbY.toFloat(), THUMB_S.toFloat(), THUMB_S.toFloat(), 5f)
                 } else {
-                    color = Color(30, 20, 50)
+                    renderColor = COLOR_THUMB_PLACEHOLDER
                     fillRoundRect(thumbX, thumbY, THUMB_S, THUMB_S, 5, 5)
-                    color = Color(60, 45, 80)
+                    renderColor = COLOR_THUMB_PLACEHOLDER_BORDER
                     drawRoundRect(thumbX.toFloat(), thumbY.toFloat(), THUMB_S.toFloat(), THUMB_S.toFloat(), 5f)
                 }
 
@@ -377,11 +430,11 @@ class SongSelectState(
                 val titleY = (rowY + ROW_H / 2 - 8).toFloat()
 
                 font  = rowTitleFont
-                color = if (selected) Color(245, 235, 255) else Color(170, 158, 200)
+                renderColor = if (selected) COLOR_ROW_SEL_TITLE else COLOR_ROW_TITLE
                 drawStringLeft(entry.song.title, textX, titleY)
 
                 font  = rowArtFont
-                color = if (selected) Color(170, 140, 220) else Color(90, 78, 118)
+                renderColor = if (selected) COLOR_ROW_SEL_ARTIST else COLOR_ROW_ARTIST
                 drawStringLeft(entry.song.artist, textX, titleY + 18f)
 
                 // 선택 시 난이도 뱃지
@@ -391,9 +444,9 @@ class SongSelectState(
                     val badgeX = (listX + listW - badgeW - PAD)
                     val badgeY = (rowY + (ROW_H - badgeH) / 2)
                     font  = metaFont
-                    color = Color(60, 35, 100, 180)
+                    renderColor = COLOR_BADGE_BG
                     fillRoundRect(badgeX, badgeY, badgeW, badgeH, 9f)
-                    color = Color(200, 160, 80)
+                    renderColor = COLOR_BADGE_TEXT
                     drawStringCentered(diff, badgeX + badgeW / 2, badgeY + 13f)
                 }
             }
@@ -405,9 +458,9 @@ class SongSelectState(
             val thumbH = maxOf(24f, barH.toFloat() * minOf(1f, areaH.toFloat() / (songs.size * ROW_H)))
             val maxScr = maxOf(1, songs.size - 1)
             val thumbY = topPad + 4f + (barH - thumbH) * songIndex / maxScr
-            g.color = Color(30, 20, 50)
+            g.renderColor = COLOR_SCROLL_BAR_BG
             g.fillRoundRect((w - 8).toFloat(), (topPad + 4).toFloat(), 4f, barH.toFloat(), 2f)
-            g.color = Color(100, 65, 160, 180)
+            g.renderColor = COLOR_SCROLL_BAR_THUMB
             g.fillRoundRect((w - 8).toFloat(), thumbY, 4f, thumbH, 2f)
         }
     }
@@ -438,10 +491,10 @@ class SongSelectState(
                 io.github.jwyoon1220.app.AppSettings.playSpeed = (io.github.jwyoon1220.app.AppSettings.playSpeed - 0.5f).coerceAtLeast(0.5f)
             }
             Keys.ENTER  -> onConfirm()
-            Keys.N      -> if (mode == SelectMode.EDIT) ctx.stateManager.changeState(NewSongState(ctx))
+            Keys.N      -> if (mode == SelectMode.EDIT) ctx.stateManager.changeState(NewSongScene(ctx))
             Keys.I      -> if (mode == SelectMode.EDIT) openImportDialog()
             Keys.E      -> if (mode == SelectMode.EDIT) openExportDialog()
-            Keys.ESCAPE -> ctx.stateManager.changeState(MainMenuState(ctx))
+            Keys.ESCAPE -> ctx.stateManager.changeState(MainMenuScene(ctx))
         }
     }
 
@@ -501,8 +554,8 @@ class SongSelectState(
         if (!chartFile.exists()) return
         val chart = runCatching { ChartParser.parseChart(chartFile) }.getOrNull() ?: return
         when (mode) {
-            SelectMode.PLAY -> ctx.stateManager.changeState(PlayState(ctx, entry, chart))
-            SelectMode.EDIT -> ctx.stateManager.changeState(EditorState(ctx, entry, chartFile, chart))
+            SelectMode.PLAY -> ctx.stateManager.changeState(PlayScene(ctx, entry, chart))
+            SelectMode.EDIT -> ctx.stateManager.changeState(EditorScene(ctx, entry, chartFile, chart))
         }
     }
 

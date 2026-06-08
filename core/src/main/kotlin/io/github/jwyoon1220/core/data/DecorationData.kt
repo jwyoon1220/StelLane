@@ -112,10 +112,19 @@ data class DecEffect(
 /**
  * 화면 전체에 적용되는 효과.
  *
- * type 값:
+ * NanoVG 효과 (type):
  *  - flash        : 짧은 색상 플래시 (페이드 인→아웃)
  *  - colorOverlay : 반투명 색상 레이어
  *  - vignette     : 가장자리 어둡게 (intensity = 0.0~1.0)
+ *
+ * GL 후처리 효과 (type) — fromIntensity→toIntensity 로 보간:
+ *  - grayscale    : 흑백 필터
+ *  - fade         : 색상으로 페이드 (r/g/b/a = 대상 색)
+ *  - blur         : 박스 블러
+ *  - shader       : 커스텀 GLSL (shaderFile = songDir 기준 경로)
+ *
+ * 오디오 효과:
+ *  - audioFade    : 볼륨을 fromVolume→toVolume 으로 보간 (0~100)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ScreenEffect(
@@ -126,8 +135,18 @@ data class ScreenEffect(
     val g: Int = 255,
     val b: Int = 255,
     val a: Int = 200,
-    /** vignette 강도 (0.0~1.0) */
+    /** NanoVG 효과 고정 강도 (vignette 등) */
     val intensity: Float = 0.5f,
     /** 이징: linear | easeIn | easeOut | easeInOut */
-    val easing: String = "linear"
+    val easing: String = "linear",
+    /** GL 효과 시작 강도 */
+    val fromIntensity: Float = 0f,
+    /** GL 효과 종료 강도 */
+    val toIntensity: Float = 1f,
+    /** audioFade 시작 볼륨 (0~100) */
+    val fromVolume: Int = 100,
+    /** audioFade 종료 볼륨 (0~100) */
+    val toVolume: Int = 0,
+    /** 커스텀 셰이더 파일 경로 (songDir 기준, shader 타입 전용) */
+    val shaderFile: String = ""
 )

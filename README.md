@@ -39,21 +39,21 @@ sh ./gradlew test --no-daemon
 ### 2) 게임 실행
 
 ```bash
-sh ./gradlew :app:runGame
+./gradlew :app:runGame
 ```
 
 실행 전 `:app:prepareRunEnv`가 함께 수행되어 `run/` 폴더에 실행 환경이 준비됩니다.
 
-### 3) 곡 빌더 실행
+### 3) 곡 빌더 실행(이 빌더 대신 게임 내부 곡 편집 기능을 사용해주세요)
 
 ```bash
-sh ./gradlew :builder:run
+./gradlew :builder:run
 ```
 
 ### 4) 배포 이미지 생성
 
 ```bash
-sh ./gradlew :app:deploy
+./gradlew :app:deploy
 ```
 
 `dist/` 아래에 배포용 앱 이미지가 생성됩니다.
@@ -86,5 +86,5 @@ run/
 
 ## 라이선스
 
-프로젝트 라이선스는 루트 `LICENSE`를 따릅니다.  
+프로젝트 라이선스는 루트 `LICENSE`와 `engine/LICENSE`의 Apache License 2.0과 GNU GPL 3.0에 의해 라이선스 됩니다.  
 추가 리소스(폰트/오픈소스 고지)는 `assets/src/main/resources`를 참고하세요.

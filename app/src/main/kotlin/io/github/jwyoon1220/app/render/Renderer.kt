@@ -1,7 +1,7 @@
 package io.github.jwyoon1220.app.render
 
 import io.github.jwyoon1220.app.Const
-import io.github.jwyoon1220.app.state.PlayState
+import io.github.jwyoon1220.app.ecs.PlayScene
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.Renderer as EngineRenderer
 import io.github.jwyoon1220.engine.render.RenderColor
@@ -32,8 +32,8 @@ open class Renderer {
         private const val NOTE_BORDER_THICKNESS = 1.5f
     }
 
-    open fun render(renderer: GlQuadBatchRenderer, state: PlayState) {
-        val laneAlpha = if (state.phase == PlayState.Phase.READY) {
+    open fun render(renderer: GlQuadBatchRenderer, state: PlayScene) {
+        val laneAlpha = if (state.phase == PlayScene.Phase.READY) {
             when {
                 state.readyElapsedMs < 1500.0 -> 0.0f
                 state.readyElapsedMs in 1500.0..2000.0 -> ((state.readyElapsedMs - 1500.0) / 500.0).toFloat()
@@ -46,8 +46,8 @@ open class Renderer {
         val h = EngineRenderer.DESIGN_H
         val hl = (h * Const.HIT_LINE_RATIO).toInt()
         val lanesL = (EngineRenderer.DESIGN_W - Const.TOTAL_WIDTH) / 2
-        val nowV = if (state.phase == PlayState.Phase.READY) state.readyElapsedMs - Const.READY_DURATION_MS else state.currentTimeMs
-        val nowD = if (state.phase == PlayState.Phase.READY) nowV.toDouble() else state.ctx.videoBackground.getSmoothTimeDouble() - state.chart.offsetMs
+        val nowV = if (state.phase == PlayScene.Phase.READY) state.readyElapsedMs - Const.READY_DURATION_MS else state.currentTimeMs
+        val nowD = if (state.phase == PlayScene.Phase.READY) nowV.toDouble() else state.ctx.videoBackground.getSmoothTimeDouble() - state.chart.offsetMs
 
         // 레인 글로우 (사전 캐시된 RenderColor 상수 사용, 매 프레임 객체 생성 없음)
         for (i in 0 until Const.LANE_COUNT) {

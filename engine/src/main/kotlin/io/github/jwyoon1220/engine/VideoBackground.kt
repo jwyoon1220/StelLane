@@ -88,14 +88,15 @@ class VideoBackground private constructor(
          *   노이즈를 억제. 재시도 후 I420 fallback 경로로 정상 재생됨.
          */
         private val FACTORY_OPTIONS = arrayOf(
-            "--avcodec-hw=d3d11",         // Windows D3D11 하드웨어 디코딩 활성화 (GPU 가속)
+            "--avcodec-hw=none",          // 콜백 서피스는 소프트웨어 디코딩 필수 (하드웨어 디코더 전역 비활성화)
             "--no-video-title-show",
-            "--no-sub-autodetect-file",  // 자막 자동 로드 방지
+            "--no-sub-autodetect-file",   // 자막 자동 로드 방지
             "--no-spu",                   // 자막/OSD 모듈 비활성화
             "--quiet",                    // 내부 필터 체인 재시도 메시지 무음 (비치명적)
             "--audio-replay-gain-mode=none", // 음향 정규화 비활성화 (ReplayGain OFF)
             "--no-volume-save",           // 미디어별 볼륨 기억 기능 비활성화
-            "--audio-filter="              // 사용자/시스템 오디오 필터 자동 적용 방지
+            "--aout=mmdevice",            // Windows WASAPI 오디오 출력 명시 (기본 장치 보장)
+            "--volume=256"                // 초기 볼륨 100% 강제 (--no-volume-save 시 0으로 시작하는 경우 방지)
         )
 
         fun create(): VideoBackground {
@@ -253,10 +254,8 @@ class VideoBackground private constructor(
         timeAnchor = TimeAnchor(0L, System.nanoTime())
         rewindGraceUntilNs = System.nanoTime() + 150_000_000L
         lastVolumeGuardAtMs = 0L
-        // ":avcodec-hw=none" — 미디어별 소프트웨어 디코딩 강제 (팩토리 옵션과 이중 보호).
-        // 하드웨어 디코더(D3D11VA 등)가 켜지면 GPU 메모리 프레임을 콜백 서피스(CPU)로
-        // 복사하는 과정에서 VLC 필터 체인 재귀 오류가 발생하므로 반드시 비활성화.
-        vlcExecutor.submit { mediaPlayer?.media()?.play(path, ":avcodec-hw=none") }
+        targetVolumePercent = 100   // audioFade 등으로 변경된 볼륨을 항상 기본값으로 복원
+        vlcExecutor.submit { mediaPlayer?.media()?.play(path) }
     }
 
     /** 재생하지 않고 미디어만 파싱 및 로드합니다. */
@@ -305,13 +304,18 @@ class VideoBackground private constructor(
 
     private fun enforceVolumeInternal(player: EmbeddedMediaPlayer?) {
         val p = player ?: return
-        val audioApi = p.audio() ?: return
-        val target = targetVolumePercent.coerceIn(0, 200)
-        val current = runCatching { audioApi.volume() }.getOrNull()
-        if (current != null && current != target) {
-            runCatching { audioApi.setVolume(target) }
-                .onFailure { err -> log.debug("[VLC] setVolume 실패: {}", err.message) }
+        val audioApi = p.audio() ?: run {
+            log.warn("[VLC] audio() API null — 볼륨 설정 불가")
+            return
         }
+        val target = targetVolumePercent.coerceIn(0, 200)
+        // mute 상태로 시작하는 경우를 대비해 명시적으로 해제
+        runCatching { audioApi.setMute(false) }
+            .onFailure { log.warn("[VLC] setMute(false) 실패: {}", it.message) }
+        val ok = runCatching { audioApi.setVolume(target) }
+            .onFailure { err -> log.warn("[VLC] setVolume({}) 실패: {}", target, err.message) }
+            .getOrElse { false }
+        log.debug("[VLC] setVolume({}) → ok={}", target, ok)
     }
 
     /** 현재 재생 위치(ms). 미디어가 없으면 0 반환. */

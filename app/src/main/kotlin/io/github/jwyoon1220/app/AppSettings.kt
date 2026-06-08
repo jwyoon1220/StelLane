@@ -38,6 +38,14 @@ object AppSettings {
     var playSpeed: Float
         get() = prefs.getFloat("playSpeed", 7.0f).coerceIn(0.5f, 35.0f)
         set(v) { prefs.putFloat("playSpeed", v.coerceIn(0.5f, 35.0f)) }
+
+    /** 배경 음악 볼륨 (0.0 ~ 1.0). 기본값은 0.8. */
+    var musicVolume: Float
+        get() = prefs.getFloat("musicVolume", 0.8f).coerceIn(0.0f, 1.0f)
+        set(v) {
+            val value = v.coerceIn(0.0f, 1.0f)
+            prefs.putFloat("musicVolume", value)
+        }
 }
 
 enum class PlayRenderBackend {

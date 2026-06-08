@@ -146,9 +146,7 @@ val jpackageImage by tasks.registering(Exec::class) {
         "--runtime-image", jreDir.absolutePath,
         "--dest",          outputDir.absolutePath,
         "--java-options",  "-Dfile.encoding=UTF-8",
-        "--java-options",  "-XX:+UseZGC",
-        // app-image 레이아웃에서 APPDIR는 dist/StelLane/app 이므로 VLC 폴더는 한 단계 위를 가리켜야 함
-        "--java-options",  "-Djna.library.path=\$APPDIR/../vlc"
+        "--java-options",  "-XX:+UseZGC"
     )
 }
 
@@ -165,19 +163,7 @@ tasks.register("deploy") {
         val songsSrc  = rootProject.file("run/songs") // 복사할 원본 run/songs 폴더
         val songsDest = File(appDir, "songs")
 
-        // 1. VLC DLL 복사
-        if (vlcSrc.exists()) {
-            vlcDest.mkdirs()
-            vlcSrc.walkTopDown().forEach { file ->
-                val rel    = file.relativeTo(vlcSrc)
-                val target = File(vlcDest, rel.path)
-                if (file.isDirectory) target.mkdirs()
-                else file.copyTo(target, overwrite = true)
-            }
-            println("VLC DLLs copied to ${vlcDest.absolutePath}")
-        } else {
-            println("WARNING: vlc/ folder not found at ${vlcSrc.absolutePath}. Place VLC DLLs there before deploying.")
-        }
+        // ── VLC DLL 복사는 더 이상 필요 없음 (FFmpeg 및 OpenAL은 자바 클래스패스 라이브러리 자동 추출 방식을 사용) ──
 
         // 2. run/songs 폴더 내의 파일들을 jpackage 앱 이미지 내부의 songs/ 폴더로 복사
         if (songsSrc.exists()) {
@@ -202,7 +188,7 @@ tasks.register("deploy") {
             @echo off
             setlocal
             set APPDIR=%~dp0
-            "%APPDIR%runtime\\bin\\javaw.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -Djna.library.path="%APPDIR%vlc" -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt %*
+            "%APPDIR%runtime\\bin\\javaw.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt %*
             endlocal
             """.trimIndent()
         )
@@ -214,7 +200,7 @@ tasks.register("deploy") {
             setlocal
             set APPDIR=%~dp0
             echo [StelLane] Starting debug launcher...
-            "%APPDIR%runtime\\bin\\java.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -Djna.library.path="%APPDIR%vlc" -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt --debug --console %*
+            "%APPDIR%runtime\\bin\\java.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt --debug --console %*
             echo.
             echo [StelLane] Exit code: %ERRORLEVEL%
             pause
