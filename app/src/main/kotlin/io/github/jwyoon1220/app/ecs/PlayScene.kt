@@ -16,7 +16,6 @@ import io.github.jwyoon1220.core.replay.ReplayFile
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.HitSound
-import io.github.jwyoon1220.engine.LaneEventType
 import io.github.jwyoon1220.engine.CustomGLRenderable
 import io.github.jwyoon1220.engine.GlEffectProvider
 import io.github.jwyoon1220.engine.GlScreenEffectData
@@ -31,6 +30,9 @@ import java.util.ArrayDeque
 import kotlin.math.abs
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
+import io.github.jwyoon1220.core.replay.ReplayFrame
+import io.github.jwyoon1220.engine.DrawFontMetrics
+import it.unimi.dsi.fastutil.objects.ObjectArrayList
 
 /**
  * ECS 기반 게임플레이 씬.
@@ -106,13 +108,13 @@ class PlayScene(
     @Volatile private var coverImage: java.awt.image.BufferedImage? = null
 
     // FontMetrics 캐싱
-    private var comboFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
-    private var judgeFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
-    private var scoreFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
-    private var statFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
-    private var hintFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
-    private var readyLabelFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
-    private var countdownFontMetrics: io.github.jwyoon1220.engine.DrawFontMetrics? = null
+    private var comboFontMetrics: DrawFontMetrics? = null
+    private var judgeFontMetrics: DrawFontMetrics? = null
+    private var scoreFontMetrics: DrawFontMetrics? = null
+    private var statFontMetrics: DrawFontMetrics? = null
+    private var hintFontMetrics: DrawFontMetrics? = null
+    private var readyLabelFontMetrics: DrawFontMetrics? = null
+    private var countdownFontMetrics: DrawFontMetrics? = null
 
     // ── 게임 상태 ──────────────────────────────────────────────────────────────
     private lateinit var scoreEngine: ScoreEngine
@@ -145,7 +147,7 @@ class PlayScene(
     private var mediaStarted = false
 
     // ── 리플레이 기록 (골든 기준점) ──────────────────────────────────────────
-    private val replayFrames = mutableListOf<io.github.jwyoon1220.core.replay.ReplayFrame>()
+    private val replayFrames = ObjectArrayList<ReplayFrame>()
 
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
     @Volatile private var decorationRenderer: DecorationRenderer? = null
@@ -242,14 +244,10 @@ class PlayScene(
             readyElapsedMs += deltaTime * 1000.0
 
             if (readyElapsedMs >= 1500.0) {
-                for (event in ctx.inputManager.pollEvents()) {
-                    laneHeld[event.lane] = event.type == LaneEventType.PRESS
-                    if (event.type == LaneEventType.PRESS) {
-                        HitSound.play()
-                    }
+                for (event in lastInput.laneEvents) {
+                    laneHeld[event.lane] = event.pressed
+                    if (event.pressed) HitSound.play()
                 }
-            } else {
-                ctx.inputManager.clearEvents()
             }
 
             if (readyElapsedMs >= READY_DURATION_MS) {
@@ -282,12 +280,10 @@ class PlayScene(
         }
 
         // 입력 이벤트 처리 (handlePress/Release 내부에서 notesLock 사용)
-        for (event in ctx.inputManager.pollEvents()) {
-            laneHeld[event.lane] = event.type == LaneEventType.PRESS
-            when (event.type) {
-                LaneEventType.PRESS   -> { HitSound.play(); handlePress(event.lane, now) }
-                LaneEventType.RELEASE -> { handleRelease(event.lane, now) }
-            }
+        for (event in lastInput.laneEvents) {
+            laneHeld[event.lane] = event.pressed
+            if (event.pressed) { HitSound.play(); handlePress(event.lane, now) }
+            else handleRelease(event.lane, now)
         }
 
         // SoA 스폰 + Miss/LONG 완료 처리 + 종료 체크 (단일 락)
