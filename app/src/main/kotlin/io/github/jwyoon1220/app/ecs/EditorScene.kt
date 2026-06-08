@@ -17,7 +17,6 @@ import io.github.jwyoon1220.editor.Quantizer
 import io.github.jwyoon1220.editor.Timeline
 import io.github.jwyoon1220.core.data.DecEffect
 import io.github.jwyoon1220.engine.Keys
-import io.github.jwyoon1220.engine.LaneEventType
 import io.github.jwyoon1220.engine.CustomGLRenderable
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GlEffectProvider
@@ -305,7 +304,7 @@ class EditorScene(
 
     override fun update(deltaTime: Double) {
         frameCounter++
-        val events = ctx.inputManager.pollEvents()
+        val events = lastInput.laneEvents
         
         if (pendingSeekMs >= 0L) {
             val now = System.currentTimeMillis()
@@ -343,9 +342,9 @@ class EditorScene(
         if (recordingMode && isPlaying) {
             for (event in events) {
                 val lane = event.lane
-                when (event.type) {
-                    LaneEventType.PRESS   -> heldLaneStartMs[lane] = currentTimeMs
-                    LaneEventType.RELEASE -> {
+                when {
+                    event.pressed -> heldLaneStartMs[lane] = currentTimeMs
+                    !event.pressed -> {
                         val startMs = heldLaneStartMs[lane]
                         if (startMs < 0) continue
                         val duration     = currentTimeMs - startMs
