@@ -118,7 +118,7 @@ class PlayScene(
     private var countdownFontMetrics: DrawFontMetrics? = null
 
     // ── 게임 상태 ──────────────────────────────────────────────────────────────
-    private lateinit var scoreEngine: ScoreEngine
+    internal lateinit var scoreEngine: ScoreEngine
 
     // DOD: Structure of Arrays — 객체 없음, 캐시 지역성 최대화
     private val SOA_CAP   = 256

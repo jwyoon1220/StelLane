@@ -42,6 +42,10 @@ fun main(args: Array<String>) {
 
     log.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
 
+    // 멀티플레이어 캐시 만료 항목 정리 (백그라운드, 게임 루프와 무관)
+    Thread({ io.github.jwyoon1220.app.multiplayer.MultiplayerCacheManager.cleanExpired() }, "cache-cleaner")
+        .apply { isDaemon = true; start() }
+
     val window = GLFWWindow.create(
         title  = "StelLane",
         width  = 1280,

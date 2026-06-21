@@ -41,7 +41,7 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
 
     private val log = LoggerFactory.getLogger(MainMenuScene::class.java)
 
-    private val menuItems = arrayOf("Play", "Edit Song", "Settings", "Credits", "License", "Quit")
+    private val menuItems = arrayOf("Play", "Multiplayer", "Edit Song", "Settings", "Credits", "License", "Quit")
     private var selectedIndex = 0
     private var hoverIndex    = -1
 
@@ -267,11 +267,12 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
         log.info("선택: {} (index={})", menuItems[selectedIndex], selectedIndex)
         when (selectedIndex) {
             0 -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
-            1 -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.EDIT))
-            2 -> ctx.sceneRouter.navigate(SettingsScene(ctx, MainMenuScene(ctx)))
-            3 -> ctx.sceneRouter.navigate(CreditsScene(ctx))
-            4 -> ctx.sceneRouter.navigate(LicenseScene(ctx))
-            5 -> exitProcess(0)
+            1 -> ctx.sceneRouter.navigate(MultiplayerMenuScene(ctx))
+            2 -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.EDIT))
+            3 -> ctx.sceneRouter.navigate(SettingsScene(ctx, MainMenuScene(ctx)))
+            4 -> ctx.sceneRouter.navigate(CreditsScene(ctx))
+            5 -> ctx.sceneRouter.navigate(LicenseScene(ctx))
+            6 -> exitProcess(0)
         }
     }
 }

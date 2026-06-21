@@ -1,0 +1,103 @@
+syntax = "proto3";
+package stellane;
+
+option java_package = "io.github.jwyoon1220.app.multiplayer.proto";
+option java_multiple_files = true;
+
+message Envelope {
+  oneof payload {
+    JoinMsg        join          = 1;
+    PlayerListMsg  player_list   = 2;
+    StartMsg       start         = 3;
+    JudgmentMsg    judgment      = 4;
+    ScoreUpdateMsg score_update  = 5;
+    LaneUpdateMsg  lane_update   = 6;
+    FinishMsg      finish        = 7;
+    GameOverMsg    game_over     = 8;
+    FileRequestMsg file_request  = 9;
+    FileChunkMsg   file_chunk    = 10;
+    ReadyMsg       ready         = 11;
+  }
+}
+
+message JoinMsg {
+  string player_name = 1;
+  string role        = 2;  // "player" | "spectator"
+  string player_id   = 3;
+}
+
+message PlayerListMsg {
+  repeated PlayerInfo players = 1;
+}
+
+message PlayerInfo {
+  string id   = 1;
+  string name = 2;
+  string role = 3;
+}
+
+message StartMsg {
+  string song_rel_path  = 1;
+  string difficulty     = 2;
+  int32  countdown_ms   = 3;
+  repeated FileEntry files = 4;
+}
+
+message FileEntry {
+  string rel_path   = 1;
+  int64  size_bytes = 2;
+  string sha256     = 3;
+}
+
+message FileRequestMsg {
+  string rel_path = 1;
+}
+
+message FileChunkMsg {
+  string rel_path = 1;
+  int64  offset   = 2;
+  bytes  data     = 3;
+  bool   is_last  = 4;
+}
+
+message ReadyMsg {
+  string player_id = 1;
+}
+
+message JudgmentMsg {
+  string player_id = 1;
+  int32  lane      = 2;
+  int32  judgment  = 3;  // 0=PERFECT 1=GREAT 2=GOOD 3=MISS
+  int32  combo     = 4;
+  int32  score     = 5;
+  repeated int32 counts = 6;
+  int64  time_ms   = 7;
+}
+
+message ScoreUpdateMsg {
+  string player_id = 1;
+  int32  score     = 2;
+  int32  combo     = 3;
+  repeated int32 counts = 4;
+  float  accuracy  = 5;
+}
+
+message LaneUpdateMsg {
+  string player_id     = 1;
+  repeated bool lane_held = 2;
+}
+
+message FinishMsg {
+  string player_id = 1;
+}
+
+message GameOverMsg {
+  repeated RankEntry rankings = 1;
+}
+
+message RankEntry {
+  int32  rank     = 1;
+  string name     = 2;
+  int32  score    = 3;
+  float  accuracy = 4;
+}
