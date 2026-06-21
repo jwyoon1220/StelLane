@@ -192,9 +192,12 @@ class HostLobbyScene(
     override fun keyPressed(key: Int, mods: Int) {
         when (key) {
             Keys.SPACE   -> ctx.sceneRouter.navigate(
-                SongSelectScene(ctx, SelectMode.MULTIPLAYER_HOST) { entry, chart, diff ->
-                    onSongSelected(entry, chart, diff)
-                }
+                SongSelectScene(
+                    ctx,
+                    SelectMode.MULTIPLAYER_HOST,
+                    onMultiplayerConfirm = { entry, chart, diff -> onSongSelected(entry, chart, diff) },
+                    onCancel = { ctx.sceneRouter.navigate(HostLobbyScene(ctx, manager)) }
+                )
             )
             Keys.ESCAPE  -> {
                 manager.stop()
