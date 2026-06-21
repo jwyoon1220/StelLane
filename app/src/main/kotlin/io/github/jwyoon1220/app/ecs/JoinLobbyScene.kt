@@ -51,6 +51,10 @@ class JoinLobbyScene(
 
         manager.localRole = if (spectate) "spectator" else "player"
         manager.onPlayerListUpdated = { /* 목록 갱신 시 render에서 자동 반영 */ }
+        manager.onHostDisconnected = {
+            connected = false
+            statusMsg = "호스트가 연결을 끊었습니다."
+        }
         manager.onStartGame = { songRelPath, difficulty, files ->
             // 필요한 파일 캐시 확인은 MultiplayerManager 내부에서 처리됨
             // 약간의 딜레이 후 게임 전환 (파일 수신 대기)
@@ -78,6 +82,7 @@ class JoinLobbyScene(
     override fun exit() {
         manager.onPlayerListUpdated = null
         manager.onStartGame = null
+        manager.onHostDisconnected = null
         super.exit()
     }
 

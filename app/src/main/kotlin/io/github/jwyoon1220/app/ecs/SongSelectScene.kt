@@ -226,7 +226,11 @@ class SongSelectScene(
         g.drawLine(0, HEADER_H, w, HEADER_H)
 
         // 모드 레이블
-        val modeLabel = if (mode == SelectMode.PLAY) "▶  PLAY" else "✏  EDIT"
+        val modeLabel = when (mode) {
+            SelectMode.PLAY             -> "▶  PLAY"
+            SelectMode.EDIT             -> "✏  EDIT"
+            SelectMode.MULTIPLAYER_HOST -> "⚡  멀티플레이어"
+        }
         g.font  = headerFont
         g.renderColor = COLOR_MODE_LABEL
         g.drawString(modeLabel, PAD.toFloat(), 33f)

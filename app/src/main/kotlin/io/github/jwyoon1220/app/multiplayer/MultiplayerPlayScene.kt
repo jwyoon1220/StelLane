@@ -60,9 +60,18 @@ class MultiplayerPlayScene(
         finishSent = false
         exitToSpectator = false
         inner.enter()
+        // 클라이언트 전용: 호스트가 끊어지면 메인 메뉴로 복귀
+        manager.onHostDisconnected = {
+            finishSent = true
+            exitToSpectator = true
+            manager.stop()
+            ctx.multiplayerManager = null
+            ctx.sceneRouter.navigate(io.github.jwyoon1220.app.ecs.MainMenuScene(ctx))
+        }
     }
 
     override fun exit() {
+        manager.onHostDisconnected = null
         inner.exit()
         if (!exitToSpectator) manager.stop()
         super.exit()

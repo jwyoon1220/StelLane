@@ -42,12 +42,19 @@ class SpectatorScene(
 
     override fun enter() {
         focusIdx = 0; fullscreen = false; time = 0.0
-        // 모든 플레이어가 완료되면 결과 화면으로 이동
         manager.onGameOver = { entries ->
             ctx.sceneRouter.navigate(MultiplayerResultScene(ctx, entries, manager))
         }
+        manager.onHostDisconnected = {
+            manager.stop()
+            ctx.multiplayerManager = null
+            ctx.sceneRouter.navigate(MainMenuScene(ctx))
+        }
     }
-    override fun exit() { manager.onGameOver = null }
+    override fun exit() {
+        manager.onGameOver = null
+        manager.onHostDisconnected = null
+    }
     override fun update(deltaTime: Double) { time += deltaTime }
 
     override fun render(g: DrawContext) {
