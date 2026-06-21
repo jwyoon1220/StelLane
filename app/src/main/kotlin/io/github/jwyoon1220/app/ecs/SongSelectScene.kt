@@ -33,7 +33,9 @@ class SongSelectScene(
     private val ctx: GameContext,
     private val mode: SelectMode,
     /** MULTIPLAYER_HOST 모드에서 곡 선택 완료 시 호출되는 콜백. */
-    val onMultiplayerConfirm: ((io.github.jwyoon1220.core.data.SongEntry, io.github.jwyoon1220.core.data.Chart, String) -> Unit)? = null
+    val onMultiplayerConfirm: ((io.github.jwyoon1220.core.data.SongEntry, io.github.jwyoon1220.core.data.Chart, String) -> Unit)? = null,
+    /** ESC 취소 시 호출. null이면 MainMenuScene으로 이동. */
+    private val onCancel: (() -> Unit)? = null
 ) : Scene(), ImGuiRenderable {
 
     companion object {
@@ -220,20 +222,36 @@ class SongSelectScene(
         )
 
         // ── 헤더 바 ──────────────────────────────────────────────────────────
-        g.renderColor = COLOR_HEADER_BG
-        g.fillRect(0, 0, w, HEADER_H)
+        if (mode == SelectMode.MULTIPLAYER_HOST) {
+            // 멀티플레이어 모드: 보라 계열로 헤더 강조
+            g.fillLinearGradient(
+                0f, 0f, w.toFloat(), HEADER_H.toFloat(),
+                0f, 0f, w.toFloat(), 0f,
+                RenderColor.of(55, 20, 110, 240), RenderColor.of(30, 10, 70, 240)
+            )
+        } else {
+            g.renderColor = COLOR_HEADER_BG
+            g.fillRect(0, 0, w, HEADER_H)
+        }
         g.renderColor = COLOR_HEADER_LINE
         g.drawLine(0, HEADER_H, w, HEADER_H)
 
         // 모드 레이블
-        val modeLabel = when (mode) {
-            SelectMode.PLAY             -> "▶  PLAY"
-            SelectMode.EDIT             -> "✏  EDIT"
-            SelectMode.MULTIPLAYER_HOST -> "⚡  멀티플레이어"
+        val (modeLabel, modeLabelColor) = when (mode) {
+            SelectMode.PLAY             -> "▶  PLAY" to COLOR_MODE_LABEL
+            SelectMode.EDIT             -> "✏  EDIT" to COLOR_MODE_LABEL
+            SelectMode.MULTIPLAYER_HOST -> "◈  MULTI" to RenderColor.of(200, 140, 255)
         }
         g.font  = headerFont
-        g.renderColor = COLOR_MODE_LABEL
+        g.renderColor = modeLabelColor
         g.drawString(modeLabel, PAD.toFloat(), 33f)
+
+        // 멀티플레이어 서브 레이블
+        if (mode == SelectMode.MULTIPLAYER_HOST) {
+            g.font  = metaFont
+            g.renderColor = RenderColor.of(160, 110, 220)
+            g.drawString("호스트 - 곡 선택", (PAD + 90).toFloat(), 33f)
+        }
 
         // 곡 수
         if (songs.isNotEmpty()) {
@@ -243,10 +261,11 @@ class SongSelectScene(
         }
 
         // 힌트 (헤더 우측)
-        val hint = if (mode == SelectMode.EDIT)
-            "↑↓  탐색   Enter  선택   N  새 곡   I  가져오기   E  내보내기   Esc  뒤로"
-        else
-            "↑↓  탐색   ←→ 난이도   Shift/Ctrl 속도   Enter  선택   Esc  뒤로"
+        val hint = when (mode) {
+            SelectMode.EDIT             -> "↑↓  탐색   Enter  선택   N  새 곡   I  가져오기   E  내보내기   Esc  뒤로"
+            SelectMode.MULTIPLAYER_HOST -> "↑↓  탐색   ←→ 난이도   Enter  선택   Esc  로비로 돌아가기"
+            else                        -> "↑↓  탐색   ←→ 난이도   Shift/Ctrl 속도   Enter  선택   Esc  뒤로"
+        }
         g.font  = hintFont
         g.renderColor = COLOR_HINT
         g.drawString(hint, (w / 2 + 60).toFloat(), 33f)
@@ -500,7 +519,10 @@ class SongSelectScene(
             Keys.N      -> if (mode == SelectMode.EDIT) ctx.sceneRouter.navigate(NewSongScene(ctx))
             Keys.I      -> if (mode == SelectMode.EDIT) openImportDialog()
             Keys.E      -> if (mode == SelectMode.EDIT) openExportDialog()
-            Keys.ESCAPE -> ctx.sceneRouter.navigate(MainMenuScene(ctx))
+            Keys.ESCAPE -> {
+                if (onCancel != null) onCancel()
+                else ctx.sceneRouter.navigate(MainMenuScene(ctx))
+            }
         }
     }
 
