@@ -1,14 +1,13 @@
 package io.github.jwyoon1220.core.song
 
 import io.github.jwyoon1220.core.data.SongEntry
-import it.unimi.dsi.fastutil.objects.ObjectArrayList
 import java.io.File
 
 class SongManager(val workingDir: File) {
     private val songsDir get() = File(workingDir, "songs")
 
     @Volatile
-    var songs: List<SongEntry> = ObjectArrayList()
+    var songs: List<SongEntry> = emptyList()
         private set
 
     fun load() = refresh()

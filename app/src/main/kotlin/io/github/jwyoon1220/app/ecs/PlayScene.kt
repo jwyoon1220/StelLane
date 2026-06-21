@@ -4,6 +4,7 @@ import io.github.jwyoon1220.app.DecorationRenderer
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.app.Const
+import io.github.jwyoon1220.app.resolveMediaPath
 import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Note
@@ -170,8 +171,15 @@ class PlayScene(
     // ── 렌더링 동기화 잠금 ────────────────────────────────────────────────────
     // SoA 배열은 GameLoopThread(update)와 EDT(render)에서 동시 접근 → lock
     internal val notesLock = Any()
-    override val useCustomGlRenderer: Boolean
-        get() = true
+    override val useCustomGlRenderer: Boolean get() = true
+
+    /** NoteRenderer가 읽는 페이드인 알파 — render()와 renderCustomGl() 양쪽에서 공유. */
+    internal val laneAlpha: Float
+        get() = if (phase == Phase.READY) when {
+            readyElapsedMs < 1500.0 -> 0.0f
+            readyElapsedMs in 1500.0..2000.0 -> ((readyElapsedMs - 1500.0) / 500.0).toFloat()
+            else -> 1.0f
+        } else 1.0f
 
     // ── SoA 슬롯 제거 (swap-and-shrink, O(1)) ────────────────────────────────
     private fun soaRemoveAt(i: Int) {
@@ -339,14 +347,6 @@ class PlayScene(
 
         val nowV    = if (phase == Phase.READY) readyElapsedMs - READY_DURATION_MS else currentTimeMs.toDouble()
         val nowD    = if (phase == Phase.READY) nowV else currentTimeDouble
-
-        val laneAlpha = if (phase == Phase.READY) {
-            when {
-                readyElapsedMs < 1500.0 -> 0.0f
-                readyElapsedMs in 1500.0..2000.0 -> ((readyElapsedMs - 1500.0) / 500.0).toFloat()
-                else -> 1.0f
-            }
-        } else 1.0f
 
         val infoAlpha = if (phase == Phase.READY) {
             when {
@@ -655,8 +655,7 @@ class PlayScene(
         decorationRenderer?.collectGlEffects(currentTimeMs) ?: emptyList()
 
     override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
-        if (!useCustomGlRenderer) return
-        io.github.jwyoon1220.app.render.GameRenderer.getRenderer()?.render(renderer, this)
+        ctx.noteRenderer.render(renderer, this)
     }
 
     private fun drawCenter(g: DrawContext, text: String, cx: Int, y: Int) {
@@ -666,11 +665,11 @@ class PlayScene(
 
     override fun keyPressed(key: Int, mods: Int) {
         if (key == Keys.ESCAPE) {
-            ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.PLAY))
+            ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
             return
         }
         if (phase == Phase.RESULT && key == Keys.ENTER) {
-            ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.PLAY))
+            ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
         }
     }
 
@@ -740,12 +739,5 @@ class PlayScene(
         }
     }
 
-    private fun resolveMediaPath(): String? {
-        val song = songEntry.song
-        return when {
-            song.videoPath != null -> File(songEntry.songDir, song.videoPath).absolutePath
-            song.audioPath != null -> File(songEntry.songDir, song.audioPath).absolutePath
-            else                   -> null
-        }
-    }
+    private fun resolveMediaPath(): String? = songEntry.resolveMediaPath()
 }

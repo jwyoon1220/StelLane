@@ -22,17 +22,10 @@ object AppSettings {
         get() = prefs.getInt("targetFps", 60).coerceIn(30, 720)
         set(v) { prefs.putInt("targetFps", v.coerceIn(30, 720)) }
 
-    /** PlayState 전용 렌더 백엔드 선택. */
-    var playRenderBackend: PlayRenderBackend
-        get() = try { PlayRenderBackend.valueOf(prefs.get("playRenderBackend", PlayRenderBackend.CUSTOM.name)) }
-        catch (_: Exception) { PlayRenderBackend.CUSTOM }
-        set(v) { prefs.put("playRenderBackend", v.name) }
-
-    /** EditorState 전용 렌더 백엔드 선택. */
-    var editorRenderBackend: EditorRenderBackend
-        get() = try { EditorRenderBackend.valueOf(prefs.get("editorRenderBackend", EditorRenderBackend.CUSTOM.name)) }
-        catch (_: Exception) { EditorRenderBackend.CUSTOM }
-        set(v) { prefs.put("editorRenderBackend", v.name) }
+    /** VSync 활성화 여부. 기본값 false (직접 FPS 제한 방식 사용). */
+    var vSync: Boolean
+        get() = prefs.getBoolean("vSync", false)
+        set(v) { prefs.putBoolean("vSync", v) }
 
     /** 곡 속도 설정 값 (0.5 ~ 35.0). 기본값은 7.0. */
     var playSpeed: Float
@@ -46,14 +39,4 @@ object AppSettings {
             val value = v.coerceIn(0.0f, 1.0f)
             prefs.putFloat("musicVolume", value)
         }
-}
-
-enum class PlayRenderBackend {
-    NANOVG,
-    CUSTOM
-}
-
-enum class EditorRenderBackend {
-    NANOVG,
-    CUSTOM
 }

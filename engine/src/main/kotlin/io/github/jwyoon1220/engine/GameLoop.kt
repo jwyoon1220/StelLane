@@ -11,7 +11,7 @@ import io.github.jwyoon1220.engine.ecs.Scene
  */
 class GameLoop(
     private val window: GLFWWindow,
-    private val stateManager: StateManager,
+    private val stateManager: SceneRouter,
     private val renderer: Renderer,
     /**
      * InputSnapshot을 빌드해 현재 [Scene]에 주입하기 위한 InputManager.
@@ -42,7 +42,8 @@ class GameLoop(
 
         while (!window.shouldClose()) {
             val now = System.nanoTime()
-            val delta = (now - lastLoopTime) / 1_000_000_000.0
+            // 최대 100ms로 cap — 디버거 중단이나 GC 스톱으로 누적된 시간이 게임에 한번에 반영되는 것을 방지
+            val delta = ((now - lastLoopTime) / 1_000_000_000.0).coerceAtMost(0.1)
             lastLoopTime = now
 
             // 1. GLFW 이벤트 처리 (콜백 → InputManager 로 라우팅)
@@ -50,7 +51,7 @@ class GameLoop(
 
             // 2-a. ECS Scene이면 InputSnapshot을 주입합니다
             //      (Scene.update()가 내부에서 tickSystems(lastInput, delta)를 호출)
-            val currentState = stateManager.currentState
+            val currentState = stateManager.current
             if (inputManager != null && currentState is Scene) {
                 val snap = inputManager.buildSnapshot(now)
                 currentState.injectInput(snap)

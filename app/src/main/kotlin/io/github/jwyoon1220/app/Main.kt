@@ -7,13 +7,11 @@ import io.github.jwyoon1220.engine.GameLoop
 import io.github.jwyoon1220.engine.ImGuiManager
 import io.github.jwyoon1220.engine.InputManager
 import io.github.jwyoon1220.engine.Renderer
-import io.github.jwyoon1220.engine.StateManager
+import io.github.jwyoon1220.engine.SceneRouter
 import io.github.jwyoon1220.engine.VideoBackground
-import io.github.jwyoon1220.engine.WindowMode
 import io.github.jwyoon1220.engine.data.pool.ObjectPool
 import io.github.jwyoon1220.engine.data.pool.VisualNote
-import io.github.jwyoon1220.app.render.GameRenderer
-import io.github.jwyoon1220.app.render.Renderer as PlayRenderer
+import io.github.jwyoon1220.app.render.NoteRenderer
 import org.apache.commons.cli.DefaultParser
 import org.apache.commons.cli.HelpFormatter
 import org.apache.commons.cli.Options
@@ -21,7 +19,6 @@ import org.apache.commons.cli.ParseException
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.util.concurrent.CompletableFuture
-import kotlin.concurrent.thread
 
 private val log = LoggerFactory.getLogger("io.github.jwyoon1220.app.Main")
 
@@ -43,22 +40,17 @@ fun main(args: Array<String>) {
         console = cmd.hasOption("console")
     )
 
-    // ── 플레이 렌더러 등록 ──────────────────────────────────────────────────────
-    GameRenderer.registerRenderer(PlayRenderer())
-
     log.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
 
-    // ── GLFW 윈도우 생성 (메인 스레드) ────────────────────────────────────────
     val window = GLFWWindow.create(
         title  = "StelLane",
         width  = 1280,
         height = 720,
         mode   = AppSettings.windowMode,
-        vSync  = false   // 직접 프레임 대기로 FPS 제어
+        vSync  = AppSettings.vSync
     )
 
-    // ── 공유 의존성 생성 ──────────────────────────────────────────────────────
-    val stateManager    = StateManager()
+    val sceneRouter     = SceneRouter()
     val videoBackground = VideoBackground.create().apply {
         setTargetVolumePercent((AppSettings.musicVolume * 100).toInt())
     }
@@ -72,47 +64,42 @@ fun main(args: Array<String>) {
         notePool.preAllocate(2048)
     }.thenAccept { log.info("[Main] NotePool 초기 할당 완료: poolSize={}", notePool.poolSize) }
 
-    val renderer     = Renderer(window, stateManager, videoBackground)
+    val renderer     = Renderer(window, sceneRouter, videoBackground)
     val inputManager = InputManager(window, renderer)
 
     val workingDir   = File(System.getProperty("user.dir"))
     val songManager  = SongManager(workingDir)
 
     val windowManager = WindowManager(window)
-    val ctx = GameContext(stateManager, songManager, videoBackground, notePool, inputManager, windowManager)
+    val ctx = GameContext(sceneRouter, songManager, videoBackground, notePool, inputManager, windowManager, NoteRenderer())
 
-    // ── OpenGL / NanoVG 초기화 (메인 스레드, GL 컨텍스트 바인딩 후) ────────────
     renderer.init()
     ctx.renderer = renderer
 
-    // ── Dear ImGui 초기화 (GL 컨텍스트 활성화 후) ──────────────────────────────
     val imGuiManager = ImGuiManager(window.handle)
     imGuiManager.init()
     renderer.imGuiManager   = imGuiManager
     inputManager.imGuiManager = imGuiManager
 
-    // ── InputManager → State 콜백 연결 ───────────────────────────────────────
-    inputManager.stateKeyPressed  = { key, mods -> stateManager.currentState?.keyPressed(key, mods) }
-    inputManager.stateKeyReleased = { key, mods -> stateManager.currentState?.keyReleased(key, mods) }
-    inputManager.stateKeyTyped    = { cp          -> stateManager.currentState?.keyTyped(cp) }
-    inputManager.stateMousePressed  = { x, y, btn, mods -> stateManager.currentState?.mousePressed(x, y, btn, mods) }
-    inputManager.stateMouseReleased = { x, y, btn, mods -> stateManager.currentState?.mouseReleased(x, y, btn, mods) }
-    inputManager.stateMouseClicked  = { x, y, btn, mods -> stateManager.currentState?.mouseClicked(x, y, btn, mods) }
-    inputManager.stateMouseDragged  = { x, y, btn       -> stateManager.currentState?.mouseDragged(x, y, btn) }
-    inputManager.stateScroll        = { dy              -> stateManager.currentState?.mouseScrolled(dy) }
+    // ECS InputSnapshot 경로 외에 legacy 콜백도 유지 (다른 씬들이 여전히 사용)
+    inputManager.stateKeyPressed  = { key, mods -> sceneRouter.current?.keyPressed(key, mods) }
+    inputManager.stateKeyReleased = { key, mods -> sceneRouter.current?.keyReleased(key, mods) }
+    inputManager.stateKeyTyped    = { cp          -> sceneRouter.current?.keyTyped(cp) }
+    inputManager.stateMousePressed  = { x, y, btn, mods -> sceneRouter.current?.mousePressed(x, y, btn, mods) }
+    inputManager.stateMouseReleased = { x, y, btn, mods -> sceneRouter.current?.mouseReleased(x, y, btn, mods) }
+    inputManager.stateMouseClicked  = { x, y, btn, mods -> sceneRouter.current?.mouseClicked(x, y, btn, mods) }
+    inputManager.stateMouseDragged  = { x, y, btn       -> sceneRouter.current?.mouseDragged(x, y, btn) }
+    inputManager.stateScroll        = { dy              -> sceneRouter.current?.mouseScrolled(dy) }
 
-    // ── 초기 화면: MainMenu ──────────────────────────────────────────────────
     songManager.load()
-    stateManager.changeState(MainMenuScene(ctx))
+    sceneRouter.navigate(MainMenuScene(ctx))
 
-    // ── 게임 루프 시작 (블로킹, 창이 닫힐 때까지 반환되지 않음) ─────────────────
-    val gameLoop = GameLoop(window, stateManager, renderer, inputManager)
+    val gameLoop = GameLoop(window, sceneRouter, renderer, inputManager)
     ctx.gameLoop = gameLoop
     gameLoop.onFpsUpdate = { fps -> window.title = "StelLane  |  $fps FPS" }
     gameLoop.targetFPS = AppSettings.targetFps
-    gameLoop.start()   // ← 블로킹
+    gameLoop.start()
 
-    // ── 종료 시 리소스 해제 ───────────────────────────────────────────────────
     imGuiManager.dispose()
     renderer.destroy()
     window.destroy()

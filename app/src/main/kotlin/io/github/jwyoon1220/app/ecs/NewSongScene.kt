@@ -228,7 +228,7 @@ class NewSongScene(
             return
         }
         when {
-            key == Keys.ESCAPE -> ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.EDIT))
+            key == Keys.ESCAPE -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.EDIT))
             key == Keys.TAB    -> focusedField = (focusedField + 1) % fields.size
             key == Keys.ENTER  -> tryCreate()
             key == Keys.BACKSPACE -> {
@@ -290,7 +290,7 @@ class NewSongScene(
         // 취소
         val btY = 95 + 540 - 10
         if (mx in (BOX_X + 20)..(BOX_X + 140) && my in btY..(btY + 36)) {
-            ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.EDIT))
+            ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.EDIT))
         }
         // Create
         if (mx in (BOX_X + BOX_W - 140)..(BOX_X + BOX_W - 20) && my in btY..(btY + 36)) {
@@ -398,7 +398,7 @@ class NewSongScene(
         runCatching { createSong(title) }
             .onSuccess { statusMsg = "'$title' 생성 완료!"; statusOk = true
                 ctx.songManager.refresh()
-                ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.EDIT))
+                ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.EDIT))
             }
             .onFailure { e -> statusMsg = "오류: ${e.message}"; statusOk = false }
     }

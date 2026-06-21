@@ -266,11 +266,11 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
     private fun onSelect() {
         log.info("선택: {} (index={})", menuItems[selectedIndex], selectedIndex)
         when (selectedIndex) {
-            0 -> ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.PLAY))
-            1 -> ctx.stateManager.changeState(SongSelectScene(ctx, SelectMode.EDIT))
-            2 -> ctx.stateManager.changeState(SettingsScene(ctx, MainMenuScene(ctx)))
-            3 -> ctx.stateManager.changeState(CreditsScene(ctx))
-            4 -> ctx.stateManager.changeState(LicenseScene(ctx))
+            0 -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
+            1 -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.EDIT))
+            2 -> ctx.sceneRouter.navigate(SettingsScene(ctx, MainMenuScene(ctx)))
+            3 -> ctx.sceneRouter.navigate(CreditsScene(ctx))
+            4 -> ctx.sceneRouter.navigate(LicenseScene(ctx))
             5 -> exitProcess(0)
         }
     }

@@ -491,10 +491,10 @@ class SongSelectScene(
                 io.github.jwyoon1220.app.AppSettings.playSpeed = (io.github.jwyoon1220.app.AppSettings.playSpeed - 0.5f).coerceAtLeast(0.5f)
             }
             Keys.ENTER  -> onConfirm()
-            Keys.N      -> if (mode == SelectMode.EDIT) ctx.stateManager.changeState(NewSongScene(ctx))
+            Keys.N      -> if (mode == SelectMode.EDIT) ctx.sceneRouter.navigate(NewSongScene(ctx))
             Keys.I      -> if (mode == SelectMode.EDIT) openImportDialog()
             Keys.E      -> if (mode == SelectMode.EDIT) openExportDialog()
-            Keys.ESCAPE -> ctx.stateManager.changeState(MainMenuScene(ctx))
+            Keys.ESCAPE -> ctx.sceneRouter.navigate(MainMenuScene(ctx))
         }
     }
 
@@ -554,8 +554,8 @@ class SongSelectScene(
         if (!chartFile.exists()) return
         val chart = runCatching { ChartParser.parseChart(chartFile) }.getOrNull() ?: return
         when (mode) {
-            SelectMode.PLAY -> ctx.stateManager.changeState(PlayScene(ctx, entry, chart))
-            SelectMode.EDIT -> ctx.stateManager.changeState(EditorScene(ctx, entry, chartFile, chart))
+            SelectMode.PLAY -> ctx.sceneRouter.navigate(PlayScene(ctx, entry, chart))
+            SelectMode.EDIT -> ctx.sceneRouter.navigate(EditorScene(ctx, entry, chartFile, chart))
         }
     }
 

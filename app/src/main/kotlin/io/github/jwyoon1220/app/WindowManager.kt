@@ -12,4 +12,9 @@ class WindowManager(val glfwWindow: GLFWWindow) {
         glfwWindow.applyMode(mode)
         AppSettings.windowMode = mode
     }
+
+    fun applyVSync(enabled: Boolean) {
+        glfwWindow.setVSync(if (enabled) 1 else 0)
+        AppSettings.vSync = enabled
+    }
 }

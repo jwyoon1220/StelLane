@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory
  */
 class Renderer(
     private val window: GLFWWindow,
-    private val stateManager: StateManager,
+    private val stateManager: SceneRouter,
     private val videoBackground: VideoBackground
 ) {
     private val log = LoggerFactory.getLogger(Renderer::class.java)
@@ -67,7 +67,7 @@ class Renderer(
         val fbW = window.framebufferWidth
         val fbH = window.framebufferHeight
         if (fbW <= 0 || fbH <= 0) return
-        val current = stateManager.currentState
+        val current = stateManager.current
 
         // GL 후처리 효과 수집 (FBO 사용 여부 결정)
         val glEffects = (current as? GlEffectProvider)?.collectActiveGlEffects() ?: emptyList()
@@ -135,7 +135,7 @@ class Renderer(
         // 9. GL 후처리 효과 적용 — FBO 캡처 종료 후 화면에 출력
         if (hasGlEffects) {
             postProcessPass.endCapture()
-            postProcessPass.apply(glEffects, fbW, fbH)
+            postProcessPass.apply(glEffects, fbW, fbH, (System.nanoTime() / 1_000_000_000f))
         }
 
         // 10. Dear ImGui 패스 (ImGuiRenderable 구현 State 에서만, 또는 빈 프레임)
