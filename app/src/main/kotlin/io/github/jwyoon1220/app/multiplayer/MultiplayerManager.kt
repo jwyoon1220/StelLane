@@ -23,7 +23,7 @@ import java.net.NetworkInterface
 import java.nio.file.Path
 
 /**
- * 멀티플레이어 네트워크 레이어.
+ * MultiPlayer플레이어 네트워크 레이어.
  *
  * - 호스트: [hostGame] → Ktor WebSocket 서버 (OS 스레드 풀, 게임 루프와 완전 분리)
  * - 클라이언트: [joinGame] → Ktor WebSocket 클라이언트
@@ -64,6 +64,8 @@ class MultiplayerManager {
     var onStartGame: ((songRelPath: String, difficulty: String, files: List<FileEntry>) -> Unit)? = null
     var onPlayerListUpdated: (() -> Unit)? = null
     var onGameOver: ((List<RankEntry>) -> Unit)? = null
+    /** 호스트가 연결을 끊었을 때 클라이언트 측에서 호출됩니다. */
+    var onHostDisconnected: (() -> Unit)? = null
 
     // ── 서버/클라이언트 ─────────────────────────────────────────────────────────
 
@@ -89,7 +91,7 @@ class MultiplayerManager {
             }
         }.start(wait = false)
 
-        log.info("[멀티] 호스트 서버 시작: port={}", port)
+        log.info("[MultiPlayer] 호스트 서버 시작: port={}", port)
     }
 
     fun broadcastStart(songDir: File, songRelPath: String, difficulty: String) {
@@ -120,16 +122,23 @@ class MultiplayerManager {
         remotePlayers.clear(); rankings.clear()
 
         clientScope.launch {
-            httpClient.webSocket(host = host, port = port, path = "/") {
-                clientSession = this
-                sendJoin()
-                for (frame in incoming) {
-                    if (frame is Frame.Binary) handleClientFrame(Envelope.parseFrom(frame.readBytes()))
+            runCatching {
+                httpClient.webSocket(host = host, port = port, path = "/") {
+                    clientSession = this
+                    sendJoin()
+                    for (frame in incoming) {
+                        if (frame is Frame.Binary) handleClientFrame(Envelope.parseFrom(frame.readBytes()))
+                    }
+                    clientSession = null
                 }
-                clientSession = null
+            }.onFailure { e ->
+                if (e !is kotlinx.coroutines.CancellationException)
+                    log.warn("[MultiPlayer] WebSocket 오류: {}", e.message)
             }
+            // coroutineContext가 아직 살아있으면 외부(호스트)가 끊은 것 → 콜백 호출
+            if (isActive) onHostDisconnected?.invoke()
         }
-        log.info("[멀티] 클라이언트 접속: {}:{} role={}", host, port, role)
+        log.info("[MultiPlayer] 클라이언트 접속: {}:{} role={}", host, port, role)
     }
 
     fun spectate(host: String, port: Int = DEFAULT_PORT) = joinGame(host, port, "spectator")
@@ -207,7 +216,7 @@ class MultiplayerManager {
                 synchronized(sessionsLock) { sessionToPlayer[session] = pid }
                 remotePlayers[pid] = RemotePlayerState(pid, join.playerName, join.role)
                 broadcastPlayerList()
-                log.info("[멀티] 플레이어 접속: {}({})", join.playerName, pid)
+                log.info("[MultiPlayer] 플레이어 접속: {}({})", join.playerName, pid)
             }
             Envelope.PayloadCase.JUDGMENT -> {
                 val j = env.judgment
@@ -241,8 +250,8 @@ class MultiplayerManager {
 
     private suspend fun sendFileToSession(session: DefaultWebSocketSession, relPath: String) {
         val songFile = pendingSongDir?.let { File(it, relPath) } ?: return
-        if (!songFile.exists()) { log.warn("[멀티] 파일 없음: {}", relPath); return }
-        log.info("[멀티] 파일 전송: {} ({} bytes)", relPath, songFile.length())
+        if (!songFile.exists()) { log.warn("[MultiPlayer] 파일 없음: {}", relPath); return }
+        log.info("[MultiPlayer] 파일 전송: {} ({} bytes)", relPath, songFile.length())
 
         songFile.inputStream().buffered(CHUNK_SIZE).use { input ->
             val buf = ByteArray(CHUNK_SIZE)
@@ -309,14 +318,14 @@ class MultiplayerManager {
                     val sha = java.security.MessageDigest.getInstance("SHA-256")
                         .digest(bytes).joinToString("") { "%02x".format(it) }
                     MultiplayerCacheManager.putCache(sha, chunk.relPath, bytes.inputStream(), bytes.size.toLong())
-                    log.info("[멀티] 파일 수신 완료: {}", chunk.relPath)
+                    log.info("[MultiPlayer] 파일 수신 완료: {}", chunk.relPath)
                 }
             }
             else -> {}
         }
     }
 
-    private suspend fun requestFile(relPath: String) {
+    private fun requestFile(relPath: String) {
         sendToHost(Envelope.newBuilder().setFileRequest(
             FileRequestMsg.newBuilder().setRelPath(relPath).build()
         ).build())
@@ -336,7 +345,7 @@ class MultiplayerManager {
         clientScope.launch {
             runCatching {
                 clientSession?.send(Frame.Binary(true, bytes))
-            }.onFailure { log.warn("[멀티] 전송 실패: {}", it.message) }
+            }.onFailure { log.warn("[MultiPlayer] 전송 실패: {}", it.message) }
         }
     }
 
@@ -346,7 +355,7 @@ class MultiplayerManager {
         clientScope.launch {
             snapshot.forEach { session ->
                 runCatching { session.send(Frame.Binary(true, bytes)) }
-                    .onFailure { log.warn("[멀티] 브로드캐스트 실패: {}", it.message) }
+                    .onFailure { log.warn("[MultiPlayer] 브로드캐스트 실패: {}", it.message) }
             }
         }
     }
@@ -418,10 +427,10 @@ class MultiplayerManager {
                     )
                     val addAction = object : org.jupnp.support.igd.callback.PortMappingAdd(service, pm) {
                         override fun success(invocation: org.jupnp.model.action.ActionInvocation<*>?) {
-                            log.info("[멀티] UPnP 포트 개방 성공: {}:{}", localIp, port)
+                            log.info("[MultiPlayer] UPnP 포트 개방 성공: {}:{}", localIp, port)
                         }
                         override fun failure(invocation: org.jupnp.model.action.ActionInvocation<*>?, response: org.jupnp.model.message.UpnpResponse?, defaultMsg: String?) {
-                            log.warn("[멀티] UPnP PortMappingAdd 실패: {}", defaultMsg)
+                            log.warn("[MultiPlayer] UPnP PortMappingAdd 실패: {}", defaultMsg)
                         }
                     }
                     upnp.controlPoint.execute(addAction)
@@ -432,7 +441,7 @@ class MultiplayerManager {
                 }
                 if (!found) { onResult?.invoke(localIp, false); upnp.shutdown() }
             }.onFailure {
-                log.warn("[멀티] UPnP 실패 (무시): {}", it.message)
+                log.warn("[MultiPlayer] UPnP 실패 (무시): {}", it.message)
                 onResult?.invoke(localIp, false)
             }
         }, "stellane-upnp").apply { isDaemon = true; start() }
@@ -451,6 +460,6 @@ class MultiplayerManager {
         clientScope.cancel()
         serverEngine?.stop(500, 500)
         httpClient.close()
-        log.info("[멀티] 네트워크 종료")
+        log.info("[MultiPlayer] 네트워크 종료")
     }
 }
