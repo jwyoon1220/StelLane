@@ -22,7 +22,7 @@ import java.nio.file.StandardCopyOption
 import javax.imageio.ImageIO
 import kotlin.math.*
 
-enum class SelectMode { PLAY, EDIT }
+enum class SelectMode { PLAY, EDIT, MULTIPLAYER_HOST }
 
 /**
  * 곡 선택 화면 (ECS Scene + Dear ImGui 가져오기/내보내기 다이얼로그).
@@ -31,7 +31,9 @@ enum class SelectMode { PLAY, EDIT }
  */
 class SongSelectScene(
     private val ctx: GameContext,
-    private val mode: SelectMode
+    private val mode: SelectMode,
+    /** MULTIPLAYER_HOST 모드에서 곡 선택 완료 시 호출되는 콜백. */
+    val onMultiplayerConfirm: ((io.github.jwyoon1220.core.data.SongEntry, io.github.jwyoon1220.core.data.Chart, String) -> Unit)? = null
 ) : Scene(), ImGuiRenderable {
 
     companion object {
@@ -556,6 +558,7 @@ class SongSelectScene(
         when (mode) {
             SelectMode.PLAY -> ctx.sceneRouter.navigate(PlayScene(ctx, entry, chart))
             SelectMode.EDIT -> ctx.sceneRouter.navigate(EditorScene(ctx, entry, chartFile, chart))
+            SelectMode.MULTIPLAYER_HOST -> onMultiplayerConfirm?.invoke(entry, chart, diffName)
         }
     }
 

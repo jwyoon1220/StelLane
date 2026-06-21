@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.app
 
+import io.github.jwyoon1220.app.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.render.NoteRenderer
 import io.github.jwyoon1220.core.song.SongManager
 import io.github.jwyoon1220.engine.GameLoop
@@ -24,4 +25,6 @@ class GameContext(
     lateinit var gameLoop: GameLoop
     /** 렌더러. Main에서 생성 직후 주입됩니다. */
     lateinit var renderer: Renderer
+    /** 멀티플레이어 매니저. 멀티플레이어 세션 중에만 설정됩니다. */
+    var multiplayerManager: MultiplayerManager? = null
 }
