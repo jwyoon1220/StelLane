@@ -46,7 +46,7 @@ class MultiplayerManager {
         private set
 
     var localPlayerId: String = java.util.UUID.randomUUID().toString()
-    var localPlayerName: String = System.getProperty("user.name") ?: "Player"
+    var localPlayerName: String = io.github.jwyoon1220.app.AppSettings.nickname
     var localRole: String = "player"
 
     /** 원격 플레이어 상태 맵. 네트워크 스레드에서 쓰기, 게임 루프에서 읽기. */
