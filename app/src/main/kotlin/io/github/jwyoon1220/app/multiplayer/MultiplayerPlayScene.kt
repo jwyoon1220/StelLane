@@ -25,7 +25,7 @@ import kotlin.math.sqrt
  * - update() 후 점수 변화를 감지해 네트워크 스레드 큐에 넣음
  */
 class MultiplayerPlayScene(
-    ctx: GameContext,
+    private val ctx: GameContext,
     songEntry: SongEntry,
     chart: Chart,
     private val manager: MultiplayerManager
@@ -42,9 +42,12 @@ class MultiplayerPlayScene(
     private val barFont     = FontLoader.light(13f)
 
     // 이전 프레임 점수 (델타 체크)
-    private var prevScore  = -1
-    private var prevCounts = IntArray(4) { -1 }
+    private var prevScore    = -1
+    private var prevCounts   = IntArray(4) { -1 }
     private var prevLaneHeld = BooleanArray(4)
+    private var finishSent   = false
+    // exit()에서 manager.stop()을 생략할 플래그 (관전 전환 시 true)
+    private var exitToSpectator = false
 
     init {
         manager.setTotalNotes(totalNotes)
@@ -52,14 +55,31 @@ class MultiplayerPlayScene(
 
     // ── GameState 위임 ───────────────────────────────────────────────────────────
 
-    override fun enter() { super.enter(); inner.enter() }
-    override fun exit()  { inner.exit(); manager.stop(); super.exit() }
+    override fun enter() {
+        super.enter()
+        finishSent = false
+        exitToSpectator = false
+        inner.enter()
+    }
+
+    override fun exit() {
+        inner.exit()
+        if (!exitToSpectator) manager.stop()
+        super.exit()
+    }
 
     override fun update(deltaTime: Double) {
         // GameLoop이 MultiplayerPlayScene(Scene)에 주입한 InputSnapshot을
         // inner PlayScene에도 전달해야 laneEvents(D/F/J/K)가 처리됨
         inner.injectInput(lastInput)
         inner.update(deltaTime)
+
+        // 곡이 정상 종료된 경우 관전 대기 화면으로 전환
+        if (!finishSent && inner.phase == io.github.jwyoon1220.app.ecs.PlayScene.Phase.RESULT) {
+            finishSent = true
+            goSpectate()
+            return
+        }
 
         val se = inner.scoreEngine
         val score  = se.score
@@ -77,6 +97,16 @@ class MultiplayerPlayScene(
             System.arraycopy(inner.laneHeld, 0, prevLaneHeld, 0, 4)
             manager.broadcastLaneHeld(inner.laneHeld)
         }
+    }
+
+    /** ESC 또는 곡 종료 시: FinishMsg 전송 후 SpectatorScene으로 전환해 다른 플레이어를 대기. */
+    private fun goSpectate() {
+        manager.sendFinish(totalNotes)
+        manager.onGameOver = { entries ->
+            ctx.sceneRouter.navigate(MultiplayerResultScene(ctx, entries, manager))
+        }
+        exitToSpectator = true
+        ctx.sceneRouter.navigate(SpectatorScene(ctx, manager))
     }
 
     override fun render(g: DrawContext) {
@@ -176,7 +206,17 @@ class MultiplayerPlayScene(
 
     // ── 입력 위임 ────────────────────────────────────────────────────────────────
 
-    override fun keyPressed (key: Int, mods: Int) = inner.keyPressed(key, mods)
+    override fun keyPressed(key: Int, mods: Int) {
+        when {
+            // ESC: 기권 처리 → 관전자로 전환 (inner에게 전달하면 SongSelect로 가버림)
+            key == io.github.jwyoon1220.engine.Keys.ESCAPE && !finishSent -> {
+                finishSent = true
+                goSpectate()
+            }
+            // 그 외 키는 inner에 위임 (단, ESC는 제외)
+            key != io.github.jwyoon1220.engine.Keys.ESCAPE -> inner.keyPressed(key, mods)
+        }
+    }
     override fun keyReleased(key: Int, mods: Int) = inner.keyReleased(key, mods)
     override fun keyTyped   (codepoint: Int)      = inner.keyTyped(codepoint)
     override fun mousePressed (x: Float, y: Float, button: Int, mods: Int) = inner.mousePressed(x, y, button, mods)

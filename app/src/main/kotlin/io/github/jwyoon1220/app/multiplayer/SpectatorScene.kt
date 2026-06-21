@@ -40,8 +40,14 @@ class SpectatorScene(
         RenderColor.of(255, 100, 120)
     )
 
-    override fun enter() { focusIdx = 0; fullscreen = false; time = 0.0 }
-    override fun exit()  {}
+    override fun enter() {
+        focusIdx = 0; fullscreen = false; time = 0.0
+        // 모든 플레이어가 완료되면 결과 화면으로 이동
+        manager.onGameOver = { entries ->
+            ctx.sceneRouter.navigate(MultiplayerResultScene(ctx, entries, manager))
+        }
+    }
+    override fun exit() { manager.onGameOver = null }
     override fun update(deltaTime: Double) { time += deltaTime }
 
     override fun render(g: DrawContext) {
@@ -165,6 +171,7 @@ class SpectatorScene(
             Keys.RIGHT -> focusIdx = (focusIdx + 1) % players.size.coerceAtLeast(1)
             Keys.ENTER -> fullscreen = !fullscreen
             Keys.ESCAPE -> {
+                manager.onGameOver = null
                 manager.stop()
                 ctx.multiplayerManager = null
                 ctx.sceneRouter.navigate(MainMenuScene(ctx))

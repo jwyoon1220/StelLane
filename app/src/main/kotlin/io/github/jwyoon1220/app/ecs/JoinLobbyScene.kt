@@ -12,6 +12,8 @@ import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.ecs.Scene
 import io.github.jwyoon1220.engine.render.RenderColor
 import org.slf4j.LoggerFactory
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
 import java.io.File
 import kotlin.math.sin
 
@@ -157,14 +159,24 @@ class JoinLobbyScene(
     }
 
     override fun keyPressed(key: Int, mods: Int) {
-        when (key) {
-            Keys.ENTER -> connect()
-            Keys.ESCAPE -> {
+        when {
+            key == Keys.ENTER -> connect()
+            key == Keys.ESCAPE -> {
                 manager.stop()
                 ctx.multiplayerManager = null
                 ctx.sceneRouter.navigate(MultiplayerMenuScene(ctx))
             }
-            Keys.BACKSPACE -> if (ipBuffer.isNotEmpty()) ipBuffer.deleteCharAt(ipBuffer.lastIndex)
+            key == Keys.BACKSPACE -> if (ipBuffer.isNotEmpty()) ipBuffer.deleteCharAt(ipBuffer.lastIndex)
+            // Ctrl+V: 클립보드에서 IP 붙여넣기
+            key == Keys.V && Keys.isCtrl(mods) -> {
+                runCatching {
+                    val text = Toolkit.getDefaultToolkit().systemClipboard
+                        .getData(DataFlavor.stringFlavor) as? String ?: return
+                    val filtered = text.filter { it.isDigit() || it == '.' || it == ':' }
+                    ipBuffer.clear()
+                    ipBuffer.append(filtered.take(21))
+                }
+            }
         }
     }
 
