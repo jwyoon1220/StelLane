@@ -39,4 +39,9 @@ object AppSettings {
             val value = v.coerceIn(0.0f, 1.0f)
             prefs.putFloat("musicVolume", value)
         }
+
+    /** 멀티플레이어 닉네임 (최대 16자). 기본값은 OS 사용자명. */
+    var nickname: String
+        get() = prefs.get("nickname", System.getProperty("user.name") ?: "Player").take(16)
+        set(v) { prefs.put("nickname", v.take(16)) }
 }
