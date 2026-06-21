@@ -121,6 +121,15 @@ data class DecEffect(
  *  - grayscale    : 흑백 필터
  *  - fade         : 색상으로 페이드 (r/g/b/a = 대상 색)
  *  - blur         : 박스 블러
+ *  - crt          : CRT 스캔라인 + 색수차 + 비네팅
+ *  - bloom        : 밝은 영역 빛번짐
+ *  - pixelate     : 픽셀화 (레트로 효과)
+ *  - chromab      : 색수차 (RGB 채널 분리)
+ *  - sepia        : 세피아 빈티지 톤
+ *  - invert       : 색상 반전
+ *  - vignette_gl  : GL 비네팅 (r/g/b/a = 가장자리 색)
+ *  - filmgrain    : 필름 그레인 (시간 기반 노이즈)
+ *  - glitch       : 수평 글리치 + 색수차 (시간 기반)
  *  - shader       : 커스텀 GLSL (shaderFile = songDir 기준 경로)
  *
  * 오디오 효과:

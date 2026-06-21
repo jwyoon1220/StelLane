@@ -5,6 +5,9 @@ import org.lwjgl.nanovg.NVGPaint
 import org.lwjgl.nanovg.NanoVG.*
 import org.lwjgl.nanovg.NanoVGGL3.*
 import org.lwjgl.opengl.GL11.*
+import org.lwjgl.opengl.GL12.GL_BGRA
+import org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE
+import org.lwjgl.opengl.GL12.GL_UNSIGNED_INT_8_8_8_8_REV
 import org.lwjgl.system.MemoryStack
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
@@ -17,11 +20,12 @@ import java.awt.geom.Ellipse2D
 import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
-import java.awt.image.DataBufferByte
 import java.awt.image.DataBufferInt
 import java.nio.ByteBuffer
 import org.lwjgl.system.MemoryUtil
 import io.github.jwyoon1220.engine.render.RenderColor
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
 
 /**
  * NanoVG 위에 java.awt.Graphics2D 에 가까운 API 를 제공하는 렌더링 컨텍스트.
@@ -116,7 +120,8 @@ class DrawContext(
         }
 
     // ── BufferedImage → NVG 이미지 캐시 ────────────────────────────────────
-    private val imgCache = HashMap<Int, Int>()  // identityHashCode → nvgImgHandle
+    private val imgCache  = Int2IntOpenHashMap()  // identityHashCode → nvgImgHandle
+    private val glTexCache = Int2IntOpenHashMap()  // identityHashCode → glTexId
 
     // ── NVGColor 재사용 버퍼 ───────────────────────────────────────────────
     private val nvgColor  = NVGColor.create()
@@ -428,23 +433,49 @@ class DrawContext(
         nvgFill(vg)
     }
 
-    /** BufferedImage 를 NVG 텍스처로 업로드(최초) 혹은 캐시에서 찾아 핸들을 반환합니다. */
+    /**
+     * BufferedImage 를 GL 텍스처로 업로드하고 NVG 핸들을 반환합니다.
+     * CPU 픽셀 재배열 없이 GL_BGRA + GL_UNSIGNED_INT_8_8_8_8_REV 로 직접 업로드합니다.
+     */
     fun getOrUploadImage(img: BufferedImage): Int {
         val key = System.identityHashCode(img)
         imgCache[key]?.let { return it }
-        // ARGB → RGBA 바이트 순서로 변환 후 nvgCreateImageRGBA 로 업로드
         val w = img.width; val h = img.height
-        val buf = toRGBABuffer(img)
-        val handle = nvgCreateImageRGBA(vg, w, h, NVG_IMAGE_PREMULTIPLIED, buf)
+        val src = ensureArgbType(img)
+        val pixels = (src.raster.dataBuffer as DataBufferInt).data
+        val buf = MemoryUtil.memAllocInt(pixels.size)
+        buf.put(pixels).flip()
+        val texId = glGenTextures()
+        glBindTexture(GL_TEXTURE_2D, texId)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
+        glBindTexture(GL_TEXTURE_2D, 0)
         MemoryUtil.memFree(buf)
+        val handle = nvglCreateImageFromHandle(vg, texId, w, h, NVG_IMAGE_PREMULTIPLIED)
+        glTexCache[key] = texId
         if (handle >= 0) imgCache[key] = handle
         return handle
     }
 
-    /** 캐시에서 NVG 이미지 핸들을 삭제합니다. 이미지 내용이 바뀌었을 때 호출하세요. */
+    /** NVG 핸들과 GL 텍스처를 모두 해제합니다. 이미지 내용이 바뀌었을 때 호출하세요. */
     fun invalidateImage(img: BufferedImage) {
         val key = System.identityHashCode(img)
         imgCache.remove(key)?.let { nvgDeleteImage(vg, it) }
+        glTexCache.remove(key)?.let { glDeleteTextures(it) }
+    }
+
+    private fun ensureArgbType(img: BufferedImage): BufferedImage {
+        if (img.type == BufferedImage.TYPE_INT_ARGB ||
+            img.type == BufferedImage.TYPE_INT_ARGB_PRE ||
+            img.type == BufferedImage.TYPE_INT_RGB) return img
+        val tmp = BufferedImage(img.width, img.height, BufferedImage.TYPE_INT_ARGB)
+        val g2 = tmp.createGraphics()
+        g2.drawImage(img, 0, 0, null)
+        g2.dispose()
+        return tmp
     }
 
     // ── 그라디언트 ──────────────────────────────────────────────────────────
@@ -585,32 +616,6 @@ class DrawContext(
         nvgFillPaint(vg, nvgPaint); nvgFill(vg)
     }
 
-    // ── 내부 유틸 ───────────────────────────────────────────────────────────
-    private fun toRGBABuffer(img: BufferedImage): ByteBuffer {
-        val w = img.width; val h = img.height
-        val buf = MemoryUtil.memAlloc(w * h * 4)
-        // TYPE_INT_ARGB → RGBA bytes
-        val converted = if (img.type == BufferedImage.TYPE_INT_ARGB ||
-                            img.type == BufferedImage.TYPE_INT_RGB  ||
-                            img.type == BufferedImage.TYPE_INT_ARGB_PRE) {
-            img
-        } else {
-            val tmp = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
-            val tg = tmp.createGraphics()
-            tg.drawImage(img, 0, 0, null)
-            tg.dispose()
-            tmp
-        }
-        val pixels = (converted.raster.dataBuffer as DataBufferInt).data
-        for (pixel in pixels) {
-            buf.put(((pixel shr 16) and 0xFF).toByte())  // R
-            buf.put(((pixel shr  8) and 0xFF).toByte())  // G
-            buf.put(( pixel        and 0xFF).toByte())   // B
-            buf.put(((pixel shr 24) and 0xFF).toByte())  // A
-        }
-        buf.flip()
-        return buf
-    }
 }
 
 /**

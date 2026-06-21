@@ -1,10 +1,8 @@
 package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.AppSettings
-import io.github.jwyoon1220.app.EditorRenderBackend
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.PlayRenderBackend
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.Keys
@@ -32,24 +30,19 @@ class SettingsScene(
     private val descFont   = FontLoader.light(12f)
     private val hintFont   = FontLoader.light(12f)
 
-    private val items = listOf("창 모드", "오디오/비디오 보정", "Music Volume", "프레임 제한", "플레이 렌더러", "에디터 렌더러")
+    private val items = listOf("창 모드", "오디오/비디오 보정", "Music Volume", "프레임 제한", "VSync")
     private var cursor = 0
 
     // 로컬 편집용
-    private var localMode                = AppSettings.windowMode
-    private var localOffset              = AppSettings.calibrationOffsetMs
-    private var localVolume              = AppSettings.musicVolume
-    private var localFps                 = AppSettings.targetFps
-    private var localPlayRenderBackend   = AppSettings.playRenderBackend
-    private var localEditorRenderBackend = AppSettings.editorRenderBackend
-    private var volumeDragActive         = false
+    private var localMode    = AppSettings.windowMode
+    private var localOffset  = AppSettings.calibrationOffsetMs
+    private var localVolume  = AppSettings.musicVolume
+    private var localFps     = AppSettings.targetFps
+    private var localVSync   = AppSettings.vSync
+    private var volumeDragActive = false
 
-    private val fpsOptions           = arrayOf(30, 60, 120, 144, 165, 240, 360, 480, 720)
-    private val playBackendOptions   = PlayRenderBackend.entries
-    private val editorBackendOptions = EditorRenderBackend.entries
-    private val playBackendLabel     = mapOf(PlayRenderBackend.NANOVG to "NanoVG", PlayRenderBackend.CUSTOM to "OpenGL (권장)")
-    private val editorBackendLabel   = mapOf(EditorRenderBackend.NANOVG to "NanoVG", EditorRenderBackend.CUSTOM to "OpenGL (권장)")
-    private val modes                = WindowMode.entries
+    private val fpsOptions = arrayOf(30, 60, 120, 144, 165, 240, 360, 480, 720)
+    private val modes      = WindowMode.entries
     private val modeLabels           = mapOf(
         WindowMode.WINDOWED   to "창 모드 (리사이즈 가능)",
         WindowMode.BORDERLESS to "윈도우 전체화면",
@@ -61,12 +54,11 @@ class SettingsScene(
 
     override fun enter() {
         super.enter()
-        localMode                = AppSettings.windowMode
-        localOffset              = AppSettings.calibrationOffsetMs
-        localVolume              = AppSettings.musicVolume
-        localFps                 = AppSettings.targetFps
-        localPlayRenderBackend   = AppSettings.playRenderBackend
-        localEditorRenderBackend = AppSettings.editorRenderBackend
+        localMode   = AppSettings.windowMode
+        localOffset = AppSettings.calibrationOffsetMs
+        localVolume = AppSettings.musicVolume
+        localFps    = AppSettings.targetFps
+        localVSync  = AppSettings.vSync
         cursor = startAt.coerceIn(0, items.lastIndex)
         time   = 0.0; hoverIdx = -1
         volumeDragActive = false
@@ -158,8 +150,7 @@ class SettingsScene(
                 1 -> if (localOffset >= 0) "+$localOffset ms" else "$localOffset ms"
                 2 -> "${(localVolume * 100).toInt()}%"
                 3 -> "$localFps FPS"
-                4 -> playBackendLabel[localPlayRenderBackend] ?: ""
-                5 -> editorBackendLabel[localEditorRenderBackend] ?: ""
+                4 -> if (localVSync) "켜짐" else "꺼짐"
                 else -> ""
             }
 
@@ -215,8 +206,7 @@ class SettingsScene(
             1 -> "양수: 오디오가 늦게 들릴 때 (+)   음수: 오디오가 빠르게 들릴 때 (−)"
             2 -> "배경음악 음량을 조절합니다 (0% ~ 100%)"
             3 -> "낮을수록 CPU 사용량 감소, 높을수록 화면이 부드럽습니다"
-            4 -> "플레이 렌더는 Custom OpenGL(GPU) 사용을 권장합니다"
-            5 -> "에디터 렌더도 Custom OpenGL(GPU) 사용을 권장합니다"
+            4 -> "화면 찢김 방지. FPS 제한과 함께 사용 시 입력 지연이 생길 수 있습니다"
             else -> ""
         }
         if (descText.isNotEmpty()) g.drawStringCentered(descText, w / 2f, py + ph - 46f)
@@ -312,8 +302,7 @@ class SettingsScene(
                 ctx.videoBackground.setTargetVolumePercent((localVolume * 100).toInt())
             }
             3 -> { val n = (fpsOptions.indexOf(localFps) + dir + fpsOptions.size) % fpsOptions.size; localFps = fpsOptions[n] }
-            4 -> { val n = (playBackendOptions.indexOf(localPlayRenderBackend) + dir + playBackendOptions.size) % playBackendOptions.size; localPlayRenderBackend = playBackendOptions[n] }
-            5 -> { val n = (editorBackendOptions.indexOf(localEditorRenderBackend) + dir + editorBackendOptions.size) % editorBackendOptions.size; localEditorRenderBackend = editorBackendOptions[n] }
+            4 -> localVSync = !localVSync
         }
     }
 
@@ -331,14 +320,13 @@ class SettingsScene(
 
     private fun applyAndBack() {
         val modeChanged = (localMode != AppSettings.windowMode)
-        AppSettings.windowMode              = localMode
-        AppSettings.calibrationOffsetMs     = localOffset
-        AppSettings.musicVolume             = localVolume
-        AppSettings.targetFps               = localFps
-        AppSettings.playRenderBackend       = localPlayRenderBackend
-        AppSettings.editorRenderBackend     = localEditorRenderBackend
+        AppSettings.windowMode          = localMode
+        AppSettings.calibrationOffsetMs = localOffset
+        AppSettings.musicVolume         = localVolume
+        AppSettings.targetFps           = localFps
         if (ctx.gameLoop.targetFPS != localFps) ctx.gameLoop.targetFPS = localFps
-        ctx.stateManager.changeState(previous)
+        if (localVSync != AppSettings.vSync) ctx.windowManager.applyVSync(localVSync)
+        ctx.sceneRouter.navigate(previous)
         if (modeChanged) ctx.windowManager.applyMode(localMode)
     }
 }

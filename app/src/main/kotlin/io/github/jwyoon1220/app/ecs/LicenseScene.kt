@@ -147,7 +147,7 @@ class LicenseScene(private val ctx: GameContext) : Scene() {
             Keys.PAGE_DOWN -> scrollOffset += 30
             Keys.HOME      -> scrollOffset = 0
             Keys.END       -> scrollOffset = lines.size
-            Keys.ESCAPE    -> ctx.stateManager.changeState(MainMenuScene(ctx))
+            Keys.ESCAPE    -> ctx.sceneRouter.navigate(MainMenuScene(ctx))
         }
     }
 

@@ -156,11 +156,11 @@ class CreditsScene(private val ctx: GameContext) : Scene() {
 
     override fun keyPressed(key: Int, mods: Int) {
         when (key) {
-            Keys.ESCAPE, Keys.ENTER -> ctx.stateManager.changeState(MainMenuScene(ctx))
+            Keys.ESCAPE, Keys.ENTER -> ctx.sceneRouter.navigate(MainMenuScene(ctx))
         }
     }
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
-        ctx.stateManager.changeState(MainMenuScene(ctx))
+        ctx.sceneRouter.navigate(MainMenuScene(ctx))
     }
 }

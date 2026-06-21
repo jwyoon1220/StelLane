@@ -21,22 +21,20 @@ interface GameState {
     val rendersBackground: Boolean get() = false
 }
 
-// 화면 전환을 관리하는 매니저
-class StateManager {
-    var currentState: GameState? = null
-        private set
+/** ECS 전용 씬 라우터 — StateManager를 대체합니다. GameState 전환을 담당합니다. */
+class SceneRouter {
+    private var _current: GameState? = null
+    val current: GameState? get() = _current
 
-    fun changeState(newState: GameState) {
-        currentState?.exit()
-        currentState = newState
-        currentState?.enter()
+    fun navigate(scene: GameState) {
+        _current?.exit()
+        _current = scene
+        scene.enter()
     }
 
-    fun update(deltaTime: Double) {
-        currentState?.update(deltaTime)
-    }
-
-    fun render(g: DrawContext) {
-        currentState?.render(g)
-    }
+    internal fun update(deltaTime: Double) = _current?.update(deltaTime)
+    internal fun render(g: DrawContext) = _current?.render(g)
 }
+
+@Deprecated("Use SceneRouter", ReplaceWith("SceneRouter"))
+typealias StateManager = SceneRouter
