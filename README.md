@@ -4,7 +4,7 @@
 
 **별이 흐르는 리듬 위를 달려라**
 
-*A rhythm game built with Kotlin/JVM — where every note is a star, and every lane is your stage.*
+*A rhythm game built with Kotlin/JVM — StelLive Fan Game, Your way is our way.*
 
 ---
 
