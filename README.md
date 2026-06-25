@@ -1,90 +1,142 @@
-# StelLane
+<div align="center">
 
-StelLane은 Kotlin/JVM 기반의 리듬 게임 프로젝트입니다.  
-멀티모듈 구조로 게임 클라이언트, 엔진, 도메인 로직, 에디터/빌더를 분리해 구성되어 있습니다.
+# ✨ StelLane
 
-## 모듈 구성
+**별이 흐르는 리듬 위를 달려라**
 
-- `app` : 게임 실행 클라이언트 (메인 메뉴, 선곡, 플레이, 설정, 에디터 상태 등)
-- `core` : 도메인 모델(`Song`, `Chart`, `Note`), 판정/점수, 곡 로딩/파싱
-- `engine` : 게임 루프, 입력 처리, VLC 기반 비디오 백그라운드
-- `editor` : 채보 편집 보조 로직(타임라인/퀀타이즈)
-- `builder` : 곡 메타/리소스 생성용 Swing 툴
-- `assets` : 폰트 및 라이선스 리소스
+*A rhythm game built with Kotlin/JVM — where every note is a star, and every lane is your stage.*
 
-## 기술 스택
+---
 
-- Kotlin `2.1.21`
-- Java Toolchain `21`
-- Gradle Wrapper `9.3.0`
-- GLFW/OpenGL(LWJGL)
-- VLCJ `4.8.2`
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.21-7F52FF?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Java](https://img.shields.io/badge/JDK-21-ED8B00?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org)
+[![Gradle](https://img.shields.io/badge/Gradle-9.3.0-02303A?style=flat-square&logo=gradle&logoColor=white)](https://gradle.org)
+[![License](https://img.shields.io/badge/License-Apache%202.0%20%2F%20GPL%203.0-blue?style=flat-square)](./LICENSE)
 
-## 요구 사항
+</div>
 
-- JDK 21
-- (비디오 기능 사용 시) VLC 런타임 라이브러리
-  - 로컬 `vlc/` 폴더 또는 시스템 VLC 설치 환경
+---
 
-## 빠른 시작
+## 🎮 이게 뭔가요?
 
-### 1) 전체 테스트
+StelLane은 **Kotlin/JVM** 기반으로 만들어진 리듬 게임입니다.  
+GLFW/OpenGL로 렌더링하고, VLC로 배경 영상을 재생하며, 직접 채보를 만들어 플레이할 수 있어요.
 
-```bash
-sh ./gradlew test --no-daemon
+> 음악에 맞춰 쏟아지는 노트들을 받아치고, 점수로 실력을 증명하세요. 🌟
+
+---
+
+## 🏗️ 모듈 구성
+
+```
+StelLane/
+├── 🎮 app       — 게임 클라이언트 (메뉴, 선곡, 플레이, 설정, 에디터)
+├── 🧩 core      — 도메인 모델(Song/Chart/Note), 판정/점수, 파싱
+├── ⚙️  engine    — 게임 루프, 입력 처리, VLC 비디오 백그라운드
+├── 🎼 editor    — 채보 편집 보조 로직 (타임라인/퀀타이즈)
+├── 🔨 builder   — 곡 메타/리소스 생성용 Swing 툴
+└── 🎨 assets    — 폰트 및 라이선스 리소스
 ```
 
-> 참고: `engine` 테스트는 VLC 및 테스트 비디오 파일 환경에 따라 실패하거나 skip 될 수 있습니다.
+---
 
-### 2) 게임 실행
+## 🛠️ 기술 스택
+
+| 항목 | 버전/내용 |
+|------|----------|
+| 언어 | Kotlin `2.1.21` |
+| JVM | Java Toolchain `21` |
+| 빌드 | Gradle Wrapper `9.3.0` |
+| 렌더링 | GLFW / OpenGL (LWJGL) |
+| 영상 재생 | VLCJ `4.8.2` |
+
+---
+
+## 📋 요구 사항
+
+- **JDK 21** 이상
+- **VLC 런타임** (비디오 배경 기능 사용 시)
+  - 로컬 `vlc/` 폴더 또는 시스템에 VLC가 설치된 환경
+
+---
+
+## 🚀 빠른 시작
+
+### 테스트 실행
+
+```bash
+./gradlew test --no-daemon
+```
+
+> `engine` 모듈 테스트는 VLC 및 테스트 영상 파일 유무에 따라 skip되거나 실패할 수 있습니다.
+
+### 게임 실행
 
 ```bash
 ./gradlew :app:runGame
 ```
 
-실행 전 `:app:prepareRunEnv`가 함께 수행되어 `run/` 폴더에 실행 환경이 준비됩니다.
+실행 전 `:app:prepareRunEnv`가 자동으로 실행되어 `run/` 폴더에 실행 환경이 준비됩니다.
 
-### 3) 곡 빌더 실행(이 빌더 대신 게임 내부 곡 편집 기능을 사용해주세요)
-
-```bash
-./gradlew :builder:run
-```
-
-### 4) 배포 이미지 생성
+### 배포 이미지 빌드
 
 ```bash
 ./gradlew :app:deploy
 ```
 
-`dist/` 아래에 배포용 앱 이미지가 생성됩니다.
+`dist/` 폴더 아래에 배포용 앱 이미지가 생성됩니다.
 
-## 곡 데이터 구조
+### 곡 빌더 실행
 
-기본적으로 `run/songs`를 기준으로 곡 데이터를 읽습니다.
-
-예시:
-
-```text
-run/
-  songs/
-    STAR_TRAIL.json
-    STAR_TRAIL/
-      video.mp4
-      cover.png
-      easy.json
-      hard.json
+```bash
+./gradlew :builder:run
 ```
 
-- `songs/*.json` : 곡 메타(`Song`)
-- `songs/<곡폴더>/*.json` : 난이도별 채보(`Chart`)
+> 게임 내부의 곡 편집 기능을 사용하는 것을 권장합니다. 이 빌더는 보조 도구입니다.
+
+---
+
+## 🎵 곡 데이터 구조
+
+곡 데이터는 기본적으로 `run/songs/` 경로를 기준으로 읽습니다.
+
+```
+run/
+└── songs/
+    ├── STAR_TRAIL.json          ← 곡 메타 (Song)
+    └── STAR_TRAIL/
+        ├── video.mp4            ← 배경 영상
+        ├── cover.png            ← 커버 이미지
+        ├── easy.json            ← 이지 채보 (Chart)
+        └── hard.json            ← 하드 채보 (Chart)
+```
+
+- `songs/*.json` — 곡 메타 정보 (`Song`)
+- `songs/<곡폴더>/*.json` — 난이도별 채보 (`Chart`)
 - 미디어 경로는 메타 파일 기준으로 곡 폴더 내 파일명을 참조합니다.
 
-## 테스트 관련 참고
+---
 
-- `engine/src/test`와 `app/src/test` 일부는 VLC/비디오 파일 의존 통합 테스트입니다.
-- 로컬 환경에서 재생 백엔드가 없으면 테스트가 실패 또는 skip 될 수 있습니다.
+## ⚠️ 테스트 관련 주의
 
-## 라이선스
+`engine/src/test` 및 `app/src/test` 일부는 VLC와 영상 파일에 의존하는 통합 테스트입니다.  
+로컬에 재생 백엔드가 없으면 테스트가 **실패하거나 skip**될 수 있습니다.
 
-프로젝트 라이선스는 루트 `LICENSE`와 `engine/LICENSE`의 Apache License 2.0과 GNU GPL 3.0에 의해 라이선스 됩니다.  
-추가 리소스(폰트/오픈소스 고지)는 `assets/src/main/resources`를 참고하세요.
+---
+
+## 📜 라이선스
+
+이 프로젝트는 두 가지 라이선스로 구성됩니다:
+
+- 루트 코드 — [Apache License 2.0](./LICENSE)
+- `engine` 모듈 — [GNU GPL 3.0](./engine/LICENSE)
+
+추가 리소스(폰트, 오픈소스 고지)는 `assets/src/main/resources`를 참고하세요.
+
+---
+
+<div align="center">
+
+*별이 빛나는 밤, 오늘도 레인을 달립니다* 🌠
+
+</div>
