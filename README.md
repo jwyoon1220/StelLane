@@ -12,6 +12,10 @@
 [![Java](https://img.shields.io/badge/JDK-21-ED8B00?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org)
 [![Gradle](https://img.shields.io/badge/Gradle-9.3.0-02303A?style=flat-square&logo=gradle&logoColor=white)](https://gradle.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0%20%2F%20GPL%203.0-blue?style=flat-square)](./LICENSE)
+[![Fan Game](https://img.shields.io/badge/Fan%20Game-%EC%8A%A4%ED%85%94%EB%9D%BC%EC%9D%B4%EB%B8%8C-FF6B9D?style=flat-square)](https://stellive.tv)
+
+> 🩷 이 프로젝트는 **스텔라이브(Stellive)** 팬이 만든 비공식 팬게임입니다.  
+> Stellive 및 소속 스트리머와는 공식적인 관계가 없습니다.
 
 </div>
 
@@ -19,10 +23,10 @@
 
 ## 🎮 이게 뭔가요?
 
-StelLane은 **Kotlin/JVM** 기반으로 만들어진 리듬 게임입니다.  
+StelLane은 **스텔라이브(Stellive)** 팬이 만든 **Kotlin/JVM** 기반 리듬 게임입니다.  
 GLFW/OpenGL로 렌더링하고, VLC로 배경 영상을 재생하며, 직접 채보를 만들어 플레이할 수 있어요.
 
-> 음악에 맞춰 쏟아지는 노트들을 받아치고, 점수로 실력을 증명하세요. 🌟
+> 좋아하는 스텔라이브 멤버들의 노래에 맞춰 노트를 받아치고, 점수로 덕력을 증명하세요. 🌟
 
 ---
 
@@ -138,5 +142,7 @@ run/
 <div align="center">
 
 *별이 빛나는 밤, 오늘도 레인을 달립니다* 🌠
+
+<sub>이 프로젝트는 스텔라이브의 비공식 팬게임입니다. Stellive 및 소속 크리에이터의 콘텐츠를 존중합니다. 🩷</sub>
 
 </div>
