@@ -12,7 +12,7 @@
 [![Java](https://img.shields.io/badge/JDK-21-ED8B00?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org)
 [![Gradle](https://img.shields.io/badge/Gradle-9.3.0-02303A?style=flat-square&logo=gradle&logoColor=white)](https://gradle.org)
 [![License](https://img.shields.io/badge/License-Apache%202.0%20%2F%20GPL%203.0-blue?style=flat-square)](./LICENSE)
-[![Fan Game](https://img.shields.io/badge/Fan%20Game-%EC%8A%A4%ED%85%94%EB%9D%BC%EC%9D%B4%EB%B8%8C-FF6B9D?style=flat-square)](https://stellive.tv)
+[![Fan Game](https://img.shields.io/badge/Fan%20Game-%EC%8A%A4%ED%85%94%EB%9D%BC%EC%9D%B4%EB%B8%8C-FF6B9D?style=flat-square)](https://stellive.me)
 
 > 🩷 이 프로젝트는 **스텔라이브(Stellive)** 팬이 만든 비공식 팬게임입니다.  
 > Stellive 및 소속 스트리머와는 공식적인 관계가 없습니다.
