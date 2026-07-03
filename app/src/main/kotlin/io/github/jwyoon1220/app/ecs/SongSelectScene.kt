@@ -5,16 +5,18 @@ import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.app.ui.SongZipUtil
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.ChartParser
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 import imgui.ImGui
 import imgui.flag.ImGuiWindowFlags
 import imgui.type.ImString
 import org.slf4j.LoggerFactory
-import java.awt.AlphaComposite
 import java.awt.image.BufferedImage
 import java.io.File
 import java.nio.file.Files
@@ -160,6 +162,7 @@ class SongSelectScene(
         ctx.inputManager.clearEvents()
         ctx.videoBackground.setRate(1.0f)
         playPreviewForCurrent()
+        register(SongSelectRenderSystem())
     }
 
     override fun exit() {
@@ -196,17 +199,24 @@ class SongSelectScene(
         }
     }
 
-    override fun render(g: DrawContext) {
+    private inner class SongSelectRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width
         val h = g.clipBounds.height
         val t = time.toFloat()
 
         // ── 전체 어두운 오버레이 ─────────────────────────────────────────────
-        val old = g.composite
-        g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.88f)
+        val old = g.globalAlpha
+        g.globalAlpha = 0.88f
         g.renderColor = COLOR_BG
         g.fillRect(0, 0, w, h)
-        g.composite = old
+        g.globalAlpha = old
 
         // ── 왼쪽 상세 패널 배경 ──────────────────────────────────────────────
         g.fillLinearGradient(
@@ -359,9 +369,9 @@ class SongSelectScene(
             if (speedVal != lastSpeedVal) {
                 lastSpeedVal = speedVal
                 val actualRate = if (speedVal <= 7.0f) {
-                    0.5f + ((speedVal - 0.5f) / 6.5f) * 0.5f
+                    0.5f + ((speedVal - 0.5f) / 6.5f) * 0.5f  // [0.5x, 1.0x] 구간
                 } else {
-                    1.0f + ((speedVal - 7.0f) / 28.0f) * 1.0f
+                    1.0f + ((speedVal - 7.0f) / 28.0f)          // [1.0x, 2.0x] 구간
                 }
                 cachedSpeedText = "SPEED  %.1f  (%.2fx)".format(speedVal, actualRate)
             }

@@ -13,24 +13,12 @@ import org.slf4j.LoggerFactory
  * GLFW 윈도우 + OpenGL 컨텍스트 래퍼.
  *
  * ## 스레드 규칙
- * - [create], [pollEvents], [swapBuffers], [destroy] 는 반드시 **메인 스레드**에서 호출.
- * - OpenGL 드로우콜은 [create] 호출 스레드(메인)에서만 유효.
+ * - [createWindow], [swapBuffers], [destroy] 는 반드시 **메인 스레드**에서 호출.
+ * - OpenGL 드로우콜은 [createWindow] 호출 스레드(메인)에서만 유효.
  *
  * ## 좌표계
  * - [framebufferWidth] / [framebufferHeight] = 실제 픽셀 (HiDPI에서 논리 크기 ≠ FB 크기).
  * - 입력 콜백의 x/y 는 **논리(screen) 좌표** — Renderer가 FB 스케일로 변환.
- *
- * ## 생명주기
- * ```
- * val win = GLFWWindow.create("StelLane", 1280, 720, WindowMode.WINDOWED)
- * win.onKey = { key, action, mods -> ... }
- * while (!win.shouldClose()) {
- *     win.pollEvents()
- *     // render ...
- *     win.swapBuffers()
- * }
- * win.destroy()
- * ```
  */
 class GLFWWindow private constructor(val handle: Long) {
 
@@ -119,7 +107,6 @@ class GLFWWindow private constructor(val handle: Long) {
     // ── 공개 API ─────────────────────────────────────────────────────────────
 
     /** 메인 루프에서 매 프레임 호출. 반드시 메인 스레드. */
-    fun pollEvents() = glfwPollEvents()
 
     /** 렌더링 완료 후 호출. VSync 대기 포함 (glfwSwapInterval(1) 기준). */
     fun swapBuffers() = glfwSwapBuffers(handle)
@@ -217,7 +204,7 @@ class GLFWWindow private constructor(val handle: Long) {
          * @param mode     초기 창 모드
          * @param vSync    VSync 활성화 여부 (기본 true)
          */
-        fun create(
+        fun createWindow(
             title:  String,
             width:  Int         = 1280,
             height: Int         = 720,

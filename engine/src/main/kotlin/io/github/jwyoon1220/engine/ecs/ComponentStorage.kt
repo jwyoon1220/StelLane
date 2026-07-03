@@ -1,37 +1,33 @@
 package io.github.jwyoon1220.engine.ecs
 
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
 
 /**
  * 단일 컴포넌트 타입에 대한 엔터티 → 컴포넌트 매핑 저장소.
  *
- * 현재는 HashMap 기반의 단순 구현입니다.
+ * Long2ObjectOpenHashMap 을 사용해 Entity(Long) boxing 오버헤드를 제거합니다.
  * 노트 수가 많아지면 SparseSet 기반으로 교체할 수 있도록 인터페이스를 통해 사용하세요.
  */
 class ComponentStorage<T : Component> {
 
-    private val data = Object2ObjectOpenHashMap<Entity, T>()
+    private val data = Long2ObjectOpenHashMap<T>()
 
-    /** 엔터티에 컴포넌트를 설정합니다. 이미 있으면 교체됩니다. */
     fun set(entity: Entity, component: T) {
-        data[entity] = component
+        data.put(entity, component)
     }
 
-    /** 엔터티의 컴포넌트를 반환합니다. 없으면 null. */
-    fun get(entity: Entity): T? = data[entity]
+    fun get(entity: Entity): T? = data.get(entity)
 
-    /** 엔터티의 컴포넌트를 제거합니다. */
     fun remove(entity: Entity) { data.remove(entity) }
 
-    /** 엔터티가 이 컴포넌트를 갖고 있는지 확인합니다. */
-    fun has(entity: Entity): Boolean = entity in data
+    fun has(entity: Entity): Boolean = data.containsKey(entity)
 
-    /** 이 컴포넌트를 가진 모든 (Entity, T) 쌍을 순회합니다. */
-    fun entries(): Iterable<Map.Entry<Entity, T>> = data.entries
+    fun entries(): Iterable<Map.Entry<Long, T>> {
+        @Suppress("UNCHECKED_CAST")
+        return data.long2ObjectEntrySet() as Iterable<Map.Entry<Long, T>>
+    }
 
-    /** 저장된 컴포넌트의 수. */
     val size: Int get() = data.size
 
-    /** 모든 데이터를 삭제합니다. */
     fun clear() { data.clear() }
 }

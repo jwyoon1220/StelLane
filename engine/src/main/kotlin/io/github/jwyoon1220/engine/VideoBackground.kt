@@ -14,7 +14,16 @@ import org.lwjgl.opengl.GL11.*
 import org.lwjgl.opengl.GL12.GL_BGRA
 import org.lwjgl.opengl.GL12.GL_UNSIGNED_INT_8_8_8_8_REV
 import org.lwjgl.opengl.GL12.GL_CLAMP_TO_EDGE
-import org.lwjgl.system.MemoryUtil
+import org.lwjgl.opengl.GL15.GL_STREAM_DRAW
+import org.lwjgl.opengl.GL15.glBindBuffer
+import org.lwjgl.opengl.GL15.glBufferData
+import org.lwjgl.opengl.GL15.glDeleteBuffers
+import org.lwjgl.opengl.GL15.glGenBuffers
+import org.lwjgl.opengl.GL15.glUnmapBuffer
+import org.lwjgl.opengl.GL21.GL_PIXEL_UNPACK_BUFFER
+import org.lwjgl.opengl.GL30.GL_MAP_INVALIDATE_BUFFER_BIT
+import org.lwjgl.opengl.GL30.GL_MAP_WRITE_BIT
+import org.lwjgl.opengl.GL30.glMapBufferRange
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferInt
 import java.nio.ByteBuffer
@@ -339,8 +348,12 @@ class VideoBackground private constructor(
     /** 마지막으로 업로드된 텍스처의 폭. glTexImage2D(재할당)과 glTexSubImage2D(갱신)를 구분합니다. */
     private var lastUploadW = 0
     private var lastUploadH = 0
-    /** 픽셀 업로드용 재사용 버퍼 (매 프레임 alloc/free 제거). */
-    private var uploadBuf: ByteBuffer? = null
+    // PBO 더블 버퍼: [0]=CPU가 현재 프레임을 쓰는 PBO, [1]=GPU가 이전 프레임을 읽는 PBO.
+    // 매 프레임 인덱스를 교환하여 CPU 쓰기와 GPU DMA가 겹치지 않게 합니다.
+    private val pboIds   = IntArray(2)  // 둘 다 0 — initPBOs() 호출 전
+    private var pboW     = 0
+    private var pboH     = 0
+    private var pboReady = false        // 첫 번째 프레임을 PBO에 쓰기 전까지 false
 
     /**
      * OpenGL 컨텍스트 생성 후(메인 스레드에서) 한 번만 호출합니다.
@@ -358,52 +371,72 @@ class VideoBackground private constructor(
         log.debug("[VideoBackground] GL 텍스처 생성: id={}", glTexId)
     }
 
+    private fun initPBOs(w: Int, h: Int, needed: Int) {
+        if (pboIds[0] != 0) {
+            glDeleteBuffers(pboIds[0]); glDeleteBuffers(pboIds[1])
+            pboIds[0] = 0; pboIds[1] = 0
+        }
+        pboIds[0] = glGenBuffers()
+        pboIds[1] = glGenBuffers()
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds[0])
+        glBufferData(GL_PIXEL_UNPACK_BUFFER, needed.toLong(), GL_STREAM_DRAW)
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds[1])
+        glBufferData(GL_PIXEL_UNPACK_BUFFER, needed.toLong(), GL_STREAM_DRAW)
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
+        pboW = w; pboH = h
+        pboReady = false
+        log.debug("[VideoBackground] PBO 초기화: {}x{} {}바이트", w, h, needed)
+    }
+
     /**
      * 메인 스레드(렌더 루프)에서 매 프레임 호출합니다.
      * VLC 새 프레임이 있을 때만 GL 텍스처를 업로드합니다.
      *
-     * 최적화:
-     * - 해상도가 바뀔 때만 glTexImage2D(재할당), 그 외에는 glTexSubImage2D(갱신)로 드라이버 alloc 제거.
-     * - ByteBuffer를 프레임마다 새로 할당하지 않고 재사용합니다.
-     * - 크기가 변경될 때만 NVG 핸들을 무효화합니다.
+     * PBO 더블 버퍼링으로 CPU-GPU 파이프라이닝:
+     * - Step 1: PBO[1](이전 프레임 픽셀)을 GL 텍스처로 제출 — glTexSubImage2D가 즉시 리턴,
+     *           GPU DMA 엔진이 비동기로 픽셀을 가져감.
+     * - Step 2: PBO[0]을 매핑해 CPU가 현재 프레임 픽셀을 씀 → 언매핑 → 인덱스 교환.
+     * 다음 프레임에서 이 PBO가 [1]이 되어 Step 1에서 GPU로 전송됩니다.
      */
     fun uploadPendingFrame() {
         if (!isAvailable || !frameReady) return
         val frame = currentFrame ?: return
-        frameReady = false  // consume
+        frameReady = false
 
         val w = frame.width; val h = frame.height
         if (w <= 0 || h <= 0) return
-
-        // 픽셀 업로드 버퍼 재사용 (크기가 바뀌면 재할당)
         val needed = w * h * 4
-        var buf = uploadBuf
-        if (buf == null || buf.capacity() < needed) {
-            if (buf != null) {
-                uploadBuf = null
-                MemoryUtil.memFree(buf)
-            }
-            buf = MemoryUtil.memAlloc(needed)
-            uploadBuf = buf
-        }
-        buf.clear()
-        val pixels = (frame.raster.dataBuffer as DataBufferInt).data
-        buf.asIntBuffer().put(pixels)
-        buf.limit(needed)
 
-        glBindTexture(GL_TEXTURE_2D, glTexId)
-        if (w != lastUploadW || h != lastUploadH) {
-            // 해상도 변경 → 텍스처 스토리지 재할당
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
-            lastUploadW = w
-            lastUploadH = h
-            // NVG 핸들 무효화 (해상도가 바뀌었으므로)
-            nvgImgHandle = -1
-        } else {
-            // 동일 해상도 → 스토리지 재사용, NVG 핸들 유지
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, buf)
+        if (pboIds[0] == 0 || w != pboW || h != pboH) initPBOs(w, h, needed)
+
+        // Step 1: PBO[1] → GL 텍스처 (비동기 DMA — GPU가 PBO에서 직접 읽음)
+        if (pboReady) {
+            glBindTexture(GL_TEXTURE_2D, glTexId)
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds[1])
+            if (w != lastUploadW || h != lastUploadH) {
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 0L)
+                lastUploadW = w; lastUploadH = h
+                nvgImgHandle = -1
+            } else {
+                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 0L)
+            }
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
+            glBindTexture(GL_TEXTURE_2D, 0)
         }
-        glBindTexture(GL_TEXTURE_2D, 0)
+
+        // Step 2: PBO[0]에 현재 프레임 픽셀을 CPU로 씀 (매핑/언매핑)
+        // GL_MAP_INVALIDATE_BUFFER_BIT: GPU가 이전 데이터를 읽는 동안 대기 없이 새 스토리지를 얻음
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboIds[0])
+        val mapped = glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0L, needed.toLong(),
+            GL_MAP_WRITE_BIT or GL_MAP_INVALIDATE_BUFFER_BIT)
+        if (mapped != null) {
+            val pixels = (frame.raster.dataBuffer as DataBufferInt).data
+            mapped.asIntBuffer().put(pixels)
+            glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER)
+            val tmp = pboIds[0]; pboIds[0] = pboIds[1]; pboIds[1] = tmp
+            pboReady = true
+        }
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
     }
 
     /**
@@ -430,7 +463,6 @@ class VideoBackground private constructor(
 
     fun release() {
         log.info("[VideoBackground] release 시작")
-        uploadBuf?.let { MemoryUtil.memFree(it); uploadBuf = null }
         vlcExecutor.submit {
             runCatching { mediaPlayer?.controls()?.stop() }
             runCatching { mediaPlayer?.release() }

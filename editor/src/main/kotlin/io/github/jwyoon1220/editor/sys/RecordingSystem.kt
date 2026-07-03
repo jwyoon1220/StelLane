@@ -1,7 +1,7 @@
-package io.github.jwyoon1220.app.editor.sys
+package io.github.jwyoon1220.editor.sys
 
-import io.github.jwyoon1220.app.editor.EditorUtils
-import io.github.jwyoon1220.app.editor.comp.*
+import io.github.jwyoon1220.editor.EditorUtils
+import io.github.jwyoon1220.editor.comp.*
 import io.github.jwyoon1220.core.data.MutableChart
 import io.github.jwyoon1220.core.data.MutableNote
 import io.github.jwyoon1220.core.data.NoteType

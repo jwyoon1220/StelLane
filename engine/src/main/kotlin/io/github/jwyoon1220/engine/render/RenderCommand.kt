@@ -181,8 +181,7 @@ fun RenderCommand.executeOnDrawContext(g: DrawContext) {
         is RenderCommand.Save             -> g.save()
         is RenderCommand.Restore          -> g.restore()
         is RenderCommand.Translate        -> g.translate(x, y)
-        is RenderCommand.SetAlpha         -> g.composite =
-            java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, alpha.coerceIn(0f, 1f))
+        is RenderCommand.SetAlpha         -> g.globalAlpha = alpha.coerceIn(0f, 1f)
         is RenderCommand.ClipRect         -> g.setClip(x, y, w, h)
         is RenderCommand.ResetClip        -> g.resetClip()
         is RenderCommand.FillRect -> {

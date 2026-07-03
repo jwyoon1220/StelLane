@@ -1,4 +1,4 @@
-package io.github.jwyoon1220.app.editor.comp
+package io.github.jwyoon1220.editor.comp
 
 import io.github.jwyoon1220.core.data.Decoration
 import io.github.jwyoon1220.core.data.MutableNote
@@ -193,13 +193,13 @@ class DecorationRendererComp(
     var decorations: MutableList<Decoration>,
     var songDirPath: String,
 ) : Component {
-    @Volatile var renderer: io.github.jwyoon1220.app.DecorationRenderer? = null
+    @Volatile var renderer: io.github.jwyoon1220.engine.DecorationRenderer? = null
     @Volatile var decorData: io.github.jwyoon1220.core.data.DecorationData =
         io.github.jwyoon1220.core.data.DecorationData(decorations)
 
     fun rebuild() {
         decorData = io.github.jwyoon1220.core.data.DecorationData(decorations, decorData.screenEffects)
-        renderer = io.github.jwyoon1220.app.DecorationRenderer(decorData, java.io.File(songDirPath))
+        renderer = io.github.jwyoon1220.engine.DecorationRenderer(decorData, java.io.File(songDirPath))
     }
 
     fun save() {

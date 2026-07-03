@@ -1,15 +1,15 @@
-package io.github.jwyoon1220.app.editor.sys
+package io.github.jwyoon1220.editor.sys
 
-import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.editor.comp.DecorationRendererComp
-import io.github.jwyoon1220.app.editor.comp.PlaybackComp
-import io.github.jwyoon1220.app.editor.comp.TimelineViewComp
+import io.github.jwyoon1220.editor.comp.DecorationRendererComp
+import io.github.jwyoon1220.editor.comp.PlaybackComp
+import io.github.jwyoon1220.editor.comp.TimelineViewComp
+import io.github.jwyoon1220.engine.VideoBackground
 import io.github.jwyoon1220.engine.ecs.EcsSystem
 import io.github.jwyoon1220.engine.ecs.InputSnapshot
 import io.github.jwyoon1220.engine.ecs.World
 
 class PlaybackSystem(
-    private val ctx: GameContext,
+    private val videoBackground: VideoBackground,
     private val entity: Long,
     private val offsetMs: Long,
 ) : EcsSystem {
@@ -20,9 +20,9 @@ class PlaybackSystem(
         val dec = world.get<DecorationRendererComp>(entity)
 
         // 비디오 시간 동기화 (프레임당 1회)
-        val frameId = ctx.videoBackground.getFrameId()
+        val frameId = videoBackground.getFrameId()
         if (frameId != pb.lastCacheFrameId || pb.lastCacheFrameId == -1L) {
-            pb.currentTimeMs = ctx.videoBackground.getSmoothTimeMs() - offsetMs
+            pb.currentTimeMs = videoBackground.getSmoothTimeMs() - offsetMs
             pb.lastCacheFrameId = frameId
         }
         val t = pb.currentTimeMs
@@ -30,7 +30,7 @@ class PlaybackSystem(
         // 오디오 볼륨 페이드
         if (pb.isPlaying) {
             dec?.renderer?.computeTargetVolumePercent(t)?.let {
-                ctx.videoBackground.setTargetVolumePercent(it)
+                videoBackground.setTargetVolumePercent(it)
             }
         }
 

@@ -64,6 +64,14 @@ class DrawContext(
     private var _alpha: Float = 1f          // nvgGlobalAlpha 와 동기화
     private var _strokeWidth: Float = 1f    // nvgStrokeWidth 와 동기화
 
+    /** 전역 알파 (0f~1f). nvgGlobalAlpha를 직접 설정합니다. */
+    var globalAlpha: Float
+        get() = _alpha
+        set(value) {
+            _alpha = value.coerceIn(0f, 1f)
+            nvgGlobalAlpha(vg, _alpha)
+        }
+
     /** AlphaComposite.SRC_OVER 에서 알파를 추출해 전역 알파로 설정합니다. */
     var composite: Composite = AlphaComposite.SrcOver
         set(value) {
@@ -186,8 +194,11 @@ class DrawContext(
     fun getFontMetrics(f: DrawFont): DrawFontMetrics = DrawFontMetrics(vg, f)
 
     // ── 내부: 색상 설정 ─────────────────────────────────────────────────────
-    private fun applyFillColor(c: Color = color) {
-        if (c === color && _color == null) {
+    // _color == null → renderColor 경로 (float 직접 사용, /255 나눗셈 없음)
+    // _color != null → awt.Color 경로 (마이그레이션 기간 호환)
+    private fun applyFillColor() {
+        val c = _color
+        if (c == null) {
             nvgRGBAf(_renderColor.rf, _renderColor.gf, _renderColor.bf, _renderColor.af, nvgColor)
         } else {
             nvgRGBAf(c.red / 255f, c.green / 255f, c.blue / 255f, c.alpha / 255f, nvgColor)
@@ -195,8 +206,9 @@ class DrawContext(
         nvgFillColor(vg, nvgColor)
     }
 
-    private fun applyStrokeColor(c: Color = color) {
-        if (c === color && _color == null) {
+    private fun applyStrokeColor() {
+        val c = _color
+        if (c == null) {
             nvgRGBAf(_renderColor.rf, _renderColor.gf, _renderColor.bf, _renderColor.af, nvgColor)
         } else {
             nvgRGBAf(c.red / 255f, c.green / 255f, c.blue / 255f, c.alpha / 255f, nvgColor)

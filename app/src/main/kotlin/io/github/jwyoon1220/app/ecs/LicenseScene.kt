@@ -2,10 +2,13 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 
 /**
  * 오픈소스 라이선스 화면 (ECS Scene).
@@ -44,9 +47,17 @@ class LicenseScene(private val ctx: GameContext) : Scene() {
         super.enter()
         scrollOffset = 0
         ctx.inputManager.clearEvents()
+        register(LicenseRenderSystem())
     }
 
-    override fun render(g: DrawContext) {
+    private inner class LicenseRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width
         val h = g.clipBounds.height
 

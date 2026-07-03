@@ -1,13 +1,13 @@
-package io.github.jwyoon1220.app.editor.sys
+package io.github.jwyoon1220.editor.sys
 
-import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.editor.comp.SeekComp
+import io.github.jwyoon1220.editor.comp.SeekComp
+import io.github.jwyoon1220.engine.VideoBackground
 import io.github.jwyoon1220.engine.ecs.EcsSystem
 import io.github.jwyoon1220.engine.ecs.InputSnapshot
 import io.github.jwyoon1220.engine.ecs.World
 
 class SeekSystem(
-    private val ctx: GameContext,
+    private val videoBackground: VideoBackground,
     private val entity: Long,
 ) : EcsSystem {
 
@@ -17,7 +17,7 @@ class SeekSystem(
 
         val now = System.currentTimeMillis()
         if (now - seek.lastSeekTimeMs > 66) {
-            ctx.videoBackground.seek(seek.pendingSeekMs)
+            videoBackground.seek(seek.pendingSeekMs)
             seek.lastSeekTimeMs = now
             seek.pendingSeekMs = -1L
         }

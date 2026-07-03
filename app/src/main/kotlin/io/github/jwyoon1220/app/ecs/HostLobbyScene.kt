@@ -2,15 +2,18 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.multiplayer.MultiplayerManager
+import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.multiplayer.MultiplayerPlayScene
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.song.ChartParser
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 import org.slf4j.LoggerFactory
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -51,7 +54,10 @@ class HostLobbyScene(
         super.enter()
         time = 0.0
         manager.localRole = "player"
-        manager.hostGame(MultiplayerManager.DEFAULT_PORT)
+        // 서버가 이미 실행 중이면(SongSelect에서 ESC로 돌아온 경우) 재시작하지 않음
+        if (!manager.isServerRunning) {
+            manager.hostGame(MultiplayerManager.DEFAULT_PORT)
+        }
         manager.onPlayerListUpdated = {}
 
         // UPnP 시도 → 결과를 displayIp에 반영
@@ -63,6 +69,7 @@ class HostLobbyScene(
         ipVisible = false
         copyFlash = 0f
         ctx.inputManager.clearEvents()
+        register(LobbyRenderSystem())
     }
 
     override fun exit() {
@@ -75,7 +82,14 @@ class HostLobbyScene(
         if (copyFlash > 0f) copyFlash = (copyFlash - deltaTime.toFloat()).coerceAtLeast(0f)
     }
 
-    override fun render(g: DrawContext) {
+    private inner class LobbyRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width
         val h = g.clipBounds.height
         val t = time.toFloat()
@@ -191,14 +205,17 @@ class HostLobbyScene(
 
     override fun keyPressed(key: Int, mods: Int) {
         when (key) {
-            Keys.SPACE   -> ctx.sceneRouter.navigate(
-                SongSelectScene(
-                    ctx,
-                    SelectMode.MULTIPLAYER_HOST,
-                    onMultiplayerConfirm = { entry, chart, diff -> onSongSelected(entry, chart, diff) },
-                    onCancel = { ctx.sceneRouter.navigate(HostLobbyScene(ctx, manager)) }
+            Keys.SPACE   -> {
+                val self = this
+                ctx.sceneRouter.navigate(
+                    SongSelectScene(
+                        ctx,
+                        SelectMode.MULTIPLAYER_HOST,
+                        onMultiplayerConfirm = { entry, chart, diff -> onSongSelected(entry, chart, diff) },
+                        onCancel = { ctx.sceneRouter.navigate(self) }
+                    )
                 )
-            )
+            }
             Keys.ESCAPE  -> {
                 manager.stop()
                 ctx.multiplayerManager = null

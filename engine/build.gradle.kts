@@ -1,3 +1,9 @@
+plugins {
+    id("com.google.protobuf") version "0.9.4"
+}
+
+val ktorVersion = "3.1.3"
+
 dependencies {
     implementation(project(":core"))
     implementation("uk.co.caprica:vlcj:4.8.2")
@@ -12,15 +18,25 @@ dependencies {
     implementation("org.jctools:jctools-core:4.0.5")
     implementation("ch.qos.logback:logback-classic:1.5.18")
 
+    // ── 멀티플레이어: Ktor + Protobuf + UPnP + Jackson ────────────────────
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.0")
+    // ── 멀티플레이어: Ktor + Protobuf + UPnP ──────────────────────────────
+    implementation("io.ktor:ktor-server-core:$ktorVersion")
+    implementation("io.ktor:ktor-server-cio:$ktorVersion")
+    implementation("io.ktor:ktor-server-websockets:$ktorVersion")
+    implementation("io.ktor:ktor-client-core:$ktorVersion")
+    implementation("io.ktor:ktor-client-cio:$ktorVersion")
+    implementation("io.ktor:ktor-client-websockets:$ktorVersion")
+    api("com.google.protobuf:protobuf-kotlin:4.29.3")
+    implementation("org.jupnp:org.jupnp:3.0.2")
+    implementation("org.jupnp:org.jupnp.support:3.0.2")
+
     // ── LWJGL ──────────────────────────────────────────────────────────────
     val lwjglVersion  = rootProject.extra["lwjglVersion"] as String
     val lwjglNatives  = rootProject.extra["lwjglNatives"] as String
 
     implementation(platform("org.lwjgl:lwjgl-bom:$lwjglVersion"))
 
-    // 코어 + GLFW (윈도우/입력) + OpenGL (렌더링 컨텍스트) + NanoVG (2D 드로잉)
-    // + STB (이미지/폰트 로딩) + OpenAL (오디오, 선택적)
-    // + tinyfd (네이티브 파일 다이얼로그)
     implementation("org.lwjgl:lwjgl")
     implementation("org.lwjgl:lwjgl-glfw")
     implementation("org.lwjgl:lwjgl-opengl")
@@ -29,7 +45,6 @@ dependencies {
     implementation("org.lwjgl:lwjgl-openal")
     implementation("org.lwjgl:lwjgl-tinyfd")
 
-    // 네이티브 바이너리 (Windows x64)
     runtimeOnly("org.lwjgl:lwjgl::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-glfw::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-opengl::$lwjglNatives")
@@ -43,11 +58,14 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+protobuf {
+    protoc { artifact = "com.google.protobuf:protoc:4.29.3" }
+    generateProtoTasks { all().forEach { task -> task.builtins { create("kotlin") } } }
+}
+
 tasks.test {
     useJUnitPlatform()
-    // 테스트 워킹 디렉토리를 프로젝트 루트로 설정해 run/songs 경로가 맞게 함
     workingDir = rootProject.projectDir
-    // 시스템 VLC가 없을 경우 프로젝트 내 vlc/ 폴더를 경로에 추가
     val vlcDir = rootProject.file("vlc")
     if (vlcDir.exists()) {
         jvmArgs("-Djna.library.path=${vlcDir.absolutePath}")

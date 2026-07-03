@@ -1,6 +1,7 @@
 package io.github.jwyoon1220.engine
 
 import io.github.jwyoon1220.engine.ecs.Scene
+import org.lwjgl.glfw.GLFW.glfwPollEvents
 
 /**
  * GLFW 메인 스레드에서 실행되는 게임 루프.
@@ -33,7 +34,7 @@ class GameLoop(
 
     /**
      * 메인 스레드 블로킹 루프.
-     * 창이 닫히거나 [window.shouldClose] 가 true 가 될 때까지 실행됩니다.
+     * 창이 닫히거나 [window.shouldClose()] 가 true 가 될 때까지 실행됩니다.
      */
     fun start() {
         var lastLoopTime = System.nanoTime()
@@ -42,12 +43,11 @@ class GameLoop(
 
         while (!window.shouldClose()) {
             val now = System.nanoTime()
-            // 최대 100ms로 cap — 디버거 중단이나 GC 스톱으로 누적된 시간이 게임에 한번에 반영되는 것을 방지
             val delta = ((now - lastLoopTime) / 1_000_000_000.0).coerceAtMost(0.1)
             lastLoopTime = now
 
-            // 1. GLFW 이벤트 처리 (콜백 → InputManager 로 라우팅)
-            window.pollEvents()
+            // 1. poll events
+            glfwPollEvents()
 
             // 2-a. ECS Scene이면 InputSnapshot을 주입합니다
             //      (Scene.update()가 내부에서 tickSystems(lastInput, delta)를 호출)
@@ -75,12 +75,11 @@ class GameLoop(
 
             // 4. 고정밀 프레임 대기
             // 1ms 단위로 sleep → 남은 시간이 1ms 이하가 되면 스핀 대기
-            // (parkNanos 는 Windows에서 OS 스케줄러 정밀도로 인해 수백 µs씩 실제로 더 자므로 사용 안 함)
             val deadline = lastLoopTime + optimalTimeNs
             var remaining = deadline - System.nanoTime()
             while (remaining > 1_000_000L) {
                 try { Thread.sleep(1) }
-                catch (e: InterruptedException) { Thread.currentThread().interrupt(); break }
+                catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
                 remaining = deadline - System.nanoTime()
             }
             while (System.nanoTime() < deadline) {

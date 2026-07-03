@@ -5,11 +5,14 @@ import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Song
 import io.github.jwyoon1220.core.song.ChartParser
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 import imgui.ImGui
 import imgui.flag.ImGuiWindowFlags
 import java.io.File
@@ -71,11 +74,22 @@ class NewSongScene(
     private val FIELD_H = 34
     private val FIELD_GAP = 14
 
-    override fun enter() { super.enter(); ctx.inputManager.clearEvents() }
+    override fun enter() {
+        super.enter()
+        ctx.inputManager.clearEvents()
+        register(NewSongRenderSystem())
+    }
     override fun exit()  { ctx.inputManager.clearEvents(); super.exit() }
     override fun onUpdate(deltaTime: Double) { time += deltaTime }
 
-    override fun render(g: DrawContext) {
+    private inner class NewSongRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width; val h = g.clipBounds.height
 
         // ── 배경 그라디언트 ──────────────────────────────────────────────────
@@ -203,7 +217,7 @@ class NewSongScene(
         g.drawStringCentered("Esc: 취소  ·  Tab: 다음 필드  ·  Enter: 생성", CX.toFloat(), (h - 16).toFloat())
     }
 
-    private fun drawField(g: DrawContext, field: Field, focused: Boolean, x: Int, y: Int, fw: Int, fh: Int) {
+    private fun drawField(g: io.github.jwyoon1220.engine.DrawContext, field: Field, focused: Boolean, x: Int, y: Int, fw: Int, fh: Int) {
         // 배경
         g.renderColor = if (focused) RenderColor.of(30, 20, 55, 220) else RenderColor.of(20, 14, 38, 190)
         g.fillRoundRect(x, y, fw, fh, 6, 6)

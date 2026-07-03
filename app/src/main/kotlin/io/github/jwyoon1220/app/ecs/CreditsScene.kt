@@ -2,10 +2,13 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 import kotlin.math.sin
 
 /**
@@ -58,11 +61,19 @@ class CreditsScene(private val ctx: GameContext) : Scene() {
         super.enter()
         ctx.inputManager.clearEvents()
         time = 0.0
+        register(CreditsRenderSystem())
     }
 
     override fun onUpdate(deltaTime: Double) { time += deltaTime }
 
-    override fun render(g: DrawContext) {
+    private inner class CreditsRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width
         val h = g.clipBounds.height
         val t = time.toFloat()

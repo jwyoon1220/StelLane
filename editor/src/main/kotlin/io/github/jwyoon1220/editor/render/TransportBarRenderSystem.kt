@@ -1,21 +1,21 @@
-package io.github.jwyoon1220.app.editor.render
+package io.github.jwyoon1220.editor.render
 
-import io.github.jwyoon1220.app.FontLoader
-import io.github.jwyoon1220.app.editor.EditorUtils
-import io.github.jwyoon1220.app.editor.comp.*
+import io.github.jwyoon1220.engine.FontRegistry
+import io.github.jwyoon1220.editor.EditorUtils
+import io.github.jwyoon1220.editor.comp.*
 import io.github.jwyoon1220.engine.ecs.InputSnapshot
 import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.World
+import io.github.jwyoon1220.engine.render.RenderColor
 import io.github.jwyoon1220.engine.render.RenderCommand
-import java.awt.Color
 
 /** 상단 트랜스포트 바 (재생/정지/녹음 버튼, 시간 표시, 모드/도구/퀀타이즈). */
 class TransportBarRenderSystem(private val entity: Long) : RenderProducer {
 
-    private val titleFont  = FontLoader.semiBold(17f)
-    private val timeFont   = FontLoader.semiBold(22f)
-    private val labelFont  = FontLoader.regular(13f)
-    private val hintFont   = FontLoader.light(11f)
+    private val titleFont  = FontRegistry.semiBold(17f)
+    private val timeFont   = FontRegistry.semiBold(22f)
+    private val labelFont  = FontRegistry.regular(13f)
+    private val hintFont   = FontRegistry.light(11f)
 
     override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
 
@@ -44,34 +44,34 @@ class TransportBarRenderSystem(private val entity: Long) : RenderProducer {
             // 배경
             g.fillLinearGradient(0f, 0f, w.toFloat(), hh.toFloat(),
                 0f, 0f, 0f, hh.toFloat(),
-                Color(30, 16, 60, 250), Color(18, 10, 38, 250))
-            g.color = Color(100, 60, 200, 80)
+                RenderColor.of(30, 16, 60, 250), RenderColor.of(18, 10, 38, 250))
+            g.renderColor = RenderColor.of(100, 60, 200, 80)
             g.drawLine(0, hh - 1, w, hh - 1)
 
             // ── 왼쪽: 곡 제목 ──────────────────────────────────────────────────
-            g.font = titleFont; g.color = Color(180, 140, 255)
+            g.font = titleFont; g.renderColor = RenderColor.of(180, 140, 255)
             g.drawString("✏", 14f, 32f)
 
             // ── 중앙: 시간 + 트랜스포트 버튼 ─────────────────────────────────
             val cx = w / 2
-            g.font = timeFont; g.color = Color(230, 220, 255)
+            g.font = timeFont; g.renderColor = RenderColor.of(230, 220, 255)
             val tw = g.measureStringWidth(timeStr)
             g.drawString(timeStr, (cx - tw / 2).toFloat(), 33f)
 
             // 재생 상태 점
             val dot = if (isPlaying) "▶" else "⏸"
-            g.font = labelFont; g.color = if (isPlaying) Color(80, 255, 120) else Color(160, 140, 200)
+            g.font = labelFont; g.renderColor = if (isPlaying) RenderColor.of(80, 255, 120) else RenderColor.of(160, 140, 200)
             g.drawString(dot, (cx - tw / 2 - 22).toFloat(), 30f)
 
             // 녹음 표시
             if (isRec) {
-                g.color = Color(255, 60, 60)
+                g.renderColor = RenderColor.of(255, 60, 60)
                 g.fillOval(cx + (tw / 2 + 8).toInt(), 16, 8, 8)
             }
 
             // 저장 안 됨 표시
             if (unsaved) {
-                g.color = Color(255, 80, 80)
+                g.renderColor = RenderColor.of(255, 80, 80)
                 g.fillOval(w - 10, 10, 6, 6)
             }
 
@@ -80,7 +80,7 @@ class TransportBarRenderSystem(private val entity: Long) : RenderProducer {
             val modeStr  = if (mode == EditorMode.NOTE) "♩ NOTE" else "田 DECOR"
             val quantStr = if (qOn) "1/$div" else "Free"
             val statusStr = "$modeStr  ·  $quantStr  ·  ${zoom}s"
-            g.color = Color(130, 110, 180)
+            g.renderColor = RenderColor.of(130, 110, 180)
             g.drawStringRight(statusStr, (w - 14).toFloat(), 30f)
         })
     }

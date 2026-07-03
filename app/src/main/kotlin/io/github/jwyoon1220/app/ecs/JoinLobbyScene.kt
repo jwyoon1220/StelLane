@@ -2,15 +2,18 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.multiplayer.MultiplayerCacheManager
-import io.github.jwyoon1220.app.multiplayer.MultiplayerManager
+import io.github.jwyoon1220.engine.multiplayer.MultiplayerCacheManager
+import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.multiplayer.MultiplayerPlayScene
 import io.github.jwyoon1220.app.multiplayer.SpectatorScene
 import io.github.jwyoon1220.core.song.ChartParser
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 import org.slf4j.LoggerFactory
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
@@ -48,9 +51,16 @@ class JoinLobbyScene(
         connected = false
         statusMsg = ""
         ctx.inputManager.clearEvents()
+        register(LobbyRenderSystem())
 
         manager.localRole = if (spectate) "spectator" else "player"
-        manager.onPlayerListUpdated = { /* 목록 갱신 시 render에서 자동 반영 */ }
+        manager.onPlayerListUpdated = {
+            // 호스트에서 PLAYER_LIST 첫 수신 = WebSocket 연결 성공 확인
+            if (!connected) {
+                connected = true
+                statusMsg = "연결됨. 호스트가 게임을 시작할 때까지 대기 중…"
+            }
+        }
         manager.onHostDisconnected = {
             connected = false
             statusMsg = "호스트가 연결을 끊었습니다."
@@ -88,7 +98,14 @@ class JoinLobbyScene(
 
     override fun onUpdate(deltaTime: Double) { time += deltaTime }
 
-    override fun render(g: DrawContext) {
+    private inner class LobbyRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width
         val h = g.clipBounds.height
         val t = time.toFloat()
@@ -201,8 +218,7 @@ class JoinLobbyScene(
         statusMsg = "접속 중…"
         connected = false
         if (spectate) manager.spectate(host, port) else manager.joinGame(host, port)
-        connected = true
-        statusMsg = "연결됨. 호스트가 게임을 시작할 때까지 대기 중…"
+        // connected=true는 PLAYER_LIST 수신(onPlayerListUpdated) 시 설정됨
     }
 
     private fun waitForFiles(sha256List: List<String>) {

@@ -1,6 +1,6 @@
 package io.github.jwyoon1220.app
 
-import io.github.jwyoon1220.app.multiplayer.MultiplayerManager
+import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.render.NoteRenderer
 import io.github.jwyoon1220.core.song.SongManager
 import io.github.jwyoon1220.engine.GameLoop

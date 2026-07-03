@@ -1,7 +1,7 @@
-package io.github.jwyoon1220.app.multiplayer
+package io.github.jwyoon1220.engine.multiplayer
 
 import com.google.protobuf.ByteString
-import io.github.jwyoon1220.app.multiplayer.proto.*
+import io.github.jwyoon1220.engine.multiplayer.proto.*
 import io.ktor.server.application.*
 import io.ktor.server.cio.CIO as ServerCIO
 import io.ktor.server.engine.*
@@ -14,13 +14,13 @@ import io.ktor.client.engine.cio.CIO as ClientCIO
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.*
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
-import it.unimi.dsi.fastutil.objects.ObjectArrayList
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet
 import kotlinx.coroutines.*
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.net.NetworkInterface
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * MultiPlayer플레이어 네트워크 레이어.
@@ -46,14 +46,20 @@ class MultiplayerManager {
         private set
 
     var localPlayerId: String = java.util.UUID.randomUUID().toString()
-    var localPlayerName: String = io.github.jwyoon1220.app.AppSettings.nickname
+    var localPlayerName: String = "Player"
     var localRole: String = "player"
 
-    /** 원격 플레이어 상태 맵. 네트워크 스레드에서 쓰기, 게임 루프에서 읽기. */
-    val remotePlayers: Object2ObjectOpenHashMap<String, RemotePlayerState> = Object2ObjectOpenHashMap()
+    /**
+     * 원격 플레이어 상태 맵. 네트워크 스레드에서 쓰기, 게임 루프에서 읽기.
+     * ConcurrentHashMap으로 동시 접근 안전화. 호스트 자신도 포함됨.
+     */
+    private val _remotePlayers = ConcurrentHashMap<String, RemotePlayerState>()
+    val remotePlayers: Map<String, RemotePlayerState> get() = _remotePlayers
 
-    /** accuracy 기준 내림차순 정렬된 순위 리스트. */
-    val rankings: ObjectArrayList<RemotePlayerState> = ObjectArrayList()
+    /** accuracy 기준 내림차순 정렬된 순위 리스트. volatile reference swap으로 thread-safe. */
+    @Volatile
+    var rankings: List<RemotePlayerState> = emptyList()
+        private set
 
     private val sessions = ObjectOpenHashSet<DefaultWebSocketSession>()
     private val sessionsLock = Any()
@@ -70,6 +76,9 @@ class MultiplayerManager {
     // ── 서버/클라이언트 ─────────────────────────────────────────────────────────
 
     private var serverEngine: EmbeddedServer<*, *>? = null
+
+    /** 서버가 현재 실행 중인지 여부. HostLobbyScene 재진입 시 중복 시작 방지에 사용. */
+    val isServerRunning: Boolean get() = serverEngine != null
     private val clientScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var clientSession: DefaultClientWebSocketSession? = null
     private val httpClient = HttpClient(ClientCIO) { install(ClientWebSockets) }
@@ -80,9 +89,17 @@ class MultiplayerManager {
     // ── 호스트 API ──────────────────────────────────────────────────────────────
 
     fun hostGame(port: Int = DEFAULT_PORT) {
+        // 이전 서버가 남아 있으면 먼저 정리 (ESC로 SongSelect에서 돌아올 때 재호출 방지)
+        serverEngine?.stop(500, 500)
+        serverEngine = null
+
         isHost = true
-        remotePlayers.clear(); rankings.clear()
+        _remotePlayers.clear()
+        rankings = emptyList()
         synchronized(sessionsLock) { sessions.clear(); sessionToPlayer.clear() }
+
+        // 호스트 자신을 remotePlayers에 등록 — checkGameOver가 finish를 올바르게 감지하기 위해 필요
+        _remotePlayers[localPlayerId] = RemotePlayerState(localPlayerId, localPlayerName, localRole)
 
         serverEngine = embeddedServer(ServerCIO, port = port) {
             install(ServerWebSockets)
@@ -119,7 +136,8 @@ class MultiplayerManager {
 
     fun joinGame(host: String, port: Int = DEFAULT_PORT, role: String = "player") {
         isHost = false; localRole = role
-        remotePlayers.clear(); rankings.clear()
+        _remotePlayers.clear()
+        rankings = emptyList()
 
         clientScope.launch {
             runCatching {
@@ -183,7 +201,7 @@ class MultiplayerManager {
             FinishMsg.newBuilder().setPlayerId(localPlayerId).build()
         ).build()
         if (isHost) {
-            remotePlayers[localPlayerId]?.finished = true
+            _remotePlayers[localPlayerId]?.finished = true
             checkGameOver()
             broadcastEnvelope(env)
         } else {
@@ -204,7 +222,7 @@ class MultiplayerManager {
             val pid = synchronized(sessionsLock) {
                 sessions.remove(session); sessionToPlayer.remove(session)
             }
-            if (pid != null) { remotePlayers.remove(pid); broadcastPlayerList() }
+            if (pid != null) { _remotePlayers.remove(pid); rebuildRankings(); broadcastPlayerList() }
         }
     }
 
@@ -214,7 +232,7 @@ class MultiplayerManager {
                 val join = env.join
                 val pid = join.playerId.ifBlank { java.util.UUID.randomUUID().toString() }
                 synchronized(sessionsLock) { sessionToPlayer[session] = pid }
-                remotePlayers[pid] = RemotePlayerState(pid, join.playerName, join.role)
+                _remotePlayers[pid] = RemotePlayerState(pid, join.playerName, join.role)
                 broadcastPlayerList()
                 log.info("[MultiPlayer] 플레이어 접속: {}({})", join.playerName, pid)
             }
@@ -229,11 +247,11 @@ class MultiplayerManager {
                 ).build())
             }
             Envelope.PayloadCase.LANE_UPDATE -> {
-                remotePlayers[env.laneUpdate.playerId]?.laneHeld = env.laneUpdate.laneHeldList.toBooleanArray()
+                _remotePlayers[env.laneUpdate.playerId]?.laneHeld = env.laneUpdate.laneHeldList.toBooleanArray()
                 broadcastEnvelope(env)
             }
             Envelope.PayloadCase.FINISH -> {
-                remotePlayers[env.finish.playerId]?.finished = true
+                _remotePlayers[env.finish.playerId]?.finished = true
                 broadcastEnvelope(env)
                 checkGameOver()
             }
@@ -251,13 +269,17 @@ class MultiplayerManager {
     private suspend fun sendFileToSession(session: DefaultWebSocketSession, relPath: String) {
         val songFile = pendingSongDir?.let { File(it, relPath) } ?: return
         if (!songFile.exists()) { log.warn("[MultiPlayer] 파일 없음: {}", relPath); return }
-        log.info("[MultiPlayer] 파일 전송: {} ({} bytes)", relPath, songFile.length())
+        val totalSize = songFile.length()
+        log.info("[MultiPlayer] 파일 전송: {} ({} bytes)", relPath, totalSize)
 
+        val buf = ByteArray(CHUNK_SIZE)
+        var offset = 0L
         songFile.inputStream().buffered(CHUNK_SIZE).use { input ->
-            val buf = ByteArray(CHUNK_SIZE)
-            var offset = 0L; var n: Int
-            while (input.read(buf).also { n = it } != -1) {
-                val isLast = input.available() == 0
+            while (true) {
+                val n = withContext(Dispatchers.IO) { input.read(buf) }
+                if (n == -1) break
+                // available()==0 이 EOF를 보장하지 않으므로 누적 offset으로 판단
+                val isLast = offset + n >= totalSize
                 val chunk = FileChunkMsg.newBuilder()
                     .setRelPath(relPath).setOffset(offset)
                     .setData(ByteString.copyFrom(buf, 0, n)).setIsLast(isLast).build()
@@ -272,15 +294,19 @@ class MultiplayerManager {
 
     // ── 클라이언트: 프레임 핸들러 ───────────────────────────────────────────────
 
-    private val receivingBuffers = Object2ObjectOpenHashMap<String, java.io.ByteArrayOutputStream>()
+    private val receivingBuffers = ConcurrentHashMap<String, java.io.ByteArrayOutputStream>()
 
     private suspend fun handleClientFrame(env: Envelope) {
         when (env.payloadCase) {
             Envelope.PayloadCase.PLAYER_LIST -> {
+                val incomingIds = env.playerList.playersList.mapTo(HashSet()) { it.id }
+                // 목록에서 빠진 플레이어 제거 (로컬 자신은 보존)
+                _remotePlayers.keys.removeIf { it != localPlayerId && it !in incomingIds }
                 env.playerList.playersList.forEach { info ->
                     if (info.id != localPlayerId)
-                        remotePlayers[info.id] = RemotePlayerState(info.id, info.name, info.role)
+                        _remotePlayers[info.id] = RemotePlayerState(info.id, info.name, info.role)
                 }
+                rebuildRankings()
                 onPlayerListUpdated?.invoke()
             }
             Envelope.PayloadCase.START -> {
@@ -293,25 +319,29 @@ class MultiplayerManager {
             Envelope.PayloadCase.SCORE_UPDATE -> {
                 val su = env.scoreUpdate
                 if (su.playerId != localPlayerId) {
-                    val state = remotePlayers.getOrPut(su.playerId) {
+                    val state = _remotePlayers.getOrPut(su.playerId) {
+                        // PLAYER_LIST 수신 전 SCORE_UPDATE가 먼저 오는 경우(드묾) — 이름은 목록 수신 시 갱신됨
+                        log.debug("[MultiPlayer] SCORE_UPDATE 수신 시 미등록 플레이어: {}", su.playerId)
                         RemotePlayerState(su.playerId, su.playerId, "player")
                     }
                     state.score = su.score; state.combo = su.combo; state.accuracy = su.accuracy
-                    su.countsList.toIntArray().also { System.arraycopy(it, 0, state.counts, 0, 4) }
+                    state.counts = su.countsList.toIntArray()   // volatile reference swap
                     rebuildRankings()
                 }
             }
             Envelope.PayloadCase.LANE_UPDATE -> {
                 val lu = env.laneUpdate
                 if (lu.playerId != localPlayerId)
-                    remotePlayers[lu.playerId]?.laneHeld = lu.laneHeldList.toBooleanArray()
+                    _remotePlayers[lu.playerId]?.laneHeld = lu.laneHeldList.toBooleanArray()
             }
-            Envelope.PayloadCase.FINISH -> { remotePlayers[env.finish.playerId]?.finished = true }
+            Envelope.PayloadCase.FINISH -> { _remotePlayers[env.finish.playerId]?.finished = true }
             Envelope.PayloadCase.GAME_OVER -> { onGameOver?.invoke(env.gameOver.rankingsList) }
             Envelope.PayloadCase.FILE_CHUNK -> {
                 val chunk = env.fileChunk
                 val buf = receivingBuffers.getOrPut(chunk.relPath) { java.io.ByteArrayOutputStream() }
-                buf.write(chunk.data.toByteArray())
+                withContext(Dispatchers.IO) {
+                    buf.write(chunk.data.toByteArray())
+                }
                 if (chunk.isLast) {
                     receivingBuffers.remove(chunk.relPath)
                     val bytes = buf.toByteArray()
@@ -361,32 +391,29 @@ class MultiplayerManager {
     }
 
     private fun broadcastPlayerList() {
-        val players = remotePlayers.values.map { p ->
+        val players = _remotePlayers.values.map { p ->
             PlayerInfo.newBuilder().setId(p.id).setName(p.name).setRole(p.role).build()
         }
-        val selfInfo = PlayerInfo.newBuilder()
-            .setId(localPlayerId).setName(localPlayerName).setRole(localRole).build()
         broadcastEnvelope(Envelope.newBuilder().setPlayerList(
-            PlayerListMsg.newBuilder().addAllPlayers(players + selfInfo).build()
+            PlayerListMsg.newBuilder().addAllPlayers(players).build()
         ).build())
     }
 
     private fun updateRemoteScore(pid: String, score: Int, combo: Int, counts: IntArray, accuracy: Float) {
-        val state = remotePlayers.getOrPut(pid) { RemotePlayerState(pid, pid, "player") }
+        val state = _remotePlayers.getOrPut(pid) { RemotePlayerState(pid, pid, "player") }
         state.score = score; state.combo = combo; state.accuracy = accuracy
-        System.arraycopy(counts, 0, state.counts, 0, 4)
+        state.counts = counts.copyOf()   // volatile reference swap — never mutate in-place
         rebuildRankings()
     }
 
     private fun rebuildRankings() {
-        val players = remotePlayers.values
+        rankings = _remotePlayers.values
             .filter { it.role == "player" }
             .sortedWith(compareByDescending<RemotePlayerState> { it.accuracy }.thenByDescending { it.score })
-        rankings.clear(); players.forEach { rankings.add(it) }
     }
 
     private fun checkGameOver() {
-        val players = remotePlayers.values.filter { it.role == "player" }
+        val players = _remotePlayers.values.filter { it.role == "player" }
         if (players.isNotEmpty() && players.all { it.finished }) {
             val rankEntries = rankings.mapIndexed { i, p ->
                 RankEntry.newBuilder().setRank(i + 1).setName(p.name)

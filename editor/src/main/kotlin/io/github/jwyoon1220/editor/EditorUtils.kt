@@ -1,7 +1,7 @@
-package io.github.jwyoon1220.app.editor
+package io.github.jwyoon1220.editor
 
-import io.github.jwyoon1220.app.editor.comp.QuantizeComp
-import io.github.jwyoon1220.app.editor.comp.UndoRedoComp
+import io.github.jwyoon1220.editor.comp.QuantizeComp
+import io.github.jwyoon1220.editor.comp.UndoRedoComp
 import io.github.jwyoon1220.core.data.MutableChart
 import io.github.jwyoon1220.editor.Quantizer
 

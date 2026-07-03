@@ -23,6 +23,12 @@ extra["lwjglNatives"] = lwjglNatives
 subprojects {
     apply(plugin = "org.jetbrains.kotlin.jvm")
 
+    repositories {
+        mavenCentral()
+        mavenLocal()
+        maven("https://jitpack.io/")
+    }
+
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)

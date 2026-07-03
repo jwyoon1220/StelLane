@@ -12,6 +12,7 @@ import io.github.jwyoon1220.engine.VideoBackground
 import io.github.jwyoon1220.engine.data.pool.ObjectPool
 import io.github.jwyoon1220.engine.data.pool.VisualNote
 import io.github.jwyoon1220.app.render.NoteRenderer
+import io.github.jwyoon1220.engine.multiplayer.MultiplayerCacheManager
 import org.apache.commons.cli.DefaultParser
 import org.apache.commons.cli.HelpFormatter
 import org.apache.commons.cli.Options
@@ -19,8 +20,10 @@ import org.apache.commons.cli.ParseException
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.util.concurrent.CompletableFuture
+import kotlin.concurrent.thread
+import kotlin.system.exitProcess
 
-private val log = LoggerFactory.getLogger("io.github.jwyoon1220.app.Main")
+private val logger = LoggerFactory.getLogger("io.github.jwyoon1220.app.Main")
 
 fun main(args: Array<String>) {
     val options = Options().apply {
@@ -40,13 +43,14 @@ fun main(args: Array<String>) {
         console = cmd.hasOption("console")
     )
 
-    log.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
+    logger.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
 
     // 멀티플레이어 캐시 만료 항목 정리 (백그라운드, 게임 루프와 무관)
-    Thread({ io.github.jwyoon1220.app.multiplayer.MultiplayerCacheManager.cleanExpired() }, "cache-cleaner")
-        .apply { isDaemon = true; start() }
+    thread(start = true, isDaemon = true, name = "cache-cleaner") {
+        MultiplayerCacheManager.cleanExpired()
+    }
 
-    val window = GLFWWindow.create(
+    val window = GLFWWindow.createWindow(
         title  = "StelLane",
         width  = 1280,
         height = 720,
@@ -66,7 +70,7 @@ fun main(args: Array<String>) {
     )
     CompletableFuture.runAsync {
         notePool.preAllocate(2048)
-    }.thenAccept { log.info("[Main] NotePool 초기 할당 완료: poolSize={}", notePool.poolSize) }
+    }.thenAccept { logger.info("[Main] NotePool 초기 할당 완료: poolSize={}", notePool.poolSize) }
 
     val renderer     = Renderer(window, sceneRouter, videoBackground)
     val inputManager = InputManager(window, renderer)
@@ -85,7 +89,7 @@ fun main(args: Array<String>) {
     renderer.imGuiManager   = imGuiManager
     inputManager.imGuiManager = imGuiManager
 
-    // ECS InputSnapshot 경로 외에 legacy 콜백도 유지 (다른 씬들이 여전히 사용)
+    // TODO: 레거시 기능 제거
     inputManager.stateKeyPressed  = { key, mods -> sceneRouter.current?.keyPressed(key, mods) }
     inputManager.stateKeyReleased = { key, mods -> sceneRouter.current?.keyReleased(key, mods) }
     inputManager.stateKeyTyped    = { cp          -> sceneRouter.current?.keyTyped(cp) }
@@ -102,11 +106,14 @@ fun main(args: Array<String>) {
     ctx.gameLoop = gameLoop
     gameLoop.onFpsUpdate = { fps -> window.title = "StelLane  |  $fps FPS" }
     gameLoop.targetFPS = AppSettings.targetFps
+
+    // Blocking
     gameLoop.start()
 
+    // Exit of game
     imGuiManager.dispose()
     renderer.destroy()
     window.destroy()
     videoBackground.release()
-    System.exit(0)
+    exitProcess(0)
 }

@@ -19,6 +19,14 @@ object FontRegistry {
     private var lightId:      Int = -1
     private var extraLightId: Int = -1
 
+    // Inter (OFL) — Latin/숫자 전용 폰트. 점수, UI 숫자, 영문 레이블에 사용.
+    private var interRegularId:    Int = -1
+    private var interBoldId:       Int = -1
+    private var interSemiBoldId:   Int = -1
+    private var interMediumId:     Int = -1
+    private var interLightId:      Int = -1
+    private var interExtraLightId: Int = -1
+
     // 메모리에 고정(pin)된 폰트 버퍼 목록 (JVM GC 로부터 보호)
     private val pinnedBuffers = ObjectArrayList<ByteBuffer>()
 
@@ -33,12 +41,20 @@ object FontRegistry {
         lightId      = load(vg, "fonts/MaruBuri-Light.ttf",      "light")
         extraLightId = load(vg, "fonts/MaruBuri-ExtraLight.ttf", "extralight")
 
-        // 폰트 로드 실패 시 NanoVG 기본 fallback 을 사용
-        log.info("[FontRegistry] loaded: regular={} bold={} semiBold={} light={} extraLight={}",
+        interRegularId    = load(vg, "fonts/Inter-Regular.ttf",    "inter-regular")
+        interBoldId       = load(vg, "fonts/Inter-Bold.ttf",       "inter-bold")
+        interSemiBoldId   = load(vg, "fonts/Inter-SemiBold.ttf",   "inter-semibold")
+        interMediumId     = load(vg, "fonts/Inter-Medium.ttf",     "inter-medium")
+        interLightId      = load(vg, "fonts/Inter-Light.ttf",      "inter-light")
+        interExtraLightId = load(vg, "fonts/Inter-ExtraLight.ttf", "inter-extralight")
+
+        log.info("[FontRegistry] MaruBuri: regular={} bold={} semiBold={} light={} extraLight={}",
             regularId, boldId, semiBoldId, lightId, extraLightId)
+        log.info("[FontRegistry] Inter: regular={} bold={} semiBold={} medium={} light={} extraLight={}",
+            interRegularId, interBoldId, interSemiBoldId, interMediumId, interLightId, interExtraLightId)
     }
 
-    // ── DrawFont 생성 헬퍼 ──────────────────────────────────────────────────
+    // ── MaruBuri DrawFont 생성 헬퍼 ────────────────────────────────────────
     fun regular   (size: Float): DrawFont = DrawFont(effectiveId(regularId),    size)
     fun bold      (size: Float): DrawFont = DrawFont(effectiveId(boldId),       size)
     fun semiBold  (size: Float): DrawFont = DrawFont(effectiveId(semiBoldId),   size)
@@ -50,6 +66,21 @@ object FontRegistry {
     val semiBold:   DrawFont get() = semiBold(12f)
     val light:      DrawFont get() = light(12f)
     val extraLight: DrawFont get() = extraLight(12f)
+
+    // ── Inter DrawFont 생성 헬퍼 ───────────────────────────────────────────
+    fun interRegular   (size: Float): DrawFont = DrawFont(effectiveId(interRegularId),    size)
+    fun interBold      (size: Float): DrawFont = DrawFont(effectiveId(interBoldId),       size)
+    fun interSemiBold  (size: Float): DrawFont = DrawFont(effectiveId(interSemiBoldId),   size)
+    fun interMedium    (size: Float): DrawFont = DrawFont(effectiveId(interMediumId),     size)
+    fun interLight     (size: Float): DrawFont = DrawFont(effectiveId(interLightId),      size)
+    fun interExtraLight(size: Float): DrawFont = DrawFont(effectiveId(interExtraLightId), size)
+
+    val interRegular:    DrawFont get() = interRegular(12f)
+    val interBold:       DrawFont get() = interBold(12f)
+    val interSemiBold:   DrawFont get() = interSemiBold(12f)
+    val interMedium:     DrawFont get() = interMedium(12f)
+    val interLight:      DrawFont get() = interLight(12f)
+    val interExtraLight: DrawFont get() = interExtraLight(12f)
 
     // ── 내부 유틸 ───────────────────────────────────────────────────────────
     private fun effectiveId(id: Int): Int =
