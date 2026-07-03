@@ -1,13 +1,13 @@
-package io.github.jwyoon1220.app.editor.render
+package io.github.jwyoon1220.editor.render
 
-import io.github.jwyoon1220.app.FontLoader
-import io.github.jwyoon1220.app.editor.comp.*
+import io.github.jwyoon1220.engine.FontRegistry
+import io.github.jwyoon1220.editor.comp.*
 import io.github.jwyoon1220.engine.ecs.InputSnapshot
 import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.World
+import io.github.jwyoon1220.engine.render.RenderColor
 import io.github.jwyoon1220.engine.render.RenderCommand
 import java.awt.BasicStroke
-import java.awt.Color
 
 /**
  * 프로그램 모니터 패널 — 비디오 뷰포트 테두리 + 장식 오버레이 + 선택 핸들.
@@ -15,9 +15,9 @@ import java.awt.Color
  */
 class ProgramMonitorRenderSystem(private val entity: Long) : RenderProducer {
 
-    private val hintFont  = FontLoader.light(12f)
-    private val infoFont  = FontLoader.regular(14f)
-    private val labelFont = FontLoader.regular(11f)
+    private val hintFont  = FontRegistry.light(12f)
+    private val infoFont  = FontRegistry.regular(14f)
+    private val labelFont = FontRegistry.regular(11f)
 
     override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
 
@@ -42,13 +42,13 @@ class ProgramMonitorRenderSystem(private val entity: Long) : RenderProducer {
             if (vpW <= 0 || vpH <= 0) return@LegacyDrawContext
 
             // 뷰포트 어두운 배경 (비디오 없을 때 placeholder)
-            g.color = Color(14, 10, 28)
+            g.renderColor = RenderColor.of(14, 10, 28)
             g.fillRect(vpX - 2, vpY - 2, vpW + 4, vpH + 4)
 
             if (dec.renderer == null) {
-                g.color = Color(20, 15, 35)
+                g.renderColor = RenderColor.of(20, 15, 35)
                 g.fillRect(vpX, vpY, vpW, vpH)
-                g.color = Color(60, 50, 90); g.font = infoFont
+                g.renderColor = RenderColor.of(60, 50, 90); g.font = infoFont
                 g.drawStringCentered("▶ 영상 없음", (vpX + vpW / 2).toFloat(), (vpY + vpH / 2).toFloat())
             }
 
@@ -76,23 +76,23 @@ class ProgramMonitorRenderSystem(private val entity: Long) : RenderProducer {
                     val fw = (dw * sx).toInt().coerceAtLeast(2)
                     val fh = (dh * sy).toInt().coerceAtLeast(2)
 
-                    g.color = Color(210, 150, 255, 200)
+                    g.renderColor = RenderColor.of(210, 150, 255, 200)
                     g.stroke = BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, floatArrayOf(5f, 4f), 0f)
                     g.drawRect(fx, fy, fw, fh)
                     g.stroke = BasicStroke(1.5f)
 
                     // 코너 핸들
                     for ((hx, hy) in listOf(fx to fy, fx + fw to fy, fx to fy + fh, fx + fw to fy + fh)) {
-                        g.color = Color(210, 150, 255); g.fillRect(hx - 4, hy - 4, 8, 8)
-                        g.color = Color(0, 0, 0, 100);  g.drawRect(hx - 4, hy - 4, 8, 8)
+                        g.renderColor = RenderColor.of(210, 150, 255); g.fillRect(hx - 4, hy - 4, 8, 8)
+                        g.renderColor = RenderColor.of(0, 0, 0, 100);  g.drawRect(hx - 4, hy - 4, 8, 8)
                     }
-                    g.color = Color(210, 150, 255, 180); g.font = labelFont
+                    g.renderColor = RenderColor.of(210, 150, 255, 180); g.font = labelFont
                     g.drawString(d.id.ifEmpty { "(decoration)" }, (fx + 2).toFloat(), (fy - 4).toFloat())
                 }
             }
 
             // 뷰포트 테두리 강조
-            g.color = Color(80, 55, 130, 60)
+            g.renderColor = RenderColor.of(80, 55, 130, 60)
             g.drawRect(vpX, vpY, vpW, vpH)
         })
     }

@@ -1,18 +1,19 @@
-package io.github.jwyoon1220.app.editor.render
+package io.github.jwyoon1220.editor.render
 
-import io.github.jwyoon1220.app.editor.EditorUtils
-import io.github.jwyoon1220.app.editor.comp.*
+import io.github.jwyoon1220.editor.EditorUtils
+import io.github.jwyoon1220.editor.comp.*
 import io.github.jwyoon1220.core.data.MutableChart
+import io.github.jwyoon1220.engine.VideoBackground
 import io.github.jwyoon1220.engine.ecs.InputSnapshot
 import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.World
+import io.github.jwyoon1220.engine.render.RenderColor
 import io.github.jwyoon1220.engine.render.RenderCommand
-import java.awt.Color
 import java.awt.image.DataBufferInt
 
 private val LANE_COLORS = arrayOf(
-    Color(100, 180, 255), Color(100, 255, 160),
-    Color(255, 200, 80),  Color(255, 120, 120)
+    RenderColor.of(100, 180, 255), RenderColor.of(100, 255, 160),
+    RenderColor.of(255, 200, 80),  RenderColor.of(255, 120, 120)
 )
 
 /** 타임라인 하단 오버뷰(미니맵) 바. */
@@ -21,7 +22,7 @@ class OverviewBarRenderSystem(
     private val chart: MutableChart,
     private val notesLock: Any,
     private val offsetMs: Long,
-    private val ctx: io.github.jwyoon1220.app.GameContext,
+    private val videoBackground: VideoBackground,
 ) : RenderProducer {
 
     override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
@@ -37,7 +38,7 @@ class OverviewBarRenderSystem(
         val curT  = pb.currentTimeMs
         val visMs = tl.visibleMs;  val scrollMs = tl.scrollMs
 
-        val totalRangeMs = EditorUtils.getTimelineRangeMs(chart, visMs, ctx.videoBackground.getLengthMs(), offsetMs, notesLock)
+        val totalRangeMs = EditorUtils.getTimelineRangeMs(chart, visMs, videoBackground.getLengthMs(), offsetMs, notesLock)
         val maxScrollMs  = (totalRangeMs - visMs).coerceAtLeast(0L)
         val selRatio = (visMs.toDouble() / totalRangeMs).coerceIn(0.05, 1.0)
         val selW     = (barW * selRatio).toInt().coerceIn(minOf(24, barW), barW)
@@ -62,7 +63,7 @@ class OverviewBarRenderSystem(
                 chart.notes.forEach { note ->
                     val nx = ((note.time.coerceIn(0L, totalRangeMs).toDouble() / totalRangeMs) * (imgW - 1)).toInt().coerceIn(0, imgW - 1)
                     val c  = LANE_COLORS[note.lane]
-                    val argb = (130 shl 24) or (c.red shl 16) or (c.green shl 8) or c.blue
+                    val argb = (130 shl 24) or (c.r shl 16) or (c.g shl 8) or c.b
                     for (row in 3 until (3 + lineH)) pixels[row * imgW + nx] = argb
                 }
             }
@@ -75,22 +76,22 @@ class OverviewBarRenderSystem(
             val g = this
 
             // 배경
-            g.color = Color(10, 8, 18, 235)
+            g.renderColor = RenderColor.of(10, 8, 18, 235)
             g.fillRoundRect(barX, barY, barW, barH, 5, 5)
-            g.color = Color(35, 28, 55, 160)
+            g.renderColor = RenderColor.of(35, 28, 55, 160)
             g.drawRoundRect(barX, barY, barW, barH, 5, 5)
 
             // 노트 도트 이미지
             imgCapture?.let { g.drawImage(it, barX, barY) }
 
             // 현재 뷰 선택 핸들
-            g.color = Color(100, 62, 200, 170)
+            g.renderColor = RenderColor.of(100, 62, 200, 170)
             g.fillRoundRect(selX, barY + 2, selW, barH - 4, 4, 4)
-            g.color = Color(200, 180, 255, 200)
+            g.renderColor = RenderColor.of(200, 180, 255, 200)
             g.drawRoundRect(selX, barY + 2, selW, barH - 4, 4, 4)
 
             // 플레이헤드
-            g.color = Color(240, 140, 255, 200)
+            g.renderColor = RenderColor.of(240, 140, 255, 200)
             g.drawLine(phX, barY + 1, phX, barY + barH - 1)
         })
     }

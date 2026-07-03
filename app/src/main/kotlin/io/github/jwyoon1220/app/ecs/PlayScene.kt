@@ -1,6 +1,6 @@
 package io.github.jwyoon1220.app.ecs
 
-import io.github.jwyoon1220.app.DecorationRenderer
+import io.github.jwyoon1220.engine.DecorationRenderer
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.app.Const
@@ -14,23 +14,23 @@ import io.github.jwyoon1220.core.judgment.Judgment
 import io.github.jwyoon1220.core.judgment.JudgmentSystem
 import io.github.jwyoon1220.core.scoring.ScoreEngine
 import io.github.jwyoon1220.core.replay.ReplayFile
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
+import io.github.jwyoon1220.engine.ecs.World
+import io.github.jwyoon1220.engine.render.RenderCommand
 import io.github.jwyoon1220.engine.HitSound
-import io.github.jwyoon1220.engine.CustomGLRenderable
+import io.github.jwyoon1220.engine.OpenGLRenderable
 import io.github.jwyoon1220.engine.GlEffectProvider
 import io.github.jwyoon1220.engine.GlScreenEffectData
 import io.github.jwyoon1220.engine.render.RenderColor
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.ecs.Scene
-import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.io.File
 import java.io.FileWriter
 import java.util.ArrayDeque
 import kotlin.math.abs
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.SerializationFeature
 import io.github.jwyoon1220.core.replay.ReplayFrame
 import io.github.jwyoon1220.engine.DrawFontMetrics
 import it.unimi.dsi.fastutil.objects.ObjectArrayList
@@ -49,7 +49,7 @@ class PlayScene(
     internal val ctx: GameContext,
     private val songEntry: SongEntry,
     internal val chart: Chart
-) : Scene(), CustomGLRenderable, GlEffectProvider {
+) : Scene(), OpenGLRenderable, GlEffectProvider {
 
     companion object {
         private val COLOR_OVERLAY = RenderColor.of(0, 0, 0, 130)
@@ -67,7 +67,7 @@ class PlayScene(
         private val COLOR_LONG_BORDER = RenderColor.of(225, 185, 255)
         private val KEY_LABELS = arrayOf("D", "F", "J", "K")
 
-        // 재사용 RenderColor 상수 — renderCustomGl() 호출마다 객체 생성하지 않도록 미리 캐시
+        // 재사용 RenderColor 상수 — renderOpenGL() 호출마다 객체 생성하지 않도록 미리 캐시
         private val COLOR_KEY_NORMAL   = RenderColor.of(150, 150, 150)
         private val COLOR_COMBO_LABEL  = RenderColor.of(180, 180, 180)
         private val COLOR_STAT_TEXT    = RenderColor.of(160, 160, 160)
@@ -80,6 +80,35 @@ class PlayScene(
             RenderColor.of(100, 255, 130),  // GOOD
             RenderColor.of(255, 80, 80)     // MISS
         )
+
+        // 결과 화면 색상 캐시
+        private val COLOR_RESULT_OVERLAY  = RenderColor.of(0, 0, 0, 210)
+        private val COLOR_RESULT_TITLE    = RenderColor.of(180, 160, 220)
+        private val COLOR_RESULT_SCORE    = RenderColor.WHITE
+        private val COLOR_RESULT_STAT     = RenderColor.of(180, 170, 210)
+        private val COLOR_RESULT_STAT2    = RenderColor.of(140, 130, 170)
+        private val COLOR_RESULT_HINT     = RenderColor.of(110, 100, 140)
+        private val COLOR_RESULT_ACCURACY = RenderColor.of(160, 210, 255)
+        private val COLOR_RANK_SS  = RenderColor.of(255, 220, 80)
+        private val COLOR_RANK_S   = RenderColor.of(200, 240, 255)
+        private val COLOR_RANK_A   = RenderColor.of(130, 220, 130)
+        private val COLOR_RANK_B   = RenderColor.of(130, 180, 255)
+        private val COLOR_RANK_C   = RenderColor.of(200, 200, 200)
+        private val COLOR_RANK_D   = RenderColor.of(160, 100, 100)
+        private val COLOR_READY_LABEL = RenderColor.of(180, 140, 240)
+        private val COLOR_COUNTDOWN_GO = RenderColor.of(100, 255, 130)
+
+        private val REPLAY_MAPPER = com.fasterxml.jackson.databind.ObjectMapper().apply {
+            enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT)
+        }
+
+        // playSpeed 변환 상수
+        private const val SPEED_PIVOT     = 7.0f
+        private const val SPEED_MIN_RATE  = 0.5f
+        private const val SPEED_MIN_VAL   = 0.5f
+        private const val SPEED_LOW_RANGE = 6.5f   // SPEED_PIVOT - SPEED_MIN_VAL
+        private const val SPEED_HIGH_MAX  = 35.0f
+        private const val SPEED_HIGH_RANGE= 28.0f  // SPEED_HIGH_MAX - SPEED_PIVOT
     }
 
     private var cachedScore = -1
@@ -90,6 +119,10 @@ class PlayScene(
     private var cachedMaxComboStr = "MAX COMBO: 0"
     private var cachedCombo = -1
     private var cachedComboStr = ""
+
+    // update()에서 매 프레임 재사용 — mutableListOf() 반복 할당 방지
+    private val pressedLanesBuf  = ArrayList<Int>(4)
+    private val releasedLanesBuf = ArrayList<Int>(4)
 
     // ── 레이아웃 상수 ──────────────────────────────────────────────────────────
     private val LANE_COUNT      = Const.LANE_COUNT
@@ -142,38 +175,42 @@ class PlayScene(
     @Volatile internal var currentTimeMs: Long = 0L
     @Volatile internal var currentTimeDouble: Double = 0.0
 
-    // render()에서 계산된 hitLineY를 update()가 참조하기 위해 저장
-    @Volatile private var hitLineY = 612
+    // 설계 해상도(720p) 기준 고정 hitLineY — render/update 양쪽에서 동일하게 사용
+    internal val hitLineY: Int = (720 * HIT_LINE_RATIO).toInt()
 
     private var mediaStarted = false
 
     // ── 리플레이 기록 (골든 기준점) ──────────────────────────────────────────
     private val replayFrames = ObjectArrayList<ReplayFrame>()
+    private var replayFrameNum = 0
+    private var replayLastPressedLanes: List<Int> = emptyList()
+    private var replayLastReleasedLanes: List<Int> = emptyList()
+    private var replayLastJudgment: String = ""
 
     // ── 장식 렌더러 ──────────────────────────────────────────────────────────
     @Volatile private var decorationRenderer: DecorationRenderer? = null
 
-    private val comboFont      = FontLoader.bold(56f)
-    private val judgeFont      = FontLoader.bold(48f)
-    private val scoreFont      = FontLoader.bold(28f)
-    private val statFont       = FontLoader.regular(18f)
-    private val hintFont       = FontLoader.light(15f)
-    private val resultTitle    = FontLoader.bold(52f)
-    private val resultScore    = FontLoader.bold(72f)
-    private val resultStat     = FontLoader.semiBold(28f)
-    private val resultHint     = FontLoader.light(20f)
-    private val readyLabelFont = FontLoader.bold(48f)
-    private val countdownFont  = FontLoader.bold(180f)
-    private val loadingTitleFont  = FontLoader.bold(32f)
-    private val loadingArtistFont = FontLoader.regular(18f)
-    private val loadingBpmFont    = FontLoader.light(15f)
+    private val comboFont      = FontLoader.interBold(60f)
+    private val judgeFont      = FontLoader.interBold(46f)
+    private val scoreFont      = FontLoader.interSemiBold(28f)
+    private val statFont       = FontLoader.interRegular(16f)
+    private val hintFont       = FontLoader.interLight(14f)
+    private val resultTitle    = FontLoader.interSemiBold(22f)
+    private val resultScore    = FontLoader.interBold(76f)
+    private val resultStat     = FontLoader.interRegular(22f)
+    private val resultHint     = FontLoader.interLight(18f)
+    private val readyLabelFont = FontLoader.interBold(48f)
+    private val countdownFont  = FontLoader.interBold(200f)
+    private val loadingTitleFont  = FontLoader.bold(32f)       // 한국어 제목은 MaruBuri 유지
+    private val loadingArtistFont = FontLoader.regular(18f)    // 한국어 아티스트는 MaruBuri 유지
+    private val loadingBpmFont    = FontLoader.interLight(15f)
 
     // ── 렌더링 동기화 잠금 ────────────────────────────────────────────────────
     // SoA 배열은 GameLoopThread(update)와 EDT(render)에서 동시 접근 → lock
     internal val notesLock = Any()
-    override val useCustomGlRenderer: Boolean get() = true
+    override val useOpenGLRenderer: Boolean get() = true
 
-    /** NoteRenderer가 읽는 페이드인 알파 — render()와 renderCustomGl() 양쪽에서 공유. */
+    /** NoteRenderer가 읽는 페이드인 알파 — render()와 renderOpenGL() 양쪽에서 공유. */
     internal val laneAlpha: Float
         get() = if (phase == Phase.READY) when {
             readyElapsedMs < 1500.0 -> 0.0f
@@ -211,6 +248,7 @@ class PlayScene(
         readyElapsedMs = 0.0
         mediaStarted = false
         phase = Phase.READY
+        replayFrames.clear(); replayFrameNum = 0
 
         coverImage = null
         val coverPath = songEntry.song.coverImagePath
@@ -233,6 +271,7 @@ class PlayScene(
         // 미디어는 READY → PLAYING 전환 시 재생
         ctx.videoBackground.onFinished = { phase = Phase.RESULT }
         ctx.inputManager.clearEvents()
+        register(PlayRenderSystem())
     }
 
     override fun exit() {
@@ -264,10 +303,10 @@ class PlayScene(
                 if (mediaPath != null) {
                     ctx.videoBackground.play(mediaPath)
                     val speedVal = io.github.jwyoon1220.app.AppSettings.playSpeed
-                    val actualRate = if (speedVal <= 7.0f) {
-                        0.5f + ((speedVal - 0.5f) / 6.5f) * 0.5f
+                    val actualRate = if (speedVal <= SPEED_PIVOT) {
+                        SPEED_MIN_RATE + ((speedVal - SPEED_MIN_VAL) / SPEED_LOW_RANGE) * SPEED_MIN_RATE
                     } else {
-                        1.0f + ((speedVal - 7.0f) / 28.0f) * 1.0f
+                        1.0f + ((speedVal - SPEED_PIVOT) / SPEED_HIGH_RANGE)
                     }
                     ctx.videoBackground.setRate(actualRate)
                 }
@@ -288,11 +327,16 @@ class PlayScene(
         }
 
         // 입력 이벤트 처리 (handlePress/Release 내부에서 notesLock 사용)
+        pressedLanesBuf.clear()
+        releasedLanesBuf.clear()
         for (event in lastInput.laneEvents) {
             laneHeld[event.lane] = event.pressed
-            if (event.pressed) { HitSound.play(); handlePress(event.lane, now) }
-            else handleRelease(event.lane, now)
+            if (event.pressed) { pressedLanesBuf.add(event.lane); HitSound.play(); handlePress(event.lane, now) }
+            else               { releasedLanesBuf.add(event.lane); handleRelease(event.lane, now) }
         }
+        // 키 입력이 있는 프레임만 리플레이에 기록하므로 non-empty시에만 toList() 복사
+        replayLastPressedLanes  = if (pressedLanesBuf.isEmpty())  emptyList() else pressedLanesBuf.toList()
+        replayLastReleasedLanes = if (releasedLanesBuf.isEmpty()) emptyList() else releasedLanesBuf.toList()
 
         // SoA 스폰 + Miss/LONG 완료 처리 + 종료 체크 (단일 락)
         synchronized(notesLock) {
@@ -335,15 +379,39 @@ class PlayScene(
         }
 
         judgmentFadeMs -= (deltaTime * 1000).toLong()
+
+        // 리플레이 프레임 기록 (입력 또는 판정이 있는 프레임만)
+        if (replayLastPressedLanes.isNotEmpty() || replayLastReleasedLanes.isNotEmpty() || replayLastJudgment.isNotEmpty()) {
+            replayFrames.add(ReplayFrame(
+                frameNum           = replayFrameNum,
+                gameTimeMs         = now,
+                lanePressed        = replayLastPressedLanes,
+                laneReleased       = replayLastReleasedLanes,
+                score              = scoreEngine.score,
+                combo              = combo,
+                maxCombo           = scoreEngine.maxCombo,
+                judgmentCounts     = scoreEngine.counts.toList(),
+                judgmentThisFrame  = replayLastJudgment,
+                activeNoteIndices  = synchronized(notesLock) { (0 until soaSize).filter { soaActive[it] } }
+            ))
+            replayLastJudgment = ""
+        }
+        replayFrameNum++
     }
 
-    override fun render(g: DrawContext) {
+    private inner class PlayRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width
         val h = g.clipBounds.height
 
-        val hl      = (h * HIT_LINE_RATIO).toInt()
-        hitLineY    = hl
-        val lanesL  = (w - TOTAL_WIDTH) / 2
+        val hl     = hitLineY
+        val lanesL = (w - TOTAL_WIDTH) / 2
 
         val nowV    = if (phase == Phase.READY) readyElapsedMs - READY_DURATION_MS else currentTimeMs.toDouble()
         val nowD    = if (phase == Phase.READY) nowV else currentTimeDouble
@@ -357,9 +425,9 @@ class PlayScene(
         } else 0.0f
 
         if (infoAlpha > 0f) {
-            val oldComp = g.composite
+            val oldComp = g.globalAlpha
             if (infoAlpha < 1.0f) {
-                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, infoAlpha)
+                g.globalAlpha = infoAlpha
             }
 
             g.renderColor = RenderColor.of(10, 5, 20)
@@ -409,14 +477,14 @@ class PlayScene(
             }
 
             if (infoAlpha < 1.0f) {
-                g.composite = oldComp
+                g.globalAlpha = oldComp
             }
         }
 
         if (laneAlpha > 0f) {
-            val oldComp = g.composite
+            val oldComp = g.globalAlpha
             if (laneAlpha < 1.0f) {
-                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, laneAlpha)
+                g.globalAlpha = laneAlpha
             }
 
             g.renderColor = COLOR_OVERLAY
@@ -466,12 +534,13 @@ class PlayScene(
                 g.drawString(KEY_LABELS[i], lx + (LANE_WIDTH - keyFm.stringWidth(KEY_LABELS[i])) / 2, hl + 28)
             }
 
-        // 장식 (depth < 0: 노트 이전)
-        decorationRenderer?.render(g, currentTimeMs, beforeNotes = true)
-
-        // 장식 (depth ≥0: 노트 위) + 화면 효과
-        decorationRenderer?.render(g, currentTimeMs, beforeNotes = false)
-        decorationRenderer?.renderScreenEffects(g, currentTimeMs)
+        // 장식 + 화면 효과 — volatile 필드를 한 번만 읽어 3회 접근 제거
+        val dr = decorationRenderer
+        if (dr != null) {
+            dr.render(g, currentTimeMs, beforeNotes = true)
+            dr.render(g, currentTimeMs, beforeNotes = false)
+            dr.renderScreenEffects(g, currentTimeMs)
+        }
 
         // 콤보
         if (combo > 0) {
@@ -491,13 +560,13 @@ class PlayScene(
         // 판정 텍스트 (페이드아웃)
         if (judgmentFadeMs > 0 && judgmentText.isNotEmpty()) {
             val alpha = (judgmentFadeMs.toFloat() / JUDGE_FADE_MS).coerceIn(0f, 1f)
-            val old   = g.composite
-            g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
+            val old   = g.globalAlpha
+            g.globalAlpha = alpha
             g.font  = judgeFont
             g.renderColor = judgmentColor
             val jfm = judgeFontMetrics ?: g.getFontMetrics(judgeFont).also { judgeFontMetrics = it }
             g.drawString(judgmentText, (w - jfm.stringWidth(judgmentText)) / 2, hl - 70)
-            g.composite = old
+            g.globalAlpha = old
         }
 
         // 점수 (우상단)
@@ -537,28 +606,31 @@ class PlayScene(
         g.renderColor = COLOR_HINT_TEXT
         g.drawString("ESC: Back", 10, h - 10)
 
-        // READY 상태의 3초 카운트다운 렌더링
+        if (laneAlpha < 1.0f) {
+            g.globalAlpha = oldComp
+        }
+        }
+
+        // READY 상태의 3초 카운트다운 (laneAlpha 블록 밖 — 독립 렌더링)
         if (phase == Phase.READY && readyElapsedMs >= 2000.0) {
             renderReadyOverlay(g, w, h)
         }
 
-        // 결과 화면 오버레이
+        // 결과 화면 오버레이 (laneAlpha 블록 밖 — 항상 풀 알파)
         if (phase == Phase.RESULT) renderResult(g, w, h)
-
-        if (laneAlpha < 1.0f) {
-            g.composite = oldComp
-        }
     }
-}
 
-    private fun renderResult(g: DrawContext, w: Int, h: Int) {
-        // 반투명 어두운 배경
-        g.renderColor = RenderColor.of(0, 0, 0, 200)
+    private fun renderResult(g: io.github.jwyoon1220.engine.DrawContext, w: Int, h: Int) {
+        g.renderColor = COLOR_RESULT_OVERLAY
         g.fillRect(0, 0, w, h)
 
-        val counts = scoreEngine.counts
-        val score  = scoreEngine.score
-        val rank   = when {
+        val counts    = scoreEngine.counts
+        val score     = scoreEngine.score
+        val totalHits = counts[0] + counts[1] + counts[2] + counts[3]
+        val accuracy  = if (totalHits > 0)
+            (counts[0] * 100.0 + counts[1] * 70.0 + counts[2] * 30.0) / (totalHits * 100.0) * 100.0
+        else 0.0
+        val rank = when {
             score >= 980_000 -> "SS"
             score >= 950_000 -> "S"
             score >= 900_000 -> "A"
@@ -566,64 +638,66 @@ class PlayScene(
             score >= 600_000 -> "C"
             else             -> "D"
         }
+        val rankColor = when (rank) {
+            "SS" -> COLOR_RANK_SS
+            "S"  -> COLOR_RANK_S
+            "A"  -> COLOR_RANK_A
+            "B"  -> COLOR_RANK_B
+            "C"  -> COLOR_RANK_C
+            else -> COLOR_RANK_D
+        }
 
-        val cx = w / 2
-        var y  = h / 2 - 180
+        val cxF = (w / 2).toFloat()
+        var y  = h / 2 - 200
 
         // RESULT 타이틀
         g.font  = resultTitle
-        g.renderColor = RenderColor.of(200, 200, 220)
-        drawCenter(g, "RESULT", cx, y)
-        y += 70
+        g.renderColor = COLOR_RESULT_TITLE
+        g.drawStringCentered("RESULT", cxF, y.toFloat()); y += 68
 
-        // 점수
+        // 점수 (글로우)
+        val scoreStr = "%07d".format(score)
         g.font  = resultScore
-        g.renderColor = RenderColor.WHITE
-        drawCenter(g, "%07d".format(score), cx, y)
-        y += 20
+        g.renderColor = RenderColor.of(rankColor.r, rankColor.g, rankColor.b, 40)
+        g.setFontBlur(14f); g.drawStringCentered(scoreStr, cxF, y.toFloat()); g.setFontBlur(0f)
+        g.renderColor = COLOR_RESULT_SCORE
+        g.drawStringCentered(scoreStr, cxF, y.toFloat()); y += 18
 
-        // 랭크
-        val rankColor = when (rank) {
-            "SS" -> RenderColor.of(255, 220, 80)
-            "S"  -> RenderColor.of(200, 240, 255)
-            "A"  -> RenderColor.of(130, 220, 130)
-            "B"  -> RenderColor.of(130, 180, 255)
-            "C"  -> RenderColor.of(200, 200, 200)
-            else -> RenderColor.of(160, 100, 100)
-        }
+        // 랭크 (글로우 + 색상)
         g.font  = resultScore
+        g.renderColor = RenderColor.of(rankColor.r, rankColor.g, rankColor.b, 60)
+        g.setFontBlur(20f); g.drawStringCentered(rank, cxF, (y + 80).toFloat()); g.setFontBlur(0f)
         g.renderColor = rankColor
-        drawCenter(g, rank, cx, y + 75)
-        y += 140
+        g.drawStringCentered(rank, cxF, (y + 80).toFloat()); y += 150
+
+        // 정확도
+        g.font  = resultStat
+        g.renderColor = COLOR_RESULT_ACCURACY
+        g.drawStringCentered("Accuracy  %.2f%%".format(accuracy), cxF, y.toFloat()); y += 38
 
         // 판정 카운트
-        val line = "PERFECT ${counts[0]}   " +
-                   "GREAT ${counts[1]}   " +
-                   "GOOD ${counts[2]}   " +
-                   "MISS ${counts[3]}"
+        val line = "PERFECT ${counts[0]}   GREAT ${counts[1]}   GOOD ${counts[2]}   MISS ${counts[3]}"
         g.font  = resultStat
-        g.renderColor = RenderColor.of(180, 180, 200)
-        drawCenter(g, line, cx, y)
-        y += 40
+        g.renderColor = COLOR_RESULT_STAT
+        g.drawStringCentered(line, cxF, y.toFloat()); y += 38
 
         // 최대 콤보
         g.font  = resultStat
-        g.renderColor = RenderColor.of(150, 150, 170)
-        drawCenter(g, "MAX COMBO  ${scoreEngine.maxCombo}", cx, y)
-        y += 60
+        g.renderColor = COLOR_RESULT_STAT2
+        g.drawStringCentered("MAX COMBO  ${scoreEngine.maxCombo}", cxF, y.toFloat()); y += 52
 
         // 힌트
         g.font  = resultHint
-        g.renderColor = RenderColor.of(120, 120, 140)
-        drawCenter(g, "Enter : 곡 선택으로", cx, y)
+        g.renderColor = COLOR_RESULT_HINT
+        g.drawStringCentered("Enter : 곡 선택으로", cxF, y.toFloat())
     }
 
-    private fun renderReadyOverlay(g: DrawContext, w: Int, h: Int) {
+    private fun renderReadyOverlay(g: io.github.jwyoon1220.engine.DrawContext, w: Int, h: Int) {
         // "READY" label
-        g.font  = judgeFont
-        g.renderColor = RenderColor.of(180, 140, 240)
+        g.font  = readyLabelFont
+        g.renderColor = COLOR_READY_LABEL
         val readyLabel = "READY"
-        val rfm = judgeFontMetrics ?: g.getFontMetrics(judgeFont).also { judgeFontMetrics = it }
+        val rfm = readyLabelFontMetrics ?: g.getFontMetrics(readyLabelFont).also { readyLabelFontMetrics = it }
         g.drawString(readyLabel, (w - rfm.stringWidth(readyLabel)) / 2, h / 2 - 20)
 
         // Countdown number (3, 2, 1, GO!) with pulse
@@ -646,7 +720,8 @@ class PlayScene(
         val alpha = (fraction * 200 + 55).toInt().coerceIn(55, 255)
 
         g.font  = countdownFont
-        g.renderColor = if (countStr == "GO!") RenderColor.of(100, 255, 130, alpha) else RenderColor.of(255, 220, 80, alpha)
+        val baseColor = if (countStr == "GO!") COLOR_COUNTDOWN_GO else COLOR_RANK_SS
+        g.renderColor = RenderColor.of(baseColor.r, baseColor.g, baseColor.b, alpha)
         val cfm = countdownFontMetrics ?: g.getFontMetrics(countdownFont).also { countdownFontMetrics = it }
         g.drawString(countStr, (w - cfm.stringWidth(countStr)) / 2, h / 2 + cfm.ascent - 30)
     }
@@ -654,13 +729,8 @@ class PlayScene(
     override fun collectActiveGlEffects(): List<GlScreenEffectData> =
         decorationRenderer?.collectGlEffects(currentTimeMs) ?: emptyList()
 
-    override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
+    override fun renderOpenGL(renderer: GlQuadBatchRenderer) {
         ctx.noteRenderer.render(renderer, this)
-    }
-
-    private fun drawCenter(g: DrawContext, text: String, cx: Int, y: Int) {
-        val fm = g.fontMetrics
-        g.drawString(text, cx - fm.stringWidth(text) / 2, y)
     }
 
     override fun keyPressed(key: Int, mods: Int) {
@@ -708,9 +778,10 @@ class PlayScene(
     private fun applyJudgment(j: Judgment) {
         scoreEngine.onJudgment(j)
         combo = if (j != Judgment.MISS) combo + 1 else 0
-        judgmentText   = j.name
-        judgmentColor  = judgColor(j)
-        judgmentFadeMs = JUDGE_FADE_MS
+        judgmentText      = j.name
+        judgmentColor     = judgColor(j)
+        judgmentFadeMs    = JUDGE_FADE_MS
+        replayLastJudgment = j.name
     }
 
     private fun saveReplay() {
@@ -724,9 +795,7 @@ class PlayScene(
                 frames = replayFrames
             )
 
-            val mapper = ObjectMapper()
-            mapper.enable(SerializationFeature.INDENT_OUTPUT)
-            val jsonStr = mapper.writeValueAsString(replay)
+            val jsonStr = REPLAY_MAPPER.writeValueAsString(replay)
 
             val replayDir = File(songEntry.songDir, "replays").apply { mkdirs() }
             val outputFile = File(replayDir, "golden_replay.json")

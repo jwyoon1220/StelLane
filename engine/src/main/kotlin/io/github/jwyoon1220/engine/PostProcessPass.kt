@@ -377,14 +377,14 @@ class PostProcessPass {
         var dstFbo    = fboB
         var dstIsPing = true
 
+        glViewport(0, 0, w, h)
         val last = effects.size - 1
-        for ((idx, eff) in effects.withIndex()) {
+        for (idx in 0..last) {
+            val eff = effects[idx]
             if (idx == last) {
                 glBindFramebuffer(GL_FRAMEBUFFER, 0)
-                glViewport(0, 0, w, h)
             } else {
                 glBindFramebuffer(GL_FRAMEBUFFER, dstFbo)
-                glViewport(0, 0, w, h)
             }
 
             val shader = resolveShader(eff)

@@ -1,8 +1,8 @@
 package io.github.jwyoon1220.app.editor.sys
 
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.editor.EditorUtils
-import io.github.jwyoon1220.app.editor.comp.*
+import io.github.jwyoon1220.editor.EditorUtils
+import io.github.jwyoon1220.editor.comp.*
 import io.github.jwyoon1220.app.ecs.SelectMode
 import io.github.jwyoon1220.app.ecs.SettingsScene
 import io.github.jwyoon1220.app.ecs.SongSelectScene

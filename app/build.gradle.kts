@@ -1,10 +1,7 @@
 plugins {
     kotlin("jvm")
     application
-    id("com.google.protobuf") version "0.9.4"
 }
-
-val ktorVersion = "3.1.3"
 
 dependencies {
     implementation(project(":core"))
@@ -12,30 +9,12 @@ dependencies {
     implementation(project(":editor"))
     runtimeOnly(project(":assets")) // 에셋 모듈의 리소스를 포함
     implementation("it.unimi.dsi:fastutil:8.5.15")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.0")
     implementation("ch.qos.logback:logback-classic:1.5.18")
     implementation("commons-cli:commons-cli:1.9.0")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.0")
-    // 멀티플레이어: Ktor 서버 (호스트)
-    implementation("io.ktor:ktor-server-core:$ktorVersion")
-    implementation("io.ktor:ktor-server-cio:$ktorVersion")
-    implementation("io.ktor:ktor-server-websockets:$ktorVersion")
-    // 멀티플레이어: Ktor 클라이언트 (클라이언트/관전자)
-    implementation("io.ktor:ktor-client-core:$ktorVersion")
-    implementation("io.ktor:ktor-client-cio:$ktorVersion")
-    implementation("io.ktor:ktor-client-websockets:$ktorVersion")
-    // 멀티플레이어: Protobuf 직렬화
-    implementation("com.google.protobuf:protobuf-kotlin:4.29.3")
-    // 멀티플레이어: UPnP 포트 자동 개방
-    implementation("org.jupnp:org.jupnp:3.0.2")
-    implementation("org.jupnp:org.jupnp.support:3.0.2")
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-}
-
-protobuf {
-    protoc { artifact = "com.google.protobuf:protoc:4.29.3" }
-    generateProtoTasks { all().forEach { task -> task.builtins { create("kotlin") } } }
 }
 
 tasks.test {

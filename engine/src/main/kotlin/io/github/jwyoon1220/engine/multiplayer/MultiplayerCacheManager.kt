@@ -1,8 +1,9 @@
-package io.github.jwyoon1220.app.multiplayer
+package io.github.jwyoon1220.engine.multiplayer
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
 import org.slf4j.LoggerFactory
 import java.io.InputStream
 import java.nio.file.Files
@@ -12,13 +13,6 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.*
 
-/**
- * 멀티플레이어 맵 파일 캐시 (`~/.stellane/cache/`).
- *
- * - sha256 기반 캐시 히트 판별
- * - maxAgeDays 이상 미사용 항목 자동 삭제 (영상 포함)
- * - 앱 시작 시 [cleanExpired] 를 백그라운드에서 한 번 호출하면 됨
- */
 object MultiplayerCacheManager {
 
     private val log = LoggerFactory.getLogger(MultiplayerCacheManager::class.java)
@@ -35,7 +29,7 @@ object MultiplayerCacheManager {
         val sizeBytes: Long = 0L
     )
 
-    private val index = ConcurrentHashMap<String, CacheEntry>()
+    private val index = Object2ObjectOpenHashMap<String, CacheEntry>()
 
     init {
         cacheDir.createDirectories()
@@ -56,13 +50,15 @@ object MultiplayerCacheManager {
         }.onFailure { log.warn("캐시 인덱스 저장 실패: {}", it.message) }
     }
 
-    /** sha256 이 캐시에 존재하면 Path 반환, 없으면 null. lastUsedMs 갱신. */
+    /**
+     * sha256 이 캐시에 존재하면 Path 반환, 없으면 null.
+     * lastUsedMs는 메모리에만 갱신 — putCache/cleanExpired 때 일괄 저장.
+     */
     fun getCachedPath(sha256: String): Path? {
         val entry = index[sha256] ?: return null
         val path = cacheDir.resolve(entry.fileName)
         if (!path.exists()) { index.remove(sha256); saveIndex(); return null }
         entry.lastUsedMs = System.currentTimeMillis()
-        saveIndex()
         return path
     }
 

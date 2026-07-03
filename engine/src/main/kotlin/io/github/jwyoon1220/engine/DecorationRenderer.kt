@@ -1,4 +1,4 @@
-package io.github.jwyoon1220.app
+package io.github.jwyoon1220.engine
 
 import io.github.jwyoon1220.core.data.DecEffect
 import io.github.jwyoon1220.core.data.Decoration
@@ -8,7 +8,6 @@ import io.github.jwyoon1220.engine.AnimUtil
 import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GlScreenEffectData
 import io.github.jwyoon1220.engine.render.RenderColor
-import java.awt.AlphaComposite
 import java.awt.image.BufferedImage
 import java.io.File
 import java.util.Random
@@ -68,7 +67,8 @@ class DecorationRenderer(
      * [Renderer]가 FBO 캡처 전에 호출해 후처리 효과를 적용합니다.
      */
     fun collectGlEffects(currentMs: Long): List<GlScreenEffectData> {
-        val result = mutableListOf<GlScreenEffectData>()
+        // 효과가 없는 프레임에서 리스트 할당 방지 — 실제 활성 효과가 있을 때만 생성
+        var result: MutableList<GlScreenEffectData>? = null
         for (eff in data.screenEffects) {
             if (eff.type !in GL_EFFECT_TYPES) continue
             if (currentMs < eff.timeMs || currentMs >= eff.timeMs + eff.durationMs) continue
@@ -77,6 +77,7 @@ class DecorationRenderer(
             val t = AnimUtil.ease(rawT, eff.easing)
             val intensity = AnimUtil.lerp(eff.fromIntensity, eff.toIntensity, t)
             val shaderFile = if (eff.type == "shader" && eff.shaderFile.isNotEmpty()) File(songDir, eff.shaderFile) else null
+            if (result == null) result = mutableListOf()
             result.add(GlScreenEffectData(
                 type       = eff.type,
                 intensity  = intensity,
@@ -87,7 +88,7 @@ class DecorationRenderer(
                 shaderFile = shaderFile
             ))
         }
-        return result
+        return result ?: emptyList()
     }
 
     /**
@@ -175,8 +176,8 @@ class DecorationRenderer(
         val pivX = dec.pivotX * finalW
         val pivY = dec.pivotY * finalH
 
-        val oldComposite = g.composite
-        g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity.coerceIn(0f, 1f))
+        val oldAlpha = g.globalAlpha
+        g.globalAlpha = opacity.coerceIn(0f, 1f)
 
         if (img != null) {
             g.save()
@@ -188,7 +189,7 @@ class DecorationRenderer(
 
             if (tintA > 0) {
                 g.save()
-                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (tintA / 255f).coerceIn(0f, 1f))
+                g.globalAlpha = (tintA / 255f).coerceIn(0f, 1f)
                 g.translate(screenX.toDouble(), screenY.toDouble())
                 if (rotation != 0f) g.rotate(Math.toRadians(rotation.toDouble()))
                 g.translate(-pivX.toDouble(), -pivY.toDouble())
@@ -203,7 +204,7 @@ class DecorationRenderer(
             g.translate(screenX.toDouble(), screenY.toDouble())
             if (rotation != 0f) g.rotate(Math.toRadians(rotation.toDouble()))
             g.translate(-pivX.toDouble(), -pivY.toDouble())
-            g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, opacity.coerceIn(0f, 1f))
+            g.globalAlpha = opacity.coerceIn(0f, 1f)
             g.renderColor = RenderColor.YELLOW
             rng.setSeed(dec.timeMs + elapsedMs / 100)
             val count = (sparkleIntensity * 10).toInt().coerceIn(1, 100)
@@ -216,7 +217,7 @@ class DecorationRenderer(
             g.restore()
         }
 
-        g.composite = oldComposite
+        g.globalAlpha = oldAlpha
     }
 
     // ── 화면 전체 효과 ────────────────────────────────────────────────────────
@@ -230,30 +231,30 @@ class DecorationRenderer(
                 val peakT = if (rawT < 0.5f) rawT * 2f else (1f - rawT) * 2f
                 val alpha = (eff.a * peakT / 255f).coerceIn(0f, 1f)
                 if (alpha <= 0f) return
-                val old = g.composite
-                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
+                val old = g.globalAlpha
+                g.globalAlpha = alpha
                 g.renderColor = RenderColor.of(eff.r, eff.g, eff.b)
                 g.fillRect(0, 0, 1280, 720)
-                g.composite = old
+                g.globalAlpha = old
             }
             "colorOverlay" -> {
                 val alpha = (eff.a * (1f - t) / 255f).coerceIn(0f, 1f)
                 if (alpha <= 0f) return
-                val old = g.composite
-                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha)
+                val old = g.globalAlpha
+                g.globalAlpha = alpha
                 g.renderColor = RenderColor.of(eff.r, eff.g, eff.b)
                 g.fillRect(0, 0, 1280, 720)
-                g.composite = old
+                g.globalAlpha = old
             }
             "vignette" -> {
                 val strength = (eff.intensity * (1f - t)).coerceIn(0f, 1f)
                 if (strength <= 0f) return
                 val darkAlpha = (strength * 220).toInt().coerceIn(0, 220)
-                val old = g.composite
-                g.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f)
+                val old = g.globalAlpha
+                g.globalAlpha = 1f
                 g.fillRadialGradient(0f, 0f, 1280f, 720f, 640f, 360f, 280f, 700f,
                     RenderColor.of(0, 0, 0, 0), RenderColor.of(0, 0, 0, darkAlpha))
-                g.composite = old
+                g.globalAlpha = old
             }
         }
     }

@@ -2,10 +2,13 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.Keys
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 import org.slf4j.LoggerFactory
 import java.io.File
 import kotlin.math.*
@@ -77,12 +80,89 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
     private var mouseX = 0f
     private var mouseY = 0f
 
+    private inner class MenuRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+
+        private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
+            val t = time.toFloat()
+            val w = g.clipBounds.width
+            val h = g.clipBounds.height
+
+            g.renderColor = COLOR_BG_OVERLAY
+            g.fillRect(0, 0, w, h)
+
+            for (s in stars) {
+                val tw = (sin(t * 1.2f + s.twinkleOff) * 0.4f + 0.6f).toFloat()
+                val a  = (s.alpha * tw * 255).toInt().coerceIn(0, 255)
+                g.renderColor = RenderColor.of(200, 200, 255, a)
+                g.fillCircle(s.x, s.y, s.r * tw)
+            }
+
+            val panelW = 480
+            g.fillLinearGradient(0f, 0f, panelW.toFloat(), h.toFloat(), 0f, 0f, panelW.toFloat(), 0f, COLOR_PANEL_LEFT, COLOR_PANEL_RIGHT)
+            g.fillLinearGradient(0f, h * 0.72f, w.toFloat(), h * 0.28f, 0f, h * 0.72f, 0f, h.toFloat(), COLOR_BTM_LEFT, COLOR_BTM_RIGHT)
+
+            val logoX = 60f; val logoY = 165f
+            val glowAlpha = (sin(t * 0.7f) * 0.18f + 0.72f).toFloat()
+            g.font  = titleFont
+            g.renderColor = RenderColor.of(160, 100, 255, (glowAlpha * 90).toInt())
+            g.setFontBlur(12f); g.drawString("StelLane", logoX - 2f, logoY + 2f); g.setFontBlur(0f)
+            g.renderColor = COLOR_TITLE; g.drawString("StelLane", logoX, logoY)
+            g.font = subFont; g.renderColor = COLOR_SUBTITLE; g.drawString("RHYTHM GAME", logoX + 3f, logoY + 22f)
+
+            val lineY = logoY + 38f
+            g.renderColor = COLOR_LINE; g.stroke = java.awt.BasicStroke(1f)
+            g.drawLine(logoX.toInt(), lineY.toInt(), (logoX + 200).toInt(), lineY.toInt())
+
+            val menuStartX = logoX; val menuStartY = logoY + 80f; val rowH = 58f
+            menuItems.forEachIndexed { i, item ->
+                val selected = (i == selectedIndex); val hovered = (i == hoverIndex)
+                val fy = menuStartY + i * rowH
+                if (selected || hovered) {
+                    val barAlpha = if (selected) (sin(t * 2.5f) * 20 + 60).toInt() else 35
+                    g.renderColor = RenderColor.of(120, 70, 220, barAlpha)
+                    g.fillRoundRect(menuStartX - 12f, fy - 28f, 300f, 42f, 8f)
+                    val accentH = if (selected) 32f else 20f
+                    val accentY = fy - accentH / 2 - 6
+                    g.renderColor = if (selected) COLOR_ACCENT_SEL else COLOR_ACCENT_HOV
+                    g.fillRoundRect(menuStartX - 16f, accentY, 3f, accentH, 2f)
+                }
+                val pulse = if (selected) (sin(t * 3f) * 8 + 247).toInt().coerceIn(220, 255) else 0
+                g.font = if (selected || hovered) selFont else menuFont
+                if (selected) {
+                    g.renderColor = RenderColor.of(200, 150, 255, 80)
+                    g.setFontBlur(4f); g.drawString(item, menuStartX, fy); g.setFontBlur(0f)
+                }
+                g.renderColor = when {
+                    selected -> RenderColor.of(255, pulse, 255)
+                    hovered  -> COLOR_ITEM_HOV
+                    else     -> COLOR_ITEM_NORM
+                }
+                g.drawString(item, menuStartX, fy)
+            }
+
+            g.font = verFont; g.renderColor = COLOR_VERSION
+            g.drawString("v ${io.github.jwyoon1220.app.Const.VERSION}", logoX, h - 36f)
+            g.font = hintFont; g.renderColor = COLOR_HINT
+            g.drawString("↑↓  탐색    Enter  선택    클릭으로도 선택 가능", logoX, h.toFloat() - 18f)
+
+            val circleX = w - 120f; val circleY = h - 110f
+            val circleR = 200f + sin(t * 0.5f).toFloat() * 10f
+            g.fillRadialGradient(circleX - circleR, circleY - circleR, circleR * 2, circleR * 2,
+                circleX, circleY, 0f, circleR, COLOR_CIRCLE_INNER, COLOR_CIRCLE_OUTER)
+        }
+    }
+
     override fun enter() {
         super.enter()
         log.info("MainMenuScene enter, songs={}", ctx.songManager.songs.size)
         ctx.inputManager.clearEvents()
         selectedIndex = 0; hoverIndex = -1; time = 0.0
         playRandomClip()
+        register(MenuRenderSystem())
     }
 
     override fun exit() {
@@ -115,124 +195,6 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
         clipEndMs = clipStart + clipDuration; hasVideo = true
         ctx.videoBackground.onPlayingStarted = { ctx.videoBackground.seek(clipStart) }
         ctx.videoBackground.play(videoFile.absolutePath)
-    }
-
-    override fun render(g: DrawContext) {
-        val w = g.clipBounds.width
-        val h = g.clipBounds.height
-        val t = time.toFloat()
-
-        // ── 1. 비디오 위 어두운 오버레이 ─────────────────────────────────────
-        g.renderColor = COLOR_BG_OVERLAY
-        g.fillRect(0, 0, w, h)
-
-        // ── 2. 별 파티클 ──────────────────────────────────────────────────────
-        for (s in stars) {
-            val tw = (sin(t * 1.2f + s.twinkleOff) * 0.4f + 0.6f).toFloat()
-            val a  = (s.alpha * tw * 255).toInt().coerceIn(0, 255)
-            g.renderColor = RenderColor.of(200, 200, 255, a)
-            g.fillCircle(s.x, s.y, s.r * tw)
-        }
-
-        // ── 3. 왼쪽 그라디언트 사이드패널 ────────────────────────────────────
-        val panelW = 480
-        g.fillLinearGradient(
-            0f, 0f, panelW.toFloat(), h.toFloat(),
-            0f, 0f, panelW.toFloat(), 0f,
-            COLOR_PANEL_LEFT, COLOR_PANEL_RIGHT
-        )
-
-        // ── 4. 하단 그라디언트 ────────────────────────────────────────────────
-        g.fillLinearGradient(
-            0f, h * 0.72f, w.toFloat(), h * 0.28f,
-            0f, h * 0.72f, 0f, h.toFloat(),
-            COLOR_BTM_LEFT, COLOR_BTM_RIGHT
-        )
-
-        // ── 5. 타이틀 로고 ────────────────────────────────────────────────────
-        val logoX = 60f
-        val logoY = 165f
-
-        // 글로우 레이어
-        val glowAlpha = (sin(t * 0.7f) * 0.18f + 0.72f).toFloat()
-        g.font  = titleFont
-        g.renderColor = RenderColor.of(160, 100, 255, (glowAlpha * 90).toInt())
-        g.setFontBlur(12f)
-        g.drawString("StelLane", logoX - 2f, logoY + 2f)
-        g.setFontBlur(0f)
-
-        // 메인 타이틀
-        g.renderColor = COLOR_TITLE
-        g.drawString("StelLane", logoX, logoY)
-
-        // 서브타이틀
-        g.font  = subFont
-        g.renderColor = COLOR_SUBTITLE
-        g.drawString("RHYTHM GAME", logoX + 3f, logoY + 22f)
-
-        // 가로 구분선
-        val lineY = logoY + 38f
-        g.renderColor = COLOR_LINE
-        g.stroke = java.awt.BasicStroke(1f)
-        g.drawLine(logoX.toInt(), lineY.toInt(), (logoX + 200).toInt(), lineY.toInt())
-
-        // ── 6. 메뉴 항목 ─────────────────────────────────────────────────────
-        val menuStartX = logoX
-        val menuStartY = logoY + 80f
-        val rowH       = 58f
-
-        menuItems.forEachIndexed { i, item ->
-            val selected = (i == selectedIndex)
-            val hovered  = (i == hoverIndex)
-            val fy       = menuStartY + i * rowH
-
-            if (selected || hovered) {
-                val barAlpha = if (selected) (sin(t * 2.5f) * 20 + 60).toInt() else 35
-                g.renderColor = RenderColor.of(120, 70, 220, barAlpha)
-                g.fillRoundRect(menuStartX - 12f, fy - 28f, 300f, 42f, 8f)
-
-                val accentH = if (selected) 32f else 20f
-                val accentY = fy - accentH / 2 - 6
-                g.renderColor = if (selected) COLOR_ACCENT_SEL else COLOR_ACCENT_HOV
-                g.fillRoundRect(menuStartX - 16f, accentY, 3f, accentH, 2f)
-            }
-
-            val pulse = if (selected) (sin(t * 3f) * 8 + 247).toInt().coerceIn(220, 255) else 0
-            g.font = if (selected || hovered) selFont else menuFont
-
-            if (selected) {
-                g.renderColor = RenderColor.of(200, 150, 255, 80)
-                g.setFontBlur(4f)
-                g.drawString(item, menuStartX, fy)
-                g.setFontBlur(0f)
-            }
-
-            g.renderColor = when {
-                selected -> RenderColor.of(255, pulse, 255)
-                hovered  -> COLOR_ITEM_HOV
-                else     -> COLOR_ITEM_NORM
-            }
-            g.drawString(item, menuStartX, fy)
-        }
-
-        // ── 7. 버전 / 힌트 ────────────────────────────────────────────────────
-        g.font  = verFont
-        g.renderColor = COLOR_VERSION
-        g.drawString("v ${io.github.jwyoon1220.app.Const.VERSION}", logoX, h - 36f)
-
-        g.font  = hintFont
-        g.renderColor = COLOR_HINT
-        g.drawString("↑↓  탐색    Enter  선택    클릭으로도 선택 가능", logoX, h.toFloat() - 18f)
-
-        // ── 8. 우하단 장식 원 ─────────────────────────────────────────────────
-        val circleX = w - 120f
-        val circleY = h - 110f
-        val circleR = 200f + sin(t * 0.5f).toFloat() * 10f
-        g.fillRadialGradient(
-            circleX - circleR, circleY - circleR, circleR * 2, circleR * 2,
-            circleX, circleY, 0f, circleR,
-            COLOR_CIRCLE_INNER, COLOR_CIRCLE_OUTER
-        )
     }
 
     override fun keyPressed(key: Int, mods: Int) {

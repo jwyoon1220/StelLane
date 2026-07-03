@@ -3,12 +3,15 @@ package io.github.jwyoon1220.app.ecs
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.WindowMode
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
+import io.github.jwyoon1220.engine.render.RenderCommand
 import kotlin.math.sin
 
 /**
@@ -67,11 +70,19 @@ class SettingsScene(
         time   = 0.0; hoverIdx = -1
         volumeDragActive = false
         ctx.inputManager.clearEvents()
+        register(SettingsRenderSystem())
     }
 
     override fun onUpdate(deltaTime: Double) { time += deltaTime }
 
-    override fun render(g: DrawContext) {
+    private inner class SettingsRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            out.add(RenderCommand.LegacyDrawContext { renderContents(this) })
+        }
+    }
+
+    private fun renderContents(g: io.github.jwyoon1220.engine.DrawContext) {
         val w = g.clipBounds.width
         val h = g.clipBounds.height
         val t = time.toFloat()
@@ -257,7 +268,6 @@ class SettingsScene(
         g.drawStringCentered(hintText, w / 2f, py + ph - 22f)
     }
 
-    // ── 입력 ─────────────────────────────────────────────────────────────────
     override fun keyPressed(key: Int, mods: Int) {
         // 닉네임 편집 모드: 내비게이션 키를 가로챔
         if (editingNickname) {

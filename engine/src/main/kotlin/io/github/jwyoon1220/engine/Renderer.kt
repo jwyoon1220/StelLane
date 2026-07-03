@@ -119,7 +119,7 @@ class Renderer(
         drawContext.endFrame()
 
         // 8. 선택적 커스텀 OpenGL 패스 (State 구현 시)
-        if (current is CustomGLRenderable && current.useCustomGlRenderer) {
+        if (current is OpenGLRenderable && current.useOpenGLRenderer) {
             glQuadBatchRenderer.begin(
                 framebufferWidth = fbW,
                 framebufferHeight = fbH,
@@ -128,7 +128,7 @@ class Renderer(
                 drawW = dw.toFloat(),
                 drawH = dh.toFloat()
             )
-            current.renderCustomGl(glQuadBatchRenderer)
+            current.renderOpenGL(glQuadBatchRenderer)
             glQuadBatchRenderer.end()
         }
 

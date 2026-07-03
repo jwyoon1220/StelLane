@@ -1,13 +1,19 @@
 package io.github.jwyoon1220.app.multiplayer
 
+import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
+import io.github.jwyoon1220.engine.multiplayer.RemotePlayerState
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.app.ecs.MainMenuScene
 import io.github.jwyoon1220.app.ecs.PlayScene
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.SongEntry
-import io.github.jwyoon1220.engine.CustomGLRenderable
-import io.github.jwyoon1220.engine.DrawContext
+import io.github.jwyoon1220.engine.OpenGLRenderable
 import io.github.jwyoon1220.engine.GlEffectProvider
+import io.github.jwyoon1220.engine.ecs.InputSnapshot
+import io.github.jwyoon1220.engine.ecs.RenderProducer
+import io.github.jwyoon1220.engine.ecs.World
+import io.github.jwyoon1220.engine.render.RenderCommand
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.GlScreenEffectData
 import io.github.jwyoon1220.engine.render.RenderColor
@@ -29,7 +35,7 @@ class MultiplayerPlayScene(
     songEntry: SongEntry,
     chart: Chart,
     private val manager: MultiplayerManager
-) : io.github.jwyoon1220.engine.ecs.Scene(), CustomGLRenderable, GlEffectProvider {
+) : io.github.jwyoon1220.engine.ecs.Scene(), OpenGLRenderable, GlEffectProvider {
 
     private val inner = PlayScene(ctx, songEntry, chart)
     private val totalNotes = chart.notes.size
@@ -60,13 +66,14 @@ class MultiplayerPlayScene(
         finishSent = false
         exitToSpectator = false
         inner.enter()
+        register(HudRenderSystem())
         // 클라이언트 전용: 호스트가 끊어지면 메인 메뉴로 복귀
         manager.onHostDisconnected = {
             finishSent = true
             exitToSpectator = true
             manager.stop()
             ctx.multiplayerManager = null
-            ctx.sceneRouter.navigate(io.github.jwyoon1220.app.ecs.MainMenuScene(ctx))
+            ctx.sceneRouter.navigate(MainMenuScene(ctx))
         }
     }
 
@@ -84,7 +91,7 @@ class MultiplayerPlayScene(
         inner.update(deltaTime)
 
         // 곡이 정상 종료된 경우 관전 대기 화면으로 전환
-        if (!finishSent && inner.phase == io.github.jwyoon1220.app.ecs.PlayScene.Phase.RESULT) {
+        if (!finishSent && inner.phase == PlayScene.Phase.RESULT) {
             finishSent = true
             goSpectate()
             return
@@ -118,19 +125,23 @@ class MultiplayerPlayScene(
         ctx.sceneRouter.navigate(SpectatorScene(ctx, manager))
     }
 
-    override fun render(g: DrawContext) {
-        inner.render(g)
-        renderMultiplayerHud(g)
+    private inner class HudRenderSystem : RenderProducer {
+        override fun update(world: World, input: InputSnapshot, deltaTime: Double) = Unit
+        override fun produce(world: World, out: MutableList<RenderCommand>) {
+            // Gather inner PlayScene's render commands first, then add HUD on top
+            inner.gatherRenderCommands().forEach { out.add(it) }
+            out.add(RenderCommand.LegacyDrawContext { renderMultiplayerHud(this) })
+        }
     }
 
     // ── 멀티플레이어 HUD 오버레이 ────────────────────────────────────────────────
 
-    private fun renderMultiplayerHud(g: DrawContext) {
+    private fun renderMultiplayerHud(g: io.github.jwyoon1220.engine.DrawContext) {
         renderRankings(g)
         renderProgress(g)
     }
 
-    private fun renderRankings(g: DrawContext) {
+    private fun renderRankings(g: io.github.jwyoon1220.engine.DrawContext) {
         val rankings = manager.rankings
         val count = min(rankings.size, 10)
         if (count == 0) return
@@ -172,7 +183,7 @@ class MultiplayerPlayScene(
         }
     }
 
-    private fun renderProgress(g: DrawContext) {
+    private fun renderProgress(g: io.github.jwyoon1220.engine.DrawContext) {
         val currentMs = inner.currentTimeMs.coerceAtLeast(0L)
         val curStr  = formatMs(currentMs)
         val totStr  = formatMs(totalMs)
@@ -207,10 +218,10 @@ class MultiplayerPlayScene(
         return "%d:%02d".format(min, s)
     }
 
-    // ── CustomGLRenderable / GlEffectProvider 위임 ───────────────────────────────
+    // ── OpenGLRenderable / GlEffectProvider 위임 ─────────────────────────────────
 
-    override val useCustomGlRenderer: Boolean get() = inner.useCustomGlRenderer
-    override fun renderCustomGl(renderer: GlQuadBatchRenderer) = inner.renderCustomGl(renderer)
+    override val useOpenGLRenderer: Boolean get() = inner.useOpenGLRenderer
+    override fun renderOpenGL(renderer: GlQuadBatchRenderer) = inner.renderOpenGL(renderer)
     override fun collectActiveGlEffects(): List<GlScreenEffectData> = inner.collectActiveGlEffects()
 
     // ── 입력 위임 ────────────────────────────────────────────────────────────────

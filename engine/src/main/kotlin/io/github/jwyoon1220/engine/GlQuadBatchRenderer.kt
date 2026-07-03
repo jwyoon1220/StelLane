@@ -110,7 +110,8 @@ class GlQuadBatchRenderer(
     private var uTexLoc = -1
 
     private val maxVertices = maxQuads * VERTS_PER_QUAD
-    private val vertexData = FloatArray(maxVertices * STRIDE_FLOATS)
+    // 중간 FloatArray 제거 — uploadBuffer(오프힙)에 직접 쓰면 flush()에서 복사 1회 제거
+    private var floatIdx    = 0   // uploadBuffer 내 현재 쓰기 위치 (float 단위)
     private var vertexCount = 0
     private var boundTexture = -1
     private var frameBegun = false
@@ -180,9 +181,10 @@ class GlQuadBatchRenderer(
             return
         }
 
-        vertexCount = 0
+        vertexCount  = 0
+        floatIdx     = 0
         boundTexture = -1
-        frameBegun = true
+        frameBegun   = true
 
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
@@ -270,25 +272,31 @@ class GlQuadBatchRenderer(
         flush()
     }
 
+    // 오프힙 FloatBuffer에 절대 인덱스로 직접 씁니다.
+    // JVM 힙 FloatArray → 오프힙 복사 단계가 없어 flush() 시 memcopy 1회 제거됩니다.
     private fun putVertexF(x: Float, y: Float, u: Float, v: Float, r: Float, g: Float, b: Float, a: Float) {
-        val base = vertexCount++ * STRIDE_FLOATS
-        vertexData[base]     = x
-        vertexData[base + 1] = y
-        vertexData[base + 2] = u
-        vertexData[base + 3] = v
-        vertexData[base + 4] = r
-        vertexData[base + 5] = g
-        vertexData[base + 6] = b
-        vertexData[base + 7] = a
+        val base = floatIdx
+        uploadBuffer.put(base,     x)
+        uploadBuffer.put(base + 1, y)
+        uploadBuffer.put(base + 2, u)
+        uploadBuffer.put(base + 3, v)
+        uploadBuffer.put(base + 4, r)
+        uploadBuffer.put(base + 5, g)
+        uploadBuffer.put(base + 6, b)
+        uploadBuffer.put(base + 7, a)
+        floatIdx += STRIDE_FLOATS
+        vertexCount++
     }
 
     private fun flush() {
         if (!frameBegun || vertexCount <= 0) return
-        uploadBuffer.clear()
-        uploadBuffer.put(vertexData, 0, vertexCount * STRIDE_FLOATS)
-        uploadBuffer.flip()
+        val count = vertexCount
+        // position/limit 설정 후 glBufferSubData — GPU에 올릴 범위만 지정
+        uploadBuffer.position(0).limit(floatIdx)
         glBufferSubData(GL_ARRAY_BUFFER, 0L, uploadBuffer)
-        glDrawArrays(GL_TRIANGLES, 0, vertexCount)
+        uploadBuffer.limit(uploadBuffer.capacity())  // 다음 절대 인덱스 쓰기를 위해 복원
+        glDrawArrays(GL_TRIANGLES, 0, count)
+        floatIdx    = 0
         vertexCount = 0
     }
 }

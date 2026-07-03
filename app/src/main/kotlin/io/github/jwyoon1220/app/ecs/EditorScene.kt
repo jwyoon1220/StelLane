@@ -1,9 +1,10 @@
 package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.app.editor.comp.*
-import io.github.jwyoon1220.app.editor.render.*
-import io.github.jwyoon1220.app.editor.sys.*
+import io.github.jwyoon1220.editor.comp.*
+import io.github.jwyoon1220.editor.render.*
+import io.github.jwyoon1220.editor.sys.*
+import io.github.jwyoon1220.app.editor.sys.EditorInputSystem
 import io.github.jwyoon1220.app.resolveMediaPath
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.Decoration
@@ -11,7 +12,7 @@ import io.github.jwyoon1220.core.data.MutableChart
 import io.github.jwyoon1220.core.data.MutableNote
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.DecorationParser
-import io.github.jwyoon1220.engine.CustomGLRenderable
+import io.github.jwyoon1220.engine.OpenGLRenderable
 import io.github.jwyoon1220.engine.GlEffectProvider
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.GlScreenEffectData
@@ -30,10 +31,10 @@ class EditorScene(
     val songEntry: SongEntry,
     private val chartFile: File,
     chart: Chart,
-) : Scene(), CustomGLRenderable, ImGuiRenderable, GlEffectProvider {
+) : Scene(), OpenGLRenderable, ImGuiRenderable, GlEffectProvider {
 
     override val rendersBackground = true
-    override val useCustomGlRenderer: Boolean = true
+    override val useOpenGLRenderer: Boolean = true
 
     // ── 공유 뮤터블 상태 (시스템들이 생성자 주입으로 공유) ──────────────────────
 
@@ -79,7 +80,7 @@ class EditorScene(
         return decComp?.renderer?.collectGlEffects(t) ?: emptyList()
     }
 
-    override fun renderCustomGl(renderer: GlQuadBatchRenderer) {
+    override fun renderOpenGL(renderer: GlQuadBatchRenderer) {
         val texId = ctx.videoBackground.getGlTextureId()
         if (texId == 0 || editorEntity == 0L) return
         val layout = world.get<LayoutComp>(editorEntity) ?: return
@@ -125,9 +126,9 @@ class EditorScene(
 
         // 시스템 등록 (update 순서 중요)
         register(
-            PlaybackSystem(ctx, editorEntity, mutableChart.offsetMs),
+            PlaybackSystem(ctx.videoBackground, editorEntity, mutableChart.offsetMs),
             RecordingSystem(editorEntity, mutableChart, notesLock, bpm),
-            SeekSystem(ctx, editorEntity),
+            SeekSystem(ctx.videoBackground, editorEntity),
             EditorInputSystem(ctx, editorEntity, mutableChart, notesLock, bpm,
                 songEntry.songDir, chartFile, mutableChart.offsetMs),
             // 렌더 시스템 (produce 호출 순서 = 레이어 순서)
@@ -136,7 +137,7 @@ class EditorScene(
             LeftPanelRenderSystem(editorEntity),
             ProgramMonitorRenderSystem(editorEntity),
             TimelineRenderSystem(editorEntity, mutableChart, notesLock, bpm, mutableChart.offsetMs),
-            OverviewBarRenderSystem(editorEntity, mutableChart, notesLock, mutableChart.offsetMs, ctx),
+            OverviewBarRenderSystem(editorEntity, mutableChart, notesLock, mutableChart.offsetMs, ctx.videoBackground),
         )
 
         // 비디오 재생 시작
