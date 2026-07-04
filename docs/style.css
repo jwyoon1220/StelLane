@@ -136,7 +136,9 @@ header.scrolled {
   text-decoration: none;
   background: linear-gradient(135deg, var(--color-pink), var(--color-purple), var(--color-cyan));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
+  color: transparent;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -889,7 +891,12 @@ footer {
   text-decoration: none;
   background: linear-gradient(135deg, var(--color-pink), var(--color-purple));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
+  color: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .footer-links {
@@ -975,9 +982,10 @@ footer {
 .logo-img {
   width: 32px;
   height: 32px;
+  min-width: 32px;
   object-fit: contain;
-  margin-right: 8px;
-  vertical-align: middle;
+  flex-shrink: 0;
+  display: block;
   transition: var(--transition-smooth);
 }
 
