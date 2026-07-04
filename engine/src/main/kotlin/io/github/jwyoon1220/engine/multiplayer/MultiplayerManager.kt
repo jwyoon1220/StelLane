@@ -222,7 +222,13 @@ class MultiplayerManager {
             val pid = synchronized(sessionsLock) {
                 sessions.remove(session); sessionToPlayer.remove(session)
             }
-            if (pid != null) { _remotePlayers.remove(pid); rebuildRankings(); broadcastPlayerList() }
+            if (pid != null) {
+                _remotePlayers.remove(pid)
+                rebuildRankings()
+                broadcastPlayerList()
+                // FINISH 없이 연결이 끊겼을 때도 남은 플레이어가 모두 완료했으면 게임 종료
+                checkGameOver()
+            }
         }
     }
 

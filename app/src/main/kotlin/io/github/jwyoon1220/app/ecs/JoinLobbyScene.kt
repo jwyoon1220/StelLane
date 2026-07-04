@@ -66,9 +66,12 @@ class JoinLobbyScene(
             statusMsg = "호스트가 연결을 끊었습니다."
         }
         manager.onStartGame = { songRelPath, difficulty, files ->
-            // 필요한 파일 캐시 확인은 MultiplayerManager 내부에서 처리됨
-            // 약간의 딜레이 후 게임 전환 (파일 수신 대기)
             Thread {
+                // 관전자는 곡 파일이 없어도 되므로 파일 대기/차트 파싱 없이 바로 전환
+                if (spectate) {
+                    ctx.sceneRouter.navigate(SpectatorScene(ctx, manager))
+                    return@Thread
+                }
                 waitForFiles(files.map { it.sha256 })
                 val songEntry = findSongEntry(songRelPath)
                 if (songEntry == null) {
@@ -80,11 +83,7 @@ class JoinLobbyScene(
                     statusMsg = "차트 로드 실패"
                     return@Thread
                 }
-                if (spectate) {
-                    ctx.sceneRouter.navigate(SpectatorScene(ctx, manager))
-                } else {
-                    ctx.sceneRouter.navigate(MultiplayerPlayScene(ctx, songEntry, chart, manager))
-                }
+                ctx.sceneRouter.navigate(MultiplayerPlayScene(ctx, songEntry, chart, manager))
             }.apply { isDaemon = true; start() }
         }
     }

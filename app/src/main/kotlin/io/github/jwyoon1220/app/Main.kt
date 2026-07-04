@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.app
 
+import io.github.jwyoon1220.app.ecs.EulaScene
 import io.github.jwyoon1220.app.ecs.MainMenuScene
 import io.github.jwyoon1220.core.song.SongManager
 import io.github.jwyoon1220.engine.GLFWWindow
@@ -100,7 +101,8 @@ fun main(args: Array<String>) {
     inputManager.stateScroll        = { dy              -> sceneRouter.current?.mouseScrolled(dy) }
 
     songManager.load()
-    sceneRouter.navigate(MainMenuScene(ctx))
+    val startScene = if (AppSettings.eulaAccepted) MainMenuScene(ctx) else EulaScene(ctx)
+    sceneRouter.navigate(startScene)
 
     val gameLoop = GameLoop(window, sceneRouter, renderer, inputManager)
     ctx.gameLoop = gameLoop

@@ -44,4 +44,9 @@ object AppSettings {
     var nickname: String
         get() = prefs.get("nickname", System.getProperty("user.name") ?: "Player").take(16)
         set(v) { prefs.put("nickname", v.take(16)) }
+
+    /** EULA 동의 여부. 최초 실행 시 false. */
+    var eulaAccepted: Boolean
+        get() = prefs.getBoolean("eulaAccepted", false)
+        set(v) { prefs.putBoolean("eulaAccepted", v) }
 }

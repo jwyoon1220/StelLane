@@ -59,7 +59,13 @@ class SpectatorScene(
             g.renderColor = RenderColor.of(8, 5, 20)
             g.fillRect(0, 0, W, H)
 
-            val players = manager.remotePlayers.values.filter { it.role == "player" }
+            // localPlayerId 제외: 호스트는 자신을 remotePlayers에 등록하므로 본인 카드가 표시되는 것을 방지
+            // sortedBy(id): ConcurrentHashMap 이터레이션 순서가 불안정하므로 안정 순서로 고정
+            val players = manager.remotePlayers.values
+                .filter { it.role == "player" && it.id != manager.localPlayerId }
+                .sortedBy { it.id }
+            // 플레이어가 나가 목록이 줄었을 때 포커스 인덱스를 유효 범위로 클램핑
+            if (players.isNotEmpty() && focusIdx >= players.size) focusIdx = players.size - 1
             if (players.isEmpty()) {
                 g.font = titleFont
                 g.renderColor = RenderColor.of(140, 130, 170)
@@ -180,7 +186,9 @@ class SpectatorScene(
     override fun onUpdate(deltaTime: Double) { time += deltaTime }
 
     override fun keyPressed(key: Int, mods: Int) {
-        val players = manager.remotePlayers.values.filter { it.role == "player" }
+        val players = manager.remotePlayers.values
+            .filter { it.role == "player" && it.id != manager.localPlayerId }
+            .sortedBy { it.id }
         when (key) {
             Keys.LEFT  -> focusIdx = (focusIdx - 1 + players.size).coerceAtLeast(0) % players.size.coerceAtLeast(1)
             Keys.RIGHT -> focusIdx = (focusIdx + 1) % players.size.coerceAtLeast(1)
