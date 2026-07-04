@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StelLane - 별이 흐르는 리듬 위를 달려라 (StelLive Rhythm Fan Game)</title>
+  <meta name="description" content="스텔라이브(StelLive) 팬이 만든 Kotlin/JVM 기반 비공식 오픈소스 리듬 게임 프로젝트, StelLane을 플레이하고 나만의 채보를 만들어 보세요.">
+  <meta name="keywords" content="StelLane, 스텔라이브, StelLive, 팬게임, 리듬게임, 코틀린, Kotlin, JVM, GLFW, OpenGL">
+  
+  <!-- SEO & Social Media Metadata -->
+  <meta property="og:title" content="StelLane - 별이 흐르는 리듬 위를 달려라">
+  <meta property="og:description" content="스텔라이브 비공식 팬 리듬 게임 프로젝트, StelLane 공식 문서 및 가이드 페이지.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="StelLane">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Starfield Canvas and Nebula Glows -->
+  <canvas id="starfield"></canvas>
+  <div class="nebula-glow nebula-pink"></div>
+  <div class="nebula-glow nebula-purple"></div>
+  <div class="nebula-glow nebula-cyan"></div>
+
+  <!-- Navigation Bar -->
+  <header>
+    <a href="index.html" class="logo">
+      <i class="fas fa-meteor"></i> StelLane<span>Fan Game</span>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html">홈</a></li>
+        <li><a href="index.html#about">프로젝트 소개</a></li>
+        <li><a href="index.html#modules">모듈 구성</a></li>
+        <li><a href="guide.html">시작하기 (Guide)</a></li>
+        <li><a href="license.html">라이선스 (License)</a></li>
+      </ul>
+    </nav>
+    <a href="https://github.com/jwyoon1220/StelLane" target="_blank" rel="noopener noreferrer" class="nav-btn">
+      <i class="fab fa-github"></i> GitHub
+    </a>
+  </header>
+
+  <!-- Hero Section -->
+  <section id="home" class="hero">
+    <div class="hero-content">
+      <div class="badge-tag">
+        <i class="fas fa-circle-play"></i> StelLive unofficial fan game
+      </div>
+      <h1 class="hero-title">별이 흐르는<br><span class="glow">리듬 위를 달려라</span></h1>
+      <p class="hero-slogan">StelLane: Your way is our way. 🌠</p>
+      <p class="hero-desc">
+        StelLane은 <strong>스텔라이브(StelLive)</strong> 크리에이터들의 명곡을 다이내믹하게 즐길 수 있는 Kotlin/JVM 기반 오픈소스 리듬 게임입니다. 
+        GLFW/OpenGL을 이용한 고성능 렌더링 엔진과 VLC 미디어 플레이어를 백그라운드로 융합하여 환상적인 플레이 경험을 제공합니다.
+      </p>
+      <div class="hero-actions">
+        <a href="guide.html" class="btn-primary">
+          <i class="fas fa-rocket"></i> 지금 시작하기
+        </a>
+        <a href="#about" class="btn-secondary">
+          <i class="fas fa-info-circle"></i> 더 알아보기
+        </a>
+      </div>
+    </div>
+    
+    <div class="hero-visual">
+      <!-- Star animations and floating CSS rhythm lanes -->
+      <div class="lane-visual-container">
+        <div class="glow-star-bg"></div>
+        <div class="rhythm-lanes">
+          <div class="rhythm-lane"></div>
+          <div class="rhythm-lane"></div>
+          <div class="rhythm-lane"></div>
+          <div class="rhythm-lane"></div>
+          <div class="falling-note note-pink n1"></div>
+          <div class="falling-note note-purple n2"></div>
+          <div class="falling-note note-cyan n3"></div>
+          <div class="falling-note note-pink n4"></div>
+          <div class="falling-note note-purple n5"></div>
+          <div class="judge-line"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- About / Features Section -->
+  <section id="about">
+    <div class="section-header">
+      <span class="section-tag">Features</span>
+      <h2 class="section-title">주요 핵심 기능</h2>
+    </div>
+    
+    <div class="grid-cards">
+      <!-- Card 1 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-bolt"></i>
+        </div>
+        <h3 class="card-title">Kotlin & GLFW/OpenGL</h3>
+        <p class="card-desc">
+          현대적인 언어 Kotlin과 경량 그래픽 라이브러리인 GLFW/OpenGL(LWJGL)을 조합하여, 프레임 레이트 안정성과 미세한 레이턴시 입력을 완벽하게 관리합니다.
+        </p>
+      </div>
+      
+      <!-- Card 2 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-video"></i>
+        </div>
+        <h3 class="card-title">VLCJ 백그라운드 영상</h3>
+        <p class="card-desc">
+          VLC 미디어 플레이어 런타임을 연동하여 게임 플레이 백그라운드에서 고화질 오피셜 뮤직비디오(MV) 영상을 프레임 저하 없이 재생할 수 있습니다.
+        </p>
+      </div>
+      
+      <!-- Card 3 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-sliders"></i>
+        </div>
+        <h3 class="card-title">강력한 인게임 에디터</h3>
+        <p class="card-desc">
+          곡의 BPM과 타임라인에 맞춰 퀀타이즈, 노트 배치, 판정 영역 조정 등 리듬 게임 전반의 설정을 실시간으로 조율할 수 있는 차트 에디터를 장착하고 있습니다.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modules Structure Section -->
+  <section id="modules">
+    <div class="section-header">
+      <span class="section-tag">Architecture</span>
+      <h2 class="section-title">StelLane 모듈 설계</h2>
+    </div>
+    
+    <div class="modules-container">
+      <!-- App Module -->
+      <div class="module-row">
+        <div class="module-badge mb-app">app</div>
+        <div class="module-info">
+          <h3 class="module-name">게임 클라이언트</h3>
+          <p class="module-desc">사용자 메인 메뉴 인터페이스, 곡 선택 창, 리듬 플레이 필드, 그리고 핵심 게임 설정 화면을 탑재하고 있는 진입점입니다.</p>
+        </div>
+      </div>
+      
+      <!-- Core Module -->
+      <div class="module-row">
+        <div class="module-badge mb-core">core</div>
+        <div class="module-info">
+          <h3 class="module-name">게임 핵심 도메인</h3>
+          <p class="module-desc">노트와 채보 데이터(Song / Chart / Note), 판정 알고리즘(Perfect / Good / Miss) 및 채보 JSON 파서와 비즈니스 로직을 다룹니다.</p>
+        </div>
+      </div>
+      
+      <!-- Engine Module -->
+      <div class="module-row">
+        <div class="module-badge mb-engine">engine</div>
+        <div class="module-info">
+          <h3 class="module-name">게임 렌더링 엔진</h3>
+          <p class="module-desc">GLFW 게임 루프, 입력 이벤트 디스패처, VLCJ 비디오 스레드 렌더링 등 하드웨어 연동 중심의 백엔드입니다.</p>
+        </div>
+      </div>
+      
+      <!-- Editor Module -->
+      <div class="module-row">
+        <div class="module-badge mb-editor">editor</div>
+        <div class="module-info">
+          <h3 class="module-name">채보 편집 유틸리티</h3>
+          <p class="module-desc">타임라인 그리드 뷰, 퀀타이즈 계산, 노트 배치 정렬 등 채보를 창작하는 에디터 기능의 연산 백엔드입니다.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-content">
+      <a href="index.html" class="footer-logo">
+        <i class="fas fa-meteor"></i> StelLane
+      </a>
+      <div class="footer-links">
+        <a href="index.html#about">소개</a>
+        <a href="guide.html">설치법</a>
+        <a href="license.html">라이선스</a>
+        <a href="https://github.com/jwyoon1220/StelLane" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="mailto:stellane@parin.asia">문의 메일</a>
+      </div>
+    </div>
+    <div class="footer-copy">
+      &copy; 2026 jwyoon1220(코루틴). Unofficial fan game dedicated to <a href="https://stellive.me" target="_blank" rel="noopener noreferrer">StelLive</a>.<br>
+      StelLane is licensed under <a href="https://github.com/jwyoon1220/StelLane/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache 2.0 / GPL 3.0</a>. Docs are licensed under <a href="https://www.gnu.org/licenses/fdl-1.3.html" target="_blank" rel="noopener noreferrer">GNU FDL</a>.
+    </div>
+  </footer>
+
+  <!-- Script initialization -->
+  <script src="script.js"></script>
+</body>
+</html>
