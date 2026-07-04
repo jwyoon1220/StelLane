@@ -970,3 +970,19 @@ footer {
     justify-content: center;
   }
 }
+
+/* Custom SVG Logo image in header/footer */
+.logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  margin-right: 8px;
+  vertical-align: middle;
+  transition: var(--transition-smooth);
+}
+
+.logo:hover .logo-img {
+  transform: rotate(-15deg) scale(1.15);
+  filter: drop-shadow(0 0 8px var(--color-cyan));
+}
+

@@ -1,0 +1,38 @@
+StelLane End User License Agreement (EULA)
+Last Updated: July 4, 2026
+
+Please read this agreement carefully and agree to proceed.
+
+【Article 1: Definitions】
+  · "Software" refers to the StelLane rhythm game client and editor.
+  · "User Content" refers to all media and data loaded, created, or shared directly by the user, such as audio, videos, images, and chart (map) files.
+  · "Development Team" refers to the contributors and distributors of the StelLane source code.
+
+【Article 2: Permitted Scope】
+  · Users may freely use this Software for personal and non-commercial purposes.
+  · The source code is open to the public under the Apache License 2.0 (root) and GNU GPL 3.0 (engine module).
+
+【Article 3: Copyright and User Responsibility】
+  · This Software does not directly provide or bundle media files such as audio, videos, or images.
+  · The user bears all responsibility for complying with copyright laws regarding any User Content loaded into the Software or shared with others.
+  · Sharing or distributing chart files containing copyrighted audio, videos, or images of others online without the permission of the copyright holder may violate copyright laws. The user is solely responsible for any resulting legal liabilities.
+
+【Article 4: Multiplayer and Content Sharing】
+  · When hosting sessions or sharing content through multiplayer features, the host user is solely responsible for the copyright compliance of the shared User Content.
+  · The Development Team assumes no legal liability for copyright disputes, data leaks, or third-party damages arising during multiplayer play.
+
+【Article 5: Fan Game Notice】
+  · StelLane is an unofficial fan game created by fans of Stellive, and has no official relationship or affiliation with Stellive or its creators.
+  · We respect the works of the original copyright holders. Commercial use of this game is strictly prohibited.
+
+【Article 6: Disclaimer of Warranties】
+  · This Software is provided "as-is".
+  · The Development Team makes no warranties and assumes no liability for direct or indirect damages, data loss, or third-party copyright disputes arising from the use of the Software.
+  · By agreeing to this contract, the user is deemed to have fully understood and accepted the terms above.
+
+【Article 7: Amendments to the Agreement】
+  · The Development Team may amend this agreement along with software updates.
+  · In the event of amendments, users may be asked to re-agree upon the next launch.
+
+If you have read and understood all the contents, click the [Agree] button to continue.
+If you do not agree, you can exit the game by clicking the [Quit Game] button.
