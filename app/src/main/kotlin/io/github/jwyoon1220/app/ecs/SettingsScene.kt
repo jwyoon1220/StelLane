@@ -33,7 +33,7 @@ class SettingsScene(
     private val descFont   = FontLoader.light(12f)
     private val hintFont   = FontLoader.light(12f)
 
-    private val items = listOf("창 모드", "오디오/비디오 보정", "Music Volume", "프레임 제한", "VSync", "닉네임")
+    private val items = listOf("창 모드", "오디오/비디오 보정", "Music Volume", "프레임 제한", "VSync", "닉네임", "EULA 보기")
     private var cursor = 0
 
     // 로컬 편집용
@@ -92,12 +92,12 @@ class SettingsScene(
         g.fillRect(0, 0, w, h)
 
         // ── 중앙 패널 ────────────────────────────────────────────────────────
-        val pw = 720; val ph = 650
+        val pw = 720; val ph = 700
         val px = (w - pw) / 2; val py = (h - ph) / 2
 
         // 패널 배경 그라디언트
-        g.fillLinearGradient(
-            px.toFloat(), py.toFloat(), pw.toFloat(), ph.toFloat(),
+        g.fillLinearGradientRoundRect(
+            px.toFloat(), py.toFloat(), pw.toFloat(), ph.toFloat(), 18f,
             px.toFloat(), py.toFloat(), px.toFloat(), (py + ph).toFloat(),
             RenderColor.of(18, 12, 40, 248), RenderColor.of(10, 6, 26, 248)
         )
@@ -110,8 +110,8 @@ class SettingsScene(
         g.drawRoundRect((px - 1).toFloat(), (py - 1).toFloat(), (pw + 2).toFloat(), (ph + 2).toFloat(), 19f)
 
         // ── 패널 헤더 ─────────────────────────────────────────────────────────
-        g.fillLinearGradient(
-            px.toFloat(), py.toFloat(), pw.toFloat(), 72f,
+        g.fillLinearGradientRoundRectTop(
+            px.toFloat(), py.toFloat(), pw.toFloat(), 72f, 18f,
             px.toFloat(), py.toFloat(), px.toFloat(), (py + 72).toFloat(),
             RenderColor.of(45, 20, 100, 200), RenderColor.of(20, 10, 50, 100)
         )
@@ -137,8 +137,8 @@ class SettingsScene(
             val rowY     = itemStartY + i * rowH
 
             if (selected) {
-                g.fillLinearGradient(
-                    (px + 12).toFloat(), rowY.toFloat(), (pw - 24).toFloat(), rowH.toFloat(),
+                g.fillLinearGradientRoundRect(
+                    (px + 12).toFloat(), rowY.toFloat(), (pw - 24).toFloat(), (rowH - 8).toFloat(), 10f,
                     (px + 12).toFloat(), 0f, (px + pw - 12).toFloat(), 0f,
                     RenderColor.of(70, 35, 150, 100), RenderColor.of(40, 20, 80, 40)
                 )
@@ -158,6 +158,14 @@ class SettingsScene(
             g.font  = labelFont
             g.renderColor = if (selected) RenderColor.of(255, 230, 100) else if (hovered) RenderColor.of(190, 165, 230) else RenderColor.of(140, 125, 175)
             g.drawString(label, (px + 28).toFloat(), midY)
+
+            // EULA 보기 항목 전용 렌더링
+            if (i == 6) {
+                g.font = valueFont
+                g.renderColor = if (selected || hovered) RenderColor.of(180, 130, 255) else RenderColor.of(90, 75, 130)
+                g.drawStringRight("보기  →", (px + pw - 24).toFloat(), midY)
+                return@forEachIndexed
+            }
 
             // 닉네임 항목 전용 렌더링
             if (i == 5) {
@@ -254,6 +262,7 @@ class SettingsScene(
             3 -> "낮을수록 CPU 사용량 감소, 높을수록 화면이 부드럽습니다"
             4 -> "화면 찢김 방지. FPS 제한과 함께 사용 시 입력 지연이 생길 수 있습니다"
             5 -> "멀티플레이어에서 표시될 이름입니다 (최대 16자)"
+            6 -> "최종 사용자 라이선스 계약(EULA)을 다시 확인합니다"
             else -> ""
         }
         if (descText.isNotEmpty()) g.drawStringCentered(descText, w / 2f, py + ph - 46f)
@@ -283,7 +292,11 @@ class SettingsScene(
             Keys.DOWN  -> cursor = (cursor + 1) % items.size
             Keys.LEFT  -> changeValue(cursor, -1, shift)
             Keys.RIGHT -> changeValue(cursor, +1, shift)
-            Keys.ENTER -> if (cursor == 5) editingNickname = true else applyAndBack()
+            Keys.ENTER -> when (cursor) {
+                5 -> editingNickname = true
+                6 -> openEula()
+                else -> applyAndBack()
+            }
             Keys.ESCAPE -> applyAndBack()
         }
     }
@@ -298,7 +311,7 @@ class SettingsScene(
     override fun mousePressed(x: Float, y: Float, button: Int, mods: Int) {
         updateHover(x, y)
         if (button == Keys.MOUSE_LEFT) {
-            val pw = 720; val ph = 600
+            val pw = 720; val ph = 700
             val px = (1280 - pw) / 2; val py = (720 - ph) / 2
             val itemStartY = py + 72 + 36; val rowH = 76
             val rowY = itemStartY + 2 * rowH
@@ -331,7 +344,7 @@ class SettingsScene(
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
         updateHover(x, y)
-        val pw = 720; val ph = 650
+        val pw = 720; val ph = 700
         val px = (1280 - pw) / 2; val py = (720 - ph) / 2
 
         if (x < px || x > px + pw || y < py || y > py + ph) { applyAndBack(); return }
@@ -341,6 +354,8 @@ class SettingsScene(
             val rowY = itemStartY + i * rowH
             if (y < rowY || y > rowY + rowH - 1) return@forEachIndexed
             cursor = i
+
+            if (i == 6) { openEula(); return@forEachIndexed }
 
             if (i == 2) {
                 val sliderX = px + pw - 300f
@@ -374,7 +389,7 @@ class SettingsScene(
     }
 
     private fun updateHover(x: Float, y: Float) {
-        val pw = 720; val ph = 650
+        val pw = 720; val ph = 700
         val px = (1280 - pw) / 2; val py = (720 - ph) / 2
         if (x < px || x > px + pw || y < py || y > py + ph) { hoverIdx = -1; return }
         val itemStartY = py + 72 + 36; val rowH = 76
@@ -383,6 +398,19 @@ class SettingsScene(
             val rowY = itemStartY + i * rowH
             if (y in rowY.toFloat()..(rowY + rowH - 1).toFloat()) hoverIdx = i
         }
+    }
+
+    private fun openEula() {
+        val modeChanged = (localMode != AppSettings.windowMode)
+        AppSettings.windowMode          = localMode
+        AppSettings.calibrationOffsetMs = localOffset
+        AppSettings.musicVolume         = localVolume
+        AppSettings.targetFps           = localFps
+        AppSettings.nickname            = localNickname.trim().ifEmpty { "Player" }
+        if (ctx.gameLoop.targetFPS != localFps) ctx.gameLoop.targetFPS = localFps
+        if (localVSync != AppSettings.vSync) ctx.windowManager.applyVSync(localVSync)
+        if (modeChanged) ctx.windowManager.applyMode(localMode)
+        ctx.sceneRouter.navigate(EulaScene(ctx, SettingsScene(ctx, previous)))
     }
 
     private fun applyAndBack() {

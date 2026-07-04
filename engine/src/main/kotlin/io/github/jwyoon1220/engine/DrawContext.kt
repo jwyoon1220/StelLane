@@ -538,6 +538,30 @@ class DrawContext(
         nvgBeginPath(vg); nvgRect(vg, x, y, w, h); nvgFillPaint(vg, nvgPaint); nvgFill(vg)
     }
 
+    /** NanoVG 선형 그라디언트로 상단 모서리만 둥근 사각형을 채웁니다 (RenderColor 오버로드). */
+    fun fillLinearGradientRoundRectTop(
+        x: Float, y: Float, w: Float, h: Float, r: Float,
+        x0: Float, y0: Float, x1: Float, y1: Float,
+        startColor: RenderColor, endColor: RenderColor
+    ) {
+        nvgRGBAf(startColor.rf, startColor.gf, startColor.bf, startColor.af, nvgColor)
+        nvgRGBAf(endColor.rf, endColor.gf, endColor.bf, endColor.af, nvgColor2)
+        nvgLinearGradient(vg, x0, y0, x1, y1, nvgColor, nvgColor2, nvgPaint)
+        nvgBeginPath(vg); nvgRoundedRectVarying(vg, x, y, w, h, r, r, 0f, 0f); nvgFillPaint(vg, nvgPaint); nvgFill(vg)
+    }
+
+    /** NanoVG 선형 그라디언트로 둥근 사각형을 채웁니다 (RenderColor 오버로드). */
+    fun fillLinearGradientRoundRect(
+        x: Float, y: Float, w: Float, h: Float, r: Float,
+        x0: Float, y0: Float, x1: Float, y1: Float,
+        startColor: RenderColor, endColor: RenderColor
+    ) {
+        nvgRGBAf(startColor.rf, startColor.gf, startColor.bf, startColor.af, nvgColor)
+        nvgRGBAf(endColor.rf, endColor.gf, endColor.bf, endColor.af, nvgColor2)
+        nvgLinearGradient(vg, x0, y0, x1, y1, nvgColor, nvgColor2, nvgPaint)
+        nvgBeginPath(vg); nvgRoundedRect(vg, x, y, w, h, r); nvgFillPaint(vg, nvgPaint); nvgFill(vg)
+    }
+
     // ── 텍스트 정렬 변형 ─────────────────────────────────────────────────────
 
     /** 텍스트를 가운데 정렬로 그립니다. cx 가 중심 x 좌표. */

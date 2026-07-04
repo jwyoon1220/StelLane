@@ -3,6 +3,7 @@ package io.github.jwyoon1220.engine
 import org.lwjgl.glfw.Callbacks.glfwFreeCallbacks
 import org.lwjgl.glfw.GLFW.*
 import org.lwjgl.glfw.GLFWErrorCallback
+import org.lwjgl.glfw.GLFWImage
 import org.lwjgl.opengl.GL
 import org.lwjgl.opengl.GL11.glViewport
 import org.lwjgl.system.MemoryStack.stackPush
@@ -237,6 +238,9 @@ class GLFWWindow private constructor(val handle: Long) {
             val handle = glfwCreateWindow(actualW, actualH, title, actualMonitor, NULL)
             check(handle != NULL) { "GLFW 윈도우 생성 실패" }
 
+            // 아이콘 설정
+            setWindowIcon(handle)
+
             // WINDOWED: 화면 중앙
             if (mode == WindowMode.WINDOWED) {
                 val cx = (vidMode.width()  - width)  / 2
@@ -259,6 +263,36 @@ class GLFWWindow private constructor(val handle: Long) {
             val win = GLFWWindow(handle)
             win.currentMode = mode
             return win
+        }
+
+        private fun setWindowIcon(handle: Long) {
+            try {
+                GLFWWindow::class.java.getResourceAsStream("/icon.png")?.use { stream ->
+                    val bytes = stream.readAllBytes()
+                    val buffer = org.lwjgl.system.MemoryUtil.memAlloc(bytes.size)
+                    buffer.put(bytes)
+                    buffer.flip()
+                    
+                    stackPush().use { stack ->
+                        val w = stack.mallocInt(1)
+                        val h = stack.mallocInt(1)
+                        val comp = stack.mallocInt(1)
+                        val imageBuffer = org.lwjgl.stb.STBImage.stbi_load_from_memory(buffer, w, h, comp, 4)
+                        if (imageBuffer != null) {
+                            val image = GLFWImage.malloc(stack)
+                            image.set(w.get(0), h.get(0), imageBuffer)
+                            val images = GLFWImage.malloc(1, stack)
+                            images.put(0, image)
+                            glfwSetWindowIcon(handle, images)
+                            org.lwjgl.stb.STBImage.stbi_image_free(imageBuffer)
+                            LoggerFactory.getLogger(GLFWWindow::class.java).info("Window icon loaded successfully.")
+                        }
+                    }
+                    org.lwjgl.system.MemoryUtil.memFree(buffer)
+                }
+            } catch (e: Exception) {
+                LoggerFactory.getLogger(GLFWWindow::class.java).warn("Failed to load window icon: {}", e.message)
+            }
         }
     }
 }

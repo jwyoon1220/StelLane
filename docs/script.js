@@ -129,4 +129,26 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   }
+
+  // --- EULA Language Toggle ---
+  const eulaKoBtn = document.getElementById('eula-ko-btn');
+  const eulaEnBtn = document.getElementById('eula-en-btn');
+  const eulaKoContent = document.getElementById('eula-ko-content');
+  const eulaEnContent = document.getElementById('eula-en-content');
+
+  if (eulaKoBtn && eulaEnBtn && eulaKoContent && eulaEnContent) {
+    eulaKoBtn.addEventListener('click', () => {
+      eulaKoBtn.classList.add('active');
+      eulaEnBtn.classList.remove('active');
+      eulaKoContent.style.display = 'block';
+      eulaEnContent.style.display = 'none';
+    });
+
+    eulaEnBtn.addEventListener('click', () => {
+      eulaEnBtn.classList.add('active');
+      eulaKoBtn.classList.remove('active');
+      eulaKoContent.style.display = 'none';
+      eulaEnContent.style.display = 'block';
+    });
+  }
 });

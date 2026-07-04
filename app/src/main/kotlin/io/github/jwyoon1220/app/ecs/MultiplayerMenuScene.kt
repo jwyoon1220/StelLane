@@ -32,6 +32,9 @@ class MultiplayerMenuScene(private val ctx: GameContext) : Scene() {
     private var cursor = 0
     private var time   = 0.0
 
+    private enum class UpnpStatus { CHECKING, AVAILABLE, UNAVAILABLE }
+    @Volatile private var upnpStatus = UpnpStatus.CHECKING
+
     // 저작권 동의 모달 상태 (방 만들기 전용)
     private var showCopyrightModal = false
     private var copyrightChecked   = false
@@ -49,7 +52,7 @@ class MultiplayerMenuScene(private val ctx: GameContext) : Scene() {
             g.renderColor = RenderColor.of(0, 0, 0, 200); g.fillRect(0, 0, w, h)
             val pw = 560; val ph = 380; val px = (w - pw) / 2; val py = (h - ph) / 2
 
-            g.fillLinearGradient(px.toFloat(), py.toFloat(), pw.toFloat(), ph.toFloat(),
+            g.fillLinearGradientRoundRect(px.toFloat(), py.toFloat(), pw.toFloat(), ph.toFloat(), 16f,
                 px.toFloat(), py.toFloat(), px.toFloat(), (py + ph).toFloat(),
                 RenderColor.of(18, 12, 40, 248), RenderColor.of(10, 6, 26, 248))
             val glowA = (sin(t * 1.5f) * 20 + 80).toInt()
@@ -63,7 +66,7 @@ class MultiplayerMenuScene(private val ctx: GameContext) : Scene() {
             items.forEachIndexed { i, label ->
                 val selected = i == cursor; val iy = startY + i * rowH
                 if (selected) {
-                    g.fillLinearGradient((px + 12).toFloat(), iy.toFloat(), (pw - 24).toFloat(), rowH.toFloat(),
+                    g.fillLinearGradientRoundRect((px + 12).toFloat(), iy.toFloat(), (pw - 24).toFloat(), (rowH - 8).toFloat(), 10f,
                         (px + 12).toFloat(), 0f, (px + pw - 12).toFloat(), 0f,
                         RenderColor.of(70, 35, 150, 100), RenderColor.of(40, 20, 80, 40))
                     val bA = (sin(t * 2f) * 20 + 80).toInt()
@@ -77,6 +80,42 @@ class MultiplayerMenuScene(private val ctx: GameContext) : Scene() {
                 g.drawString(label, (px + 30).toFloat(), iy + 34f)
                 g.font = descFont; g.renderColor = RenderColor.of(110, 100, 140)
                 g.drawString(descs[i], (px + 30).toFloat(), iy + 56f)
+
+                // 방 만들기: UPnP 상태 배지
+                if (i == 0) {
+                    val bw = 118f; val bh = 20f
+                    val bx = (px + pw - 24).toFloat() - bw; val by = iy + 14f
+                    when (upnpStatus) {
+                        UpnpStatus.CHECKING -> {
+                            val a = ((sin(t * 3f) * 0.25f + 0.6f) * 255).toInt()
+                            g.renderColor = RenderColor.of(180, 160, 60, 30)
+                            g.fillRoundRect(bx, by, bw, bh, 6f)
+                            g.renderColor = RenderColor.of(200, 185, 80, 100)
+                            g.drawRoundRect(bx, by, bw, bh, 6f)
+                            g.font = hintFont
+                            g.renderColor = RenderColor.of(200, 185, 80, a)
+                            g.drawStringCentered("UPnP 확인 중...", bx + bw / 2f, by + bh - 5f)
+                        }
+                        UpnpStatus.AVAILABLE -> {
+                            g.renderColor = RenderColor.of(40, 160, 80, 45)
+                            g.fillRoundRect(bx, by, bw, bh, 6f)
+                            g.renderColor = RenderColor.of(80, 200, 120, 120)
+                            g.drawRoundRect(bx, by, bw, bh, 6f)
+                            g.font = hintFont
+                            g.renderColor = RenderColor.of(80, 210, 120)
+                            g.drawStringCentered("UPnP 지원됨", bx + bw / 2f, by + bh - 5f)
+                        }
+                        UpnpStatus.UNAVAILABLE -> {
+                            g.renderColor = RenderColor.of(160, 40, 40, 45)
+                            g.fillRoundRect(bx, by, bw, bh, 6f)
+                            g.renderColor = RenderColor.of(210, 80, 80, 120)
+                            g.drawRoundRect(bx, by, bw, bh, 6f)
+                            g.font = hintFont
+                            g.renderColor = RenderColor.of(210, 90, 80)
+                            g.drawStringCentered("UPnP 미지원", bx + bw / 2f, by + bh - 5f)
+                        }
+                    }
+                }
             }
 
             g.font = hintFont; g.renderColor = RenderColor.of(80, 68, 108)
@@ -94,7 +133,7 @@ class MultiplayerMenuScene(private val ctx: GameContext) : Scene() {
         val mw = 580; val mh = 260
         val mx = (w - mw) / 2; val my = (h - mh) / 2
 
-        g.fillLinearGradient(mx.toFloat(), my.toFloat(), mw.toFloat(), mh.toFloat(),
+        g.fillLinearGradientRoundRect(mx.toFloat(), my.toFloat(), mw.toFloat(), mh.toFloat(), 14f,
             mx.toFloat(), my.toFloat(), mx.toFloat(), (my + mh).toFloat(),
             RenderColor.of(20, 10, 44, 252), RenderColor.of(12, 6, 28, 252))
         g.renderColor = RenderColor.of(140, 80, 220, 180)
@@ -167,6 +206,10 @@ class MultiplayerMenuScene(private val ctx: GameContext) : Scene() {
         super.enter()
         cursor = 0; time = 0.0
         showCopyrightModal = false; copyrightChecked = false
+        upnpStatus = UpnpStatus.CHECKING
+        MultiplayerManager.checkUpnpAvailable { available ->
+            upnpStatus = if (available) UpnpStatus.AVAILABLE else UpnpStatus.UNAVAILABLE
+        }
         register(MenuRenderSystem())
     }
 

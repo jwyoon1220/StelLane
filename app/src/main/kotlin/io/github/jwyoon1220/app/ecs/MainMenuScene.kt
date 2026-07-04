@@ -24,21 +24,21 @@ import kotlin.system.exitProcess
 class MainMenuScene(private val ctx: GameContext) : Scene() {
 
     companion object {
-        private val COLOR_BG_OVERLAY = RenderColor.of(0, 0, 0, 185)
-        private val COLOR_PANEL_LEFT = RenderColor.of(18, 10, 38, 215)
-        private val COLOR_PANEL_RIGHT = RenderColor.of(0, 0, 0, 0)
+        private val COLOR_BG_OVERLAY = RenderColor.of(12, 8, 24, 110) // Lighter, more transparent overlay to let video MV shine through!
+        private val COLOR_PANEL_LEFT = RenderColor.of(25, 15, 45, 170) // Soft violet glassmorphism left panel
+        private val COLOR_PANEL_RIGHT = RenderColor.of(12, 8, 24, 0)
         private val COLOR_BTM_LEFT = RenderColor.of(0, 0, 0, 0)
-        private val COLOR_BTM_RIGHT = RenderColor.of(10, 5, 28, 200)
-        private val COLOR_TITLE = RenderColor.of(245, 235, 255)
-        private val COLOR_SUBTITLE = RenderColor.of(160, 130, 210, 200)
-        private val COLOR_LINE = RenderColor.of(100, 70, 160, 120)
-        private val COLOR_ACCENT_SEL = RenderColor.of(190, 130, 255)
-        private val COLOR_ACCENT_HOV = RenderColor.of(140, 100, 200, 150)
-        private val COLOR_ITEM_HOV = RenderColor.of(200, 170, 240)
-        private val COLOR_ITEM_NORM = RenderColor.of(160, 150, 185)
-        private val COLOR_VERSION = RenderColor.of(80, 68, 110)
-        private val COLOR_HINT = RenderColor.of(90, 78, 120)
-        private val COLOR_CIRCLE_INNER = RenderColor.of(80, 40, 160, 35)
+        private val COLOR_BTM_RIGHT = RenderColor.of(25, 10, 40, 160) // Soft glowing bottom right
+        private val COLOR_TITLE = RenderColor.of(255, 255, 255) // Pure white title
+        private val COLOR_SUBTITLE = RenderColor.of(59, 206, 242, 220) // Glowing cyan subtitle (pure and neat)
+        private val COLOR_LINE = RenderColor.of(255, 107, 157, 140) // Glowing pink divider line (cute and sexy)
+        private val COLOR_ACCENT_SEL = RenderColor.of(255, 107, 157) // Glowing pink selection bar
+        private val COLOR_ACCENT_HOV = RenderColor.of(59, 206, 242, 180) // Glowing cyan hover bar
+        private val COLOR_ITEM_HOV = RenderColor.of(255, 180, 210) // Pastel pink hover menu text
+        private val COLOR_ITEM_NORM = RenderColor.of(180, 175, 200) // Soft lavender normal menu text
+        private val COLOR_VERSION = RenderColor.of(120, 110, 150)
+        private val COLOR_HINT = RenderColor.of(140, 130, 170)
+        private val COLOR_CIRCLE_INNER = RenderColor.of(255, 107, 157, 45) // Glowing pink ambient aura
         private val COLOR_CIRCLE_OUTER = RenderColor.of(0, 0, 0, 0)
     }
 
@@ -122,22 +122,27 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
                 val selected = (i == selectedIndex); val hovered = (i == hoverIndex)
                 val fy = menuStartY + i * rowH
                 if (selected || hovered) {
-                    val barAlpha = if (selected) (sin(t * 2.5f) * 20 + 60).toInt() else 35
-                    g.renderColor = RenderColor.of(120, 70, 220, barAlpha)
-                    g.fillRoundRect(menuStartX - 12f, fy - 28f, 300f, 42f, 8f)
+                    val barAlpha = if (selected) (sin(t * 2.5f) * 20 + 75).toInt() else 40
+                    val colStart = if (selected) RenderColor.of(255, 107, 157, barAlpha) else RenderColor.of(59, 206, 242, barAlpha)
+                    val colEnd = if (selected) RenderColor.of(163, 112, 247, 0) else RenderColor.of(25, 15, 45, 0)
+                    g.fillLinearGradientRoundRect(
+                        menuStartX - 12f, fy - 28f, 300f, 42f, 8f,
+                        menuStartX - 12f, 0f, menuStartX + 288f, 0f,
+                        colStart, colEnd
+                    )
                     val accentH = if (selected) 32f else 20f
                     val accentY = fy - accentH / 2 - 6
                     g.renderColor = if (selected) COLOR_ACCENT_SEL else COLOR_ACCENT_HOV
                     g.fillRoundRect(menuStartX - 16f, accentY, 3f, accentH, 2f)
                 }
-                val pulse = if (selected) (sin(t * 3f) * 8 + 247).toInt().coerceIn(220, 255) else 0
+                val pulse = if (selected) (sin(t * 3.5f) * 12 + 243).toInt().coerceIn(220, 255) else 0
                 g.font = if (selected || hovered) selFont else menuFont
                 if (selected) {
-                    g.renderColor = RenderColor.of(200, 150, 255, 80)
-                    g.setFontBlur(4f); g.drawString(item, menuStartX, fy); g.setFontBlur(0f)
+                    g.renderColor = RenderColor.of(255, 107, 157, 90) // Soft pink glow behind text
+                    g.setFontBlur(5f); g.drawString(item, menuStartX, fy); g.setFontBlur(0f)
                 }
                 g.renderColor = when {
-                    selected -> RenderColor.of(255, pulse, 255)
+                    selected -> RenderColor.of(255, pulse, pulse) // Glowing white-pink text
                     hovered  -> COLOR_ITEM_HOV
                     else     -> COLOR_ITEM_NORM
                 }

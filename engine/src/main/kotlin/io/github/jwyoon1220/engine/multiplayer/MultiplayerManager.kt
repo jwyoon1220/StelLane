@@ -38,6 +38,27 @@ class MultiplayerManager {
     companion object {
         const val DEFAULT_PORT = 7777
         private const val CHUNK_SIZE = 256 * 1024  // 256 KB
+
+        /**
+         * UPnP 게이트웨이 장치가 존재하는지만 탐지합니다 (포트 매핑 없음).
+         * MultiplayerMenuScene에서 사전 안내용으로 사용합니다.
+         */
+        fun checkUpnpAvailable(onResult: (Boolean) -> Unit) {
+            Thread({
+                runCatching {
+                    val upnp = org.jupnp.UpnpServiceImpl(StelLaneUpnpConfiguration())
+                    upnp.startup()
+                    if (!upnp.router.isEnabled) upnp.router.enable()
+                    Thread.sleep(2000)
+                    val found = upnp.registry.devices.any { device ->
+                        device.findService(org.jupnp.model.types.UDAServiceType("WANIPConnection")) != null ||
+                        device.findService(org.jupnp.model.types.UDAServiceType("WANPPPConnection")) != null
+                    }
+                    upnp.shutdown()
+                    onResult(found)
+                }.onFailure { onResult(false) }
+            }, "stellane-upnp-check").apply { isDaemon = true; start() }
+        }
     }
 
     // ── 공개 상태 (게임 루프에서 읽기 전용) ─────────────────────────────────────
@@ -444,8 +465,9 @@ class MultiplayerManager {
         val localIp = getLocalIp()
         Thread({
             runCatching {
-                val upnp = org.jupnp.UpnpServiceImpl(org.jupnp.DefaultUpnpServiceConfiguration())
+                val upnp = org.jupnp.UpnpServiceImpl(StelLaneUpnpConfiguration())
                 upnp.startup()
+                if (!upnp.router.isEnabled) upnp.router.enable()
                 Thread.sleep(2000)
 
                 var found = false

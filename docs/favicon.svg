@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Soft Glow -->
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#a370f7" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#070512" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Meteor Tail Gradient -->
+    <linearGradient id="tailGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff6b9d" stop-opacity="0"/>
+      <stop offset="30%" stop-color="#ff6b9d" stop-opacity="0.4"/>
+      <stop offset="70%" stop-color="#a370f7" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#3bcef2" stop-opacity="1"/>
+    </linearGradient>
+
+    <!-- Meteor Core Glow -->
+    <radialGradient id="coreGlow" cx="65%" cy="65%" r="35%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#e0f7fc"/>
+      <stop offset="80%" stop-color="#3bcef2" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#3bcef2" stop-opacity="0"/>
+    </radialGradient>
+    
+    <!-- Star Glow -->
+    <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffd166"/>
+      <stop offset="100%" stop-color="#ffd166" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Ambient Glow -->
+  <circle cx="256" cy="256" r="240" fill="url(#bgGlow)"/>
+
+  <!-- Meteor Tail Streams (Dynamic Lanes Style) -->
+  <g transform="translate(20, 20)">
+    <!-- Stream 1 (Muted/Back) -->
+    <path d="M 60,80 L 360,340 C 375,355 375,375 360,390 L 360,390 C 345,405 325,405 310,390 L 60,120 Z" fill="url(#tailGrad)" opacity="0.6"/>
+    <!-- Stream 2 (Main) -->
+    <path d="M 100,50 L 390,300 C 410,320 410,350 390,370 C 370,390 340,390 320,370 L 50,160 Z" fill="url(#tailGrad)"/>
+    <!-- Stream 3 (Cyan highlight/Front) -->
+    <path d="M 160,120 L 390,320 C 400,330 400,345 390,355 C 380,365 365,365 355,355 L 120,180 Z" fill="#3bcef2" opacity="0.4"/>
+  </g>
+
+  <!-- Meteor Head Core -->
+  <circle cx="390" cy="350" r="65" fill="url(#coreGlow)"/>
+  <circle cx="390" cy="350" r="28" fill="#ffffff" filter="drop-shadow(0 0 10px #3bcef2)"/>
+
+  <!-- Glowing Star Sparkles -->
+  <!-- Star 1 (Gold, Top Right) -->
+  <g transform="translate(420, 100)">
+    <path d="M 0,-30 Q 0,0 30,0 Q 0,0 0,30 Q 0,0 -30,0 Q 0,0 0,-30 Z" fill="#ffd166" filter="drop-shadow(0 0 8px #ffd166)"/>
+  </g>
+  
+  <!-- Star 2 (Pink, Bottom Left) -->
+  <g transform="translate(100, 380) scale(0.7)">
+    <path d="M 0,-30 Q 0,0 30,0 Q 0,0 0,30 Q 0,0 -30,0 Q 0,0 0,-30 Z" fill="#ff6b9d" filter="drop-shadow(0 0 8px #ff6b9d)"/>
+  </g>
+
+  <!-- Star 3 (Cyan, Center Top) -->
+  <g transform="translate(240, 80) scale(0.5)">
+    <path d="M 0,-30 Q 0,0 30,0 Q 0,0 0,30 Q 0,0 -30,0 Q 0,0 0,-30 Z" fill="#3bcef2" filter="drop-shadow(0 0 8px #3bcef2)"/>
+  </g>
+</svg>

@@ -52,51 +52,51 @@ class PlayScene(
 ) : Scene(), OpenGLRenderable, GlEffectProvider {
 
     companion object {
-        private val COLOR_OVERLAY = RenderColor.of(0, 0, 0, 130)
-        private val COLOR_LANE_HELD = RenderColor.of(70, 70, 130, 200)
-        private val COLOR_LANE_NORMAL = RenderColor.of(25, 25, 45, 200)
-        private val COLOR_LANE_LINE = RenderColor.of(70, 70, 100, 180)
-        private val COLOR_BEAT_LINE = RenderColor.of(70, 70, 100, 50)
-        private val COLOR_JUDGE_LINE = RenderColor.of(230, 230, 255)
+        private val COLOR_OVERLAY = RenderColor.of(0, 0, 0, 95) // Lighter overlay to let MV video shine in game
+        private val COLOR_LANE_HELD = RenderColor.of(255, 107, 157, 100) // Glowing pink when pressed
+        private val COLOR_LANE_NORMAL = RenderColor.of(15, 10, 32, 175) // Translucent deep space violet lane background
+        private val COLOR_LANE_LINE = RenderColor.of(163, 112, 247, 130) // Glowing purple lane borders
+        private val COLOR_BEAT_LINE = RenderColor.of(163, 112, 247, 40)
+        private val COLOR_JUDGE_LINE = RenderColor.of(59, 206, 242) // Glowing cyan judge line
         private val STROKE_JUDGE = BasicStroke(3f)
 
-        private val COLOR_SHORT_FILL = RenderColor.of(255, 210, 80)
-        private val COLOR_SHORT_BORDER = RenderColor.of(255, 245, 170)
-        private val COLOR_LONG_BODY = RenderColor.of(160, 80, 255, 150)
-        private val COLOR_LONG_FILL = RenderColor.of(190, 120, 255)
-        private val COLOR_LONG_BORDER = RenderColor.of(225, 185, 255)
+        private val COLOR_SHORT_FILL = RenderColor.of(255, 107, 157) // Cute pink short notes
+        private val COLOR_SHORT_BORDER = RenderColor.of(255, 255, 255)
+        private val COLOR_LONG_BODY = RenderColor.of(59, 206, 242, 100) // Translucent cyan long note body
+        private val COLOR_LONG_FILL = RenderColor.of(59, 206, 242) // Cyan long note head
+        private val COLOR_LONG_BORDER = RenderColor.of(255, 255, 255)
         private val KEY_LABELS = arrayOf("D", "F", "J", "K")
 
-        // 재사용 RenderColor 상수 — renderOpenGL() 호출마다 객체 생성하지 않도록 미리 캐시
-        private val COLOR_KEY_NORMAL   = RenderColor.of(150, 150, 150)
-        private val COLOR_COMBO_LABEL  = RenderColor.of(180, 180, 180)
-        private val COLOR_STAT_TEXT    = RenderColor.of(160, 160, 160)
-        private val COLOR_HINT_TEXT    = RenderColor.of(100, 100, 110)
+        // 재사용 RenderColor 상수
+        private val COLOR_KEY_NORMAL   = RenderColor.of(200, 195, 220)
+        private val COLOR_COMBO_LABEL  = RenderColor.of(255, 255, 255)
+        private val COLOR_STAT_TEXT    = RenderColor.of(200, 190, 225)
+        private val COLOR_HINT_TEXT    = RenderColor.of(140, 130, 160)
 
         // 판정 색상 배열 (Judgment 순서와 일치)
         private val JUDGMENT_COLORS = arrayOf(
-            RenderColor.of(100, 220, 255),  // PERFECT
-            RenderColor.of(255, 220, 80),   // GREAT
-            RenderColor.of(100, 255, 130),  // GOOD
-            RenderColor.of(255, 80, 80)     // MISS
+            RenderColor.of(59, 206, 242),   // PERFECT - Cyan
+            RenderColor.of(255, 107, 157),  // GREAT - Pink
+            RenderColor.of(255, 209, 102),  // GOOD - Gold
+            RenderColor.of(255, 75, 75)     // MISS
         )
 
         // 결과 화면 색상 캐시
-        private val COLOR_RESULT_OVERLAY  = RenderColor.of(0, 0, 0, 210)
-        private val COLOR_RESULT_TITLE    = RenderColor.of(180, 160, 220)
+        private val COLOR_RESULT_OVERLAY  = RenderColor.of(10, 8, 22, 180) // Translucent results overlay
+        private val COLOR_RESULT_TITLE    = RenderColor.of(255, 107, 157) // Cute pink title
         private val COLOR_RESULT_SCORE    = RenderColor.WHITE
-        private val COLOR_RESULT_STAT     = RenderColor.of(180, 170, 210)
-        private val COLOR_RESULT_STAT2    = RenderColor.of(140, 130, 170)
-        private val COLOR_RESULT_HINT     = RenderColor.of(110, 100, 140)
-        private val COLOR_RESULT_ACCURACY = RenderColor.of(160, 210, 255)
-        private val COLOR_RANK_SS  = RenderColor.of(255, 220, 80)
-        private val COLOR_RANK_S   = RenderColor.of(200, 240, 255)
-        private val COLOR_RANK_A   = RenderColor.of(130, 220, 130)
-        private val COLOR_RANK_B   = RenderColor.of(130, 180, 255)
+        private val COLOR_RESULT_STAT     = RenderColor.of(220, 215, 240)
+        private val COLOR_RESULT_STAT2    = RenderColor.of(160, 150, 185)
+        private val COLOR_RESULT_HINT     = RenderColor.of(120, 110, 145)
+        private val COLOR_RESULT_ACCURACY = RenderColor.of(59, 206, 242)
+        private val COLOR_RANK_SS  = RenderColor.of(255, 209, 102)
+        private val COLOR_RANK_S   = RenderColor.of(255, 255, 255)
+        private val COLOR_RANK_A   = RenderColor.of(255, 107, 157)
+        private val COLOR_RANK_B   = RenderColor.of(163, 112, 247)
         private val COLOR_RANK_C   = RenderColor.of(200, 200, 200)
         private val COLOR_RANK_D   = RenderColor.of(160, 100, 100)
-        private val COLOR_READY_LABEL = RenderColor.of(180, 140, 240)
-        private val COLOR_COUNTDOWN_GO = RenderColor.of(100, 255, 130)
+        private val COLOR_READY_LABEL = RenderColor.of(255, 107, 157)
+        private val COLOR_COUNTDOWN_GO = RenderColor.of(59, 206, 242)
 
         private val REPLAY_MAPPER = com.fasterxml.jackson.databind.ObjectMapper().apply {
             enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT)
