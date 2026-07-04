@@ -130,18 +130,21 @@ header.scrolled {
 
 .logo {
   font-family: var(--font-title);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-text {
   font-size: 1.8rem;
   font-weight: 800;
   letter-spacing: 2px;
-  text-decoration: none;
   background: linear-gradient(135deg, var(--color-pink), var(--color-purple), var(--color-cyan));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .logo span {
@@ -886,17 +889,20 @@ footer {
 
 .footer-logo {
   font-family: var(--font-title);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer-logo .logo-text {
   font-size: 1.5rem;
   font-weight: 800;
-  text-decoration: none;
   background: linear-gradient(135deg, var(--color-pink), var(--color-purple));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .footer-links {
