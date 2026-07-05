@@ -17,6 +17,9 @@ message Envelope {
     FileRequestMsg file_request  = 9;
     FileChunkMsg   file_chunk    = 10;
     ReadyMsg       ready         = 11;
+    ClockPingMsg      clock_ping      = 12;
+    ClockPongMsg      clock_pong      = 13;
+    CalibrateStartMsg calibrate_start = 14;
   }
 }
 
@@ -34,13 +37,15 @@ message PlayerInfo {
   string id   = 1;
   string name = 2;
   string role = 3;
+  bool   ready = 4;  // 오프셋 보정(ReadyMsg) 완료 여부 — 로비 대기 UI에서 사용
 }
 
+// 최종 동기화 신호만 담음 — 곡 정보/파일 목록은 CalibrateStartMsg로 미리 전달되어 클라이언트가
+// 이미 플레이 화면(보정 대기 중)에 들어와 있는 상태에서 이 메시지로 실제 재생 시점만 확정한다.
+// 영상은 스트리밍하지 않고 차트/오디오와 동일하게 CalibrateStartMsg 시점에 전체 파일로 전달되므로
+// 여기서는 동기화된 재생 시각만 알려주면 된다.
 message StartMsg {
-  string song_rel_path  = 1;
-  string difficulty     = 2;
-  int32  countdown_ms   = 3;
-  repeated FileEntry files = 4;
+  int64  sync_epoch_ms  = 1;   // 영상 position 0이 되어야 할 호스트 wall-clock(System.currentTimeMillis)
 }
 
 message FileEntry {
@@ -62,6 +67,31 @@ message FileChunkMsg {
 
 message ReadyMsg {
   string player_id = 1;
+}
+
+// 클라이언트 -> 호스트: NTP 스타일 왕복의 시작. t0 = 클라이언트 송신 시각(클라이언트 클럭, ms epoch).
+message ClockPingMsg {
+  string player_id = 1;
+  int64  t0         = 2;
+}
+
+// 호스트 -> 클라이언트: t0을 그대로 반향하고, 호스트 수신/송신 시각(호스트 클럭, ms epoch)을 덧붙임.
+message ClockPongMsg {
+  string player_id = 1;
+  int64  t0         = 2;  // ping에서 반향
+  int64  t1         = 3;  // 호스트 수신 시각
+  int64  t2         = 4;  // 호스트 송신 시각
+}
+
+// 호스트 -> 전체 브로드캐스트: 곡 시작 준비 신호. 오프셋 보정용 테스트 HLS 스트림 URL과 함께
+// 곡 정보/파일 목록을 미리 전달해, 클라이언트가 (아직 최종 동기화 값은 모르는 채로) 곧바로
+// 플레이 화면으로 진입해 보정 대기 UI + 테스트 영상을 볼 수 있게 한다.
+// hls_url은 완전한 URL(예: "http://<hostIp>:<port>/hls/test/master.m3u8"), 비어있으면 보정 스킵.
+message CalibrateStartMsg {
+  string hls_url        = 1;
+  string song_rel_path  = 2;
+  string difficulty     = 3;
+  repeated FileEntry files = 4;  // 차트+오디오+영상 전체 목록 — 전부 즉시 요청/전송 대상
 }
 
 message JudgmentMsg {

@@ -141,6 +141,25 @@ class PlayScene(
     @Volatile internal var readyElapsedMs = 0.0
     @Volatile private var coverImage: java.awt.image.BufferedImage? = null
 
+    /**
+     * 멀티플레이어 오버라이드 훅. 설정되어 있으면 READY → PLAYING 전환 시 이 콜백이
+     * 기본 미디어 재생 로직(resolveMediaPath() 후 즉시 play()) 대신 호출됩니다. 콜백은
+     * ctx.videoBackground.play(...)를 호출할 책임을 전적으로 진다(예: syncEpochMs에 맞춘
+     * 지연 스케줄링). null이면 싱글플레이어 동작이 그대로 유지됩니다.
+     */
+    var mediaStartOverride: (() -> Unit)? = null
+
+    /**
+     * 멀티플레이어 오프셋 보정 게이트. null이면 게이트 없이 정상 진행(싱글플레이어 기본값).
+     * non-null이고 false를 반환하는 동안은 READY 카운트다운(readyElapsedMs)이 0에서 멈춰
+     * 진행되지 않으며, [calibrationOverlayRenderer]가 기본 READY 카운트다운 대신 렌더링됩니다.
+     * true를 반환하는 순간부터 정상적인 6초 READY 시퀀스(2초 대기 + 3,2,1,GO)가 시작됩니다.
+     */
+    var readyPhaseGate: (() -> Boolean)? = null
+
+    /** [readyPhaseGate]가 닫혀있는 동안(READY 페이즈에서) 매 프레임 호출되는 커스텀 오버레이. */
+    var calibrationOverlayRenderer: ((io.github.jwyoon1220.engine.DrawContext) -> Unit)? = null
+
     // FontMetrics 캐싱
     private var comboFontMetrics: DrawFontMetrics? = null
     private var judgeFontMetrics: DrawFontMetrics? = null
@@ -191,7 +210,7 @@ class PlayScene(
     @Volatile private var decorationRenderer: DecorationRenderer? = null
 
     private val comboFont      = FontLoader.interBold(60f)
-    private val judgeFont      = FontLoader.interBold(46f)
+    private val judgeFont      = FontLoader.bold(46f)
     private val scoreFont      = FontLoader.interSemiBold(28f)
     private val statFont       = FontLoader.interRegular(16f)
     private val hintFont       = FontLoader.interLight(14f)
@@ -201,8 +220,8 @@ class PlayScene(
     private val resultHint     = FontLoader.interLight(18f)
     private val readyLabelFont = FontLoader.interBold(48f)
     private val countdownFont  = FontLoader.interBold(200f)
-    private val loadingTitleFont  = FontLoader.bold(32f)       // 한국어 제목은 MaruBuri 유지
-    private val loadingArtistFont = FontLoader.regular(18f)    // 한국어 아티스트는 MaruBuri 유지
+    private val loadingTitleFont  = FontLoader.pretendardBold(32f)
+    private val loadingArtistFont = FontLoader.pretendardRegular(18f)
     private val loadingBpmFont    = FontLoader.interLight(15f)
 
     // ── 렌더링 동기화 잠금 ────────────────────────────────────────────────────
@@ -288,6 +307,8 @@ class PlayScene(
 
     override fun update(deltaTime: Double) {
         if (phase == Phase.READY) {
+            val gate = readyPhaseGate
+            if (gate != null && !gate()) return  // 보정 대기 중 — 카운트다운을 0에서 얼려둠
             readyElapsedMs += deltaTime * 1000.0
 
             if (readyElapsedMs >= 1500.0) {
@@ -299,16 +320,21 @@ class PlayScene(
 
             if (readyElapsedMs >= READY_DURATION_MS) {
                 phase = Phase.PLAYING
-                val mediaPath = resolveMediaPath()
-                if (mediaPath != null) {
-                    ctx.videoBackground.play(mediaPath)
-                    val speedVal = io.github.jwyoon1220.app.AppSettings.playSpeed
-                    val actualRate = if (speedVal <= SPEED_PIVOT) {
-                        SPEED_MIN_RATE + ((speedVal - SPEED_MIN_VAL) / SPEED_LOW_RANGE) * SPEED_MIN_RATE
-                    } else {
-                        1.0f + ((speedVal - SPEED_PIVOT) / SPEED_HIGH_RANGE)
+                val override = mediaStartOverride
+                if (override != null) {
+                    override()
+                } else {
+                    val mediaPath = resolveMediaPath()
+                    if (mediaPath != null) {
+                        ctx.videoBackground.play(mediaPath)
+                        val speedVal = io.github.jwyoon1220.app.AppSettings.playSpeed
+                        val actualRate = if (speedVal <= SPEED_PIVOT) {
+                            SPEED_MIN_RATE + ((speedVal - SPEED_MIN_VAL) / SPEED_LOW_RANGE) * SPEED_MIN_RATE
+                        } else {
+                            1.0f + ((speedVal - SPEED_PIVOT) / SPEED_HIGH_RANGE)
+                        }
+                        ctx.videoBackground.setRate(actualRate)
                     }
-                    ctx.videoBackground.setRate(actualRate)
                 }
                 mediaStarted = true
             }
@@ -612,8 +638,13 @@ class PlayScene(
         }
 
         // READY 상태의 3초 카운트다운 (laneAlpha 블록 밖 — 독립 렌더링)
-        if (phase == Phase.READY && readyElapsedMs >= 2000.0) {
-            renderReadyOverlay(g, w, h)
+        if (phase == Phase.READY) {
+            val gate = readyPhaseGate
+            if (gate != null && !gate()) {
+                calibrationOverlayRenderer?.invoke(g)
+            } else if (readyElapsedMs >= 2000.0) {
+                renderReadyOverlay(g, w, h)
+            }
         }
 
         // 결과 화면 오버레이 (laneAlpha 블록 밖 — 항상 풀 알파)

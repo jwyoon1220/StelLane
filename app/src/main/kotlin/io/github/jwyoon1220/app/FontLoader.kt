@@ -22,6 +22,19 @@ object FontLoader {
     fun light     (size: Float): DrawFont = FontRegistry.light(size)
     fun extraLight(size: Float): DrawFont = FontRegistry.extraLight(size)
 
+    // ── Pretendard (SIL OFL — 한국어/영문 현대 고딕) ────────────────────────
+    val pretendardRegular:    DrawFont get() = FontRegistry.pretendardRegular
+    val pretendardBold:       DrawFont get() = FontRegistry.pretendardBold
+    val pretendardSemiBold:   DrawFont get() = FontRegistry.pretendardSemiBold
+    val pretendardLight:      DrawFont get() = FontRegistry.pretendardLight
+    val pretendardExtraLight: DrawFont get() = FontRegistry.pretendardExtraLight
+
+    fun pretendardRegular   (size: Float): DrawFont = FontRegistry.pretendardRegular(size)
+    fun pretendardBold      (size: Float): DrawFont = FontRegistry.pretendardBold(size)
+    fun pretendardSemiBold  (size: Float): DrawFont = FontRegistry.pretendardSemiBold(size)
+    fun pretendardLight     (size: Float): DrawFont = FontRegistry.pretendardLight(size)
+    fun pretendardExtraLight(size: Float): DrawFont = FontRegistry.pretendardExtraLight(size)
+
     // ── Inter (OFL — Latin/숫자 UI 전용) ────────────────────────────────────
     val interRegular:    DrawFont get() = FontRegistry.interRegular
     val interBold:       DrawFont get() = FontRegistry.interBold

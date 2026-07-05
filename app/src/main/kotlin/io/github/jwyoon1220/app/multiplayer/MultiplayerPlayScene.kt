@@ -2,10 +2,12 @@ package io.github.jwyoon1220.app.multiplayer
 
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.engine.multiplayer.RemotePlayerState
+import io.github.jwyoon1220.engine.multiplayer.VideoSyncCoordinator
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
 import io.github.jwyoon1220.app.ecs.MainMenuScene
 import io.github.jwyoon1220.app.ecs.PlayScene
+import io.github.jwyoon1220.app.resolveMediaPath
 import io.github.jwyoon1220.core.data.Chart
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.engine.OpenGLRenderable
@@ -16,8 +18,12 @@ import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderCommand
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.GlScreenEffectData
+import io.github.jwyoon1220.engine.ecs.Scene
 import io.github.jwyoon1220.engine.render.RenderColor
 import it.unimi.dsi.fastutil.objects.ObjectArrayList
+import org.slf4j.LoggerFactory
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.ceil
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -26,20 +32,42 @@ import kotlin.math.sqrt
  * PlayScene을 위임(wrap)하여 멀티플레이어 HUD를 추가하는 씬.
  *
  * PlayScene 자체는 수정하지 않으며, 이 래퍼가:
- * - 왼쪽 위: 실시간 순위 (1위~10위)
+ * - 왼쪽 위: 실시간 순위 (1위~10위) — 보정 중에는 오프셋 조정 대기 패널이 대신 표시됨
  * - 오른쪽 위: 곡 진행도 (1:23 / 3:45)
  * - update() 후 점수 변화를 감지해 네트워크 스레드 큐에 넣음
+ *
+ * 오프셋 보정은 이 씬 자체에서 진행합니다(로비 화면이 아님) — PlayScene은 영상을 배경으로
+ * 자연스럽게 보여주도록 설계되어 있어(옅은 오버레이), 로비 화면의 불투명 배경과 달리 테스트
+ * 영상이 실제로 보입니다. [calibrationHlsUrl]로 테스트 스트림을 재생하며 클럭 핑퐁 + 실측
+ * 시작 지연을 측정하고, 완료되면 ReadyMsg를 보냅니다. 호스트가 전원 준비를 확인하고 최종
+ * sync_epoch_ms를 보내오면([MultiplayerManager.onStartGame]) PlayScene의 READY 게이트가
+ * 열려 정상적인 6초 카운트다운(2초 대기 + 3,2,1,GO) 후 실제 매치 영상([matchVideoLocalPath],
+ * 전체 파일 전송으로 이미 로컬/캐시에 확보된 경로)으로 전환됩니다. 영상 자체는 스트리밍하지
+ * 않지만 재생 시작 시점만은 sync_epoch_ms에 맞춰 스케줄링해 클라이언트 간 동기화를 유지합니다.
  */
 class MultiplayerPlayScene(
     private val ctx: GameContext,
-    songEntry: SongEntry,
+    private val songEntry: SongEntry,
     chart: Chart,
-    private val manager: MultiplayerManager
-) : io.github.jwyoon1220.engine.ecs.Scene(), OpenGLRenderable, GlEffectProvider {
+    private val manager: MultiplayerManager,
+    private val calibrationHlsUrl: String = "",
+    private val matchVideoLocalPath: String? = null
+) : Scene(), OpenGLRenderable, GlEffectProvider {
 
+    private val log = LoggerFactory.getLogger(MultiplayerPlayScene::class.java)
     private val inner = PlayScene(ctx, songEntry, chart)
     private val totalNotes = chart.notes.size
     private val totalMs: Long = chart.notes.maxOfOrNull { it.endTime ?: it.time } ?: 1L
+    private val syncCoordinator = VideoSyncCoordinator(manager)
+    private val scheduler = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "mp-play-media-scheduler").apply { isDaemon = true }
+    }
+
+    // ── 오프셋 보정 상태 ─────────────────────────────────────────────────────────
+    @Volatile private var calibrationDone = false
+    @Volatile private var finalSyncReceived = false
+    @Volatile private var matchSyncEpochMs = 0L
+    @Volatile private var measuredStartupLatencyMs = 0L
 
     // HUD 폰트
     private val rankFont    = FontLoader.semiBold(16f)
@@ -65,7 +93,35 @@ class MultiplayerPlayScene(
         super.enter()
         finishSent = false
         exitToSpectator = false
+        calibrationDone = false
+        finalSyncReceived = false
+        matchSyncEpochMs = 0L
+        measuredStartupLatencyMs = 0L
+
+        inner.readyPhaseGate = { calibrationDone && finalSyncReceived }
+        inner.calibrationOverlayRenderer = { g -> renderCalibrationWaitPanel(g, manager, calibrationDone) }
+        inner.mediaStartOverride = {
+            val path = matchVideoLocalPath
+            if (path == null || matchSyncEpochMs <= 0) {
+                songEntry.resolveMediaPath()?.let { ctx.videoBackground.play(it) }
+            } else {
+                val delay = syncCoordinator.computeScheduleDelayMs(matchSyncEpochMs, measuredStartupLatencyMs)
+                scheduler.schedule({ ctx.videoBackground.play(path) }, delay, TimeUnit.MILLISECONDS)
+            }
+        }
         inner.enter()
+
+        // 보정 중 테스트 영상(짧은 클립)이 먼저 끝나면 처음부터 반복 재생. 게이트가 열린 뒤(실제
+        // 매치 영상 재생 중)에는 PlayScene의 원래 종료 처리(RESULT 전환)로 위임.
+        val originalOnFinished = ctx.videoBackground.onFinished
+        ctx.videoBackground.onFinished = {
+            if (!(calibrationDone && finalSyncReceived) && calibrationHlsUrl.isNotEmpty()) {
+                ctx.videoBackground.play(calibrationHlsUrl)
+            } else {
+                originalOnFinished?.invoke()
+            }
+        }
+
         register(HudRenderSystem())
         // 클라이언트 전용: 호스트가 끊어지면 메인 메뉴로 복귀
         manager.onHostDisconnected = {
@@ -75,13 +131,54 @@ class MultiplayerPlayScene(
             ctx.multiplayerManager = null
             ctx.sceneRouter.navigate(MainMenuScene(ctx))
         }
+        manager.onStartGame = { syncEpochMs ->
+            matchSyncEpochMs = syncEpochMs
+            finalSyncReceived = true
+            log.info("[MultiplayerPlayScene] 최종 동기화 수신: syncEpochMs={} — READY 게이트 열림 조건 충족(로컬 보정={})",
+                syncEpochMs, calibrationDone)
+        }
+
+        log.info("[MultiplayerPlayScene] enter: calibrationHlsUrl={}", calibrationHlsUrl.ifEmpty { "(없음/보정스킵)" })
+        startCalibration()
     }
 
     override fun exit() {
         manager.onHostDisconnected = null
+        manager.onStartGame = null
+        inner.mediaStartOverride = null
+        inner.readyPhaseGate = null
+        inner.calibrationOverlayRenderer = null
         inner.exit()
+        scheduler.shutdownNow()
         if (!exitToSpectator) manager.stop()
         super.exit()
+    }
+
+    /**
+     * 클럭 핑퐁 + 테스트 스트림 실측 시작 지연 측정을 수행하고 완료되면 준비 완료를 알립니다.
+     * 호스트는 자신에게 WebSocket 세션이 없으므로(핑퐁이 자연히 0개 샘플로 끝나 오프셋 0 유지)
+     * markLocalReady()를, 클라이언트는 sendReady()를 호출합니다.
+     */
+    private fun startCalibration() {
+        if (calibrationHlsUrl.isEmpty() || !ctx.videoBackground.isAvailable) {
+            log.info("[MultiplayerPlayScene] 보정 스킵 (calibrationHlsUrl 비어있음={}, videoBackground.isAvailable={}) — 즉시 준비 완료 처리",
+                calibrationHlsUrl.isEmpty(), ctx.videoBackground.isAvailable)
+            calibrationDone = true
+            if (manager.isHost) manager.markLocalReady() else manager.sendReady()
+            return
+        }
+        val t0 = System.currentTimeMillis()
+        Thread({
+            syncCoordinator.beginPingRound(onDone = {
+                log.debug("[MultiplayerPlayScene] 클럭 핑퐁 라운드 완료 ({}ms 경과), 테스트 스트림 재생 시작", System.currentTimeMillis() - t0)
+                syncCoordinator.measureStreamStartupLatency(ctx.videoBackground, calibrationHlsUrl) { latencyMs ->
+                    measuredStartupLatencyMs = latencyMs
+                    calibrationDone = true
+                    log.info("[MultiplayerPlayScene] 로컬 보정 완료 ({}ms 총 소요, 실측 시작지연={}ms) — Ready 전송", System.currentTimeMillis() - t0, latencyMs)
+                    if (manager.isHost) manager.markLocalReady() else manager.sendReady()
+                }
+            })
+        }, "stellane-calibration").apply { isDaemon = true; start() }
     }
 
     override fun update(deltaTime: Double) {

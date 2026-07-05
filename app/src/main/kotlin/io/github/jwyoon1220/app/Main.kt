@@ -34,7 +34,7 @@ fun main(args: Array<String>) {
 
     val cmd = try {
         DefaultParser().parse(options, args)
-    } catch (e: ParseException) {
+    } catch (_: ParseException) {
         HelpFormatter().printHelp("StelLane", options)
         return
     }

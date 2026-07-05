@@ -2,6 +2,7 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.app.resolveMediaPath
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.multiplayer.MultiplayerPlayScene
 import io.github.jwyoon1220.core.data.SongEntry
@@ -59,6 +60,14 @@ class HostLobbyScene(
             manager.hostGame(MultiplayerManager.DEFAULT_PORT)
         }
         manager.onPlayerListUpdated = {}
+        // 오프셋 보정 대기 UI는 MultiplayerPlayScene 자체에서 처리(배경 영상이 자연스럽게 보이도록) —
+        // 곡 선택 즉시 이 콜백이 곧바로 플레이 화면으로 진입시킨다.
+        manager.onCalibrateStart = { _, _, _, hlsUrl ->
+            val entry = pendingEntry; val chart = pendingChart
+            if (entry != null && chart != null) {
+                ctx.sceneRouter.navigate(MultiplayerPlayScene(ctx, entry, chart, manager, hlsUrl, entry.resolveMediaPath()))
+            }
+        }
 
         // UPnP 시도 → 결과를 displayIp에 반영
         manager.tryUPnP(MultiplayerManager.DEFAULT_PORT) { ip, success ->
@@ -74,6 +83,11 @@ class HostLobbyScene(
 
     override fun exit() {
         manager.onPlayerListUpdated = null
+        // onCalibrateStart는 여기서 null로 지우면 안 됨 — Space로 SongSelectScene에 갔다가
+        // 곡을 고르면 그 시점에 이 씬은 이미 exit()된 상태지만 beginCalibration()이 여전히
+        // 이 콜백을 호출해 MultiplayerPlayScene으로 진입시켜야 하기 때문. 매니저를 완전히
+        // 정리할 때(ESC로 방을 나갈 때 manager.stop() + ctx.multiplayerManager = null)는
+        // 매니저 자체가 버려지므로 콜백이 남아있어도 문제없음.
         super.exit()
     }
 
@@ -224,10 +238,13 @@ class HostLobbyScene(
         }
     }
 
-    /** SongSelectScene이 곡 선택 완료 후 호출. START 브로드캐스트 후 게임 진입. */
+    /**
+     * SongSelectScene이 곡 선택 완료 후 호출. beginCalibration()이 onCalibrateStart를 즉시(로컬)
+     * 호출하므로 곧바로 MultiplayerPlayScene(오프셋 보정 대기 UI 포함)으로 진입한다.
+     */
     fun onSongSelected(entry: SongEntry, chart: Chart, difficulty: String) {
+        pendingEntry = entry; pendingChart = chart; pendingDiff = difficulty
         manager.setPendingSongDir(entry.songDir)
-        manager.broadcastStart(entry.songDir, entry.song.title + "/" + difficulty, difficulty)
-        ctx.sceneRouter.navigate(MultiplayerPlayScene(ctx, entry, chart, manager))
+        manager.beginCalibration(entry.songDir, entry.song.title + "/" + difficulty, difficulty)
     }
 }

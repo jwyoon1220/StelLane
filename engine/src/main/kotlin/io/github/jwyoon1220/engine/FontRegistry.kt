@@ -13,11 +13,19 @@ import java.nio.ByteBuffer
 object FontRegistry {
     private val log = LoggerFactory.getLogger(FontRegistry::class.java)
 
+    // MaruBuri — 한국어 명조 계열 폰트
     private var regularId:    Int = -1
     private var boldId:       Int = -1
     private var semiBoldId:   Int = -1
     private var lightId:      Int = -1
     private var extraLightId: Int = -1
+
+    // Pretendard — 한국어/영문 현대적 고딕체 (SIL OFL)
+    private var pretendardRegularId:    Int = -1
+    private var pretendardBoldId:       Int = -1
+    private var pretendardSemiBoldId:   Int = -1
+    private var pretendardLightId:      Int = -1
+    private var pretendardExtraLightId: Int = -1
 
     // Inter (OFL) — Latin/숫자 전용 폰트. 점수, UI 숫자, 영문 레이블에 사용.
     private var interRegularId:    Int = -1
@@ -31,7 +39,7 @@ object FontRegistry {
     private val pinnedBuffers = ObjectArrayList<ByteBuffer>()
 
     /**
-     * 클래스패스(assets 모듈)에서 MaruBuri 폰트들을 로드해 NanoVG 에 등록합니다.
+     * 클래스패스(assets 모듈)에서 MaruBuri / Pretendard / Inter 폰트들을 로드해 NanoVG 에 등록합니다.
      * Renderer.init() 에서 glfw/OpenGL 컨텍스트가 생성된 후 호출해야 합니다.
      */
     fun loadAll(vg: Long) {
@@ -40,6 +48,12 @@ object FontRegistry {
         semiBoldId   = load(vg, "fonts/MaruBuri-SemiBold.ttf",   "semibold")
         lightId      = load(vg, "fonts/MaruBuri-Light.ttf",      "light")
         extraLightId = load(vg, "fonts/MaruBuri-ExtraLight.ttf", "extralight")
+
+        pretendardRegularId    = load(vg, "fonts/Pretendard-Regular.ttf",    "pretendard-regular")
+        pretendardBoldId       = load(vg, "fonts/Pretendard-Bold.ttf",       "pretendard-bold")
+        pretendardSemiBoldId   = load(vg, "fonts/Pretendard-SemiBold.ttf",   "pretendard-semibold")
+        pretendardLightId      = load(vg, "fonts/Pretendard-Light.ttf",      "pretendard-light")
+        pretendardExtraLightId = load(vg, "fonts/Pretendard-ExtraLight.ttf", "pretendard-extralight")
 
         interRegularId    = load(vg, "fonts/Inter-Regular.ttf",    "inter-regular")
         interBoldId       = load(vg, "fonts/Inter-Bold.ttf",       "inter-bold")
@@ -50,6 +64,8 @@ object FontRegistry {
 
         log.info("[FontRegistry] MaruBuri: regular={} bold={} semiBold={} light={} extraLight={}",
             regularId, boldId, semiBoldId, lightId, extraLightId)
+        log.info("[FontRegistry] Pretendard: regular={} bold={} semiBold={} light={} extraLight={}",
+            pretendardRegularId, pretendardBoldId, pretendardSemiBoldId, pretendardLightId, pretendardExtraLightId)
         log.info("[FontRegistry] Inter: regular={} bold={} semiBold={} medium={} light={} extraLight={}",
             interRegularId, interBoldId, interSemiBoldId, interMediumId, interLightId, interExtraLightId)
     }
@@ -66,6 +82,19 @@ object FontRegistry {
     val semiBold:   DrawFont get() = semiBold(12f)
     val light:      DrawFont get() = light(12f)
     val extraLight: DrawFont get() = extraLight(12f)
+
+    // ── Pretendard DrawFont 생성 헬퍼 ─────────────────────────────────────
+    fun pretendardRegular   (size: Float): DrawFont = DrawFont(effectiveId(pretendardRegularId),    size)
+    fun pretendardBold      (size: Float): DrawFont = DrawFont(effectiveId(pretendardBoldId),       size)
+    fun pretendardSemiBold  (size: Float): DrawFont = DrawFont(effectiveId(pretendardSemiBoldId),   size)
+    fun pretendardLight     (size: Float): DrawFont = DrawFont(effectiveId(pretendardLightId),      size)
+    fun pretendardExtraLight(size: Float): DrawFont = DrawFont(effectiveId(pretendardExtraLightId), size)
+
+    val pretendardRegular:    DrawFont get() = pretendardRegular(12f)
+    val pretendardBold:       DrawFont get() = pretendardBold(12f)
+    val pretendardSemiBold:   DrawFont get() = pretendardSemiBold(12f)
+    val pretendardLight:      DrawFont get() = pretendardLight(12f)
+    val pretendardExtraLight: DrawFont get() = pretendardExtraLight(12f)
 
     // ── Inter DrawFont 생성 헬퍼 ───────────────────────────────────────────
     fun interRegular   (size: Float): DrawFont = DrawFont(effectiveId(interRegularId),    size)

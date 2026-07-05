@@ -10,7 +10,8 @@ data class RemotePlayerState(
     @Volatile var counts: IntArray = IntArray(4),    // [PERFECT, GREAT, GOOD, MISS] — always replace ref, never mutate in-place
     @Volatile var accuracy: Float = 0f,
     @Volatile var laneHeld: BooleanArray = BooleanArray(4), // always replace ref, never mutate in-place
-    @Volatile var finished: Boolean = false
+    @Volatile var finished: Boolean = false,
+    @Volatile var calibrated: Boolean = false   // 오프셋 보정(ReadyMsg) 완료 여부 — 로비 대기 UI에서 사용
 ) {
     override fun equals(other: Any?): Boolean = other is RemotePlayerState && id == other.id
     override fun hashCode(): Int = id.hashCode()

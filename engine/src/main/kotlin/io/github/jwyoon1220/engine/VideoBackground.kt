@@ -76,6 +76,12 @@ class VideoBackground private constructor(
     @Volatile private var timeAnchor = TimeAnchor(0L, System.nanoTime())
     // play/seek 직후에는 VLC 내부 시계가 짧게 되감길 수 있으므로 역행 허용 유예 구간을 둡니다.
     @Volatile private var rewindGraceUntilNs: Long = 0L
+    // getSmoothTimeMs/Double이 이전에 반환했던 값보다 작은 값을 절대 반환하지 않도록 하는 하한.
+    // 선형 외삽이 실제 재생 위치보다 앞서갔다가(디코드가 순간적으로 실제 배속보다 느리게 진행)
+    // 다음 실제 timeChanged 갱신이 그보다 작은 값으로 도착하면, timeChanged의 newTime<prev 클램프
+    // (네이티브 보고값 자체의 역행만 방지)만으로는 "표시값"의 역행까지는 막지 못한다 — 이 하한이
+    // 그 역행을 막는 마지막 안전장치. play()/seek()에서 새 위치로 리셋된다.
+    @Volatile private var lastReturnedMs: Double = 0.0
 
     // VLC playing/paused/stopped/finished 이벤트로 유지되는 재생 상태 캐시.
     // getSmoothTimeMs/Double 에서 JNI player.status().isPlaying 폴링을 대체합니다.
@@ -87,6 +93,20 @@ class VideoBackground private constructor(
     @Volatile private var lastVolumeGuardAtMs = 0L
 
     companion object {
+        /**
+         * getSmoothTimeMs/Double의 나노초 외삽 상한(ms). 이 값보다 오래 timeChanged 갱신이 없으면
+         * 더 이상 앞으로 외삽하지 않고 마지막 값을 유지합니다.
+         *
+         * 과거 250ms로 설정했던 적이 있었으나, 로컬 파일 재생에서도 timeChanged 간격이 GC/스레드
+         * 스케줄링 등으로 250ms를 넘는 경우가 드물지 않아 오히려 매 간격마다 "멈췄다 따라잡는"
+         * 주기적 끊김을 유발했다(싱글/멀티 플레이 공통 증상으로 확인됨). 매치 영상은 더 이상
+         * 네트워크 스트리밍이 아니라 항상 로컬 파일이므로(멀티플레이어도 전체 파일 전송 후 로컬
+         * 재생) 무제한 외삽으로 인한 "역행 점프" 위험이 크지 않다 — 그래도 완전한 무제한 외삽은
+         * VLC가 실제로 멈춘 경우(finished 직전 등) 시간이 계속 앞으로 새는 것을 막기 위해 넉넉한
+         * 상한만 둔다.
+         */
+        private const val MAX_EXTRAPOLATION_MS = 1000L
+
         /**
          * 팩토리 레벨 VLC 옵션.
          * --avcodec-hw=none : 하드웨어 디코더(D3D11VA/DXVA2)를 전역 비활성화.
@@ -232,23 +252,31 @@ class VideoBackground private constructor(
      * isCurrentlyPlaying은 playing/paused/stopped 이벤트가 갱신합니다.
      * 두 값 모두 @Volatile이므로 게임 루프 스레드에서 안전하게 읽을 수 있습니다.
      */
-    fun getSmoothTimeMs(): Long {
-        val anchor = timeAnchor
-        if (anchor.vlcMs < 0) return 0L
-        if (!isCurrentlyPlaying) return anchor.vlcMs
-        val elapsedRealMs = (System.nanoTime() - anchor.nanoTime) / 1_000_000L
-        return anchor.vlcMs + (elapsedRealMs * currentRate).toLong()
-    }
+    fun getSmoothTimeMs(): Long = getSmoothTimeDouble().toLong()
 
     /**
      * [getSmoothTimeMs]와 동일하지만 나노초 보간을 서브-밀리초(Double) 정밀도로 반환합니다.
      * 렌더링에서 노트 위치 계산 시 사용하면 정수 ms 양자화로 인한 뚝뚝 끊김을 방지합니다.
+     *
+     * 마지막 timeChanged 이벤트 이후 경과 시간을 [MAX_EXTRAPOLATION_MS]로 제한합니다 — VLC가
+     * 실제로 멈춘 채(finished 직전 등) isCurrentlyPlaying만 true로 남아있으면 무제한 선형 외삽이
+     * 끝없이 앞서가버릴 수 있어 넉넉한 상한을 둔다.
+     *
+     * 외삽이 실제 재생 위치보다 앞서간 상태에서 다음 실제 timeChanged 값이 그보다 작게 도착하는
+     * 경우(디코드가 순간적으로 실제 배속보다 느리게 진행되는 경우 등)에도 [lastReturnedMs] 하한
+     * 덕분에 반환값 자체는 절대 감소하지 않는다 — 대신 실제 위치가 하한을 따라잡을 때까지 잠깐
+     * 멈춰있는 것으로 보인다(노트가 뒤로 튀는 것보다 훨씬 자연스럽다).
      */
     fun getSmoothTimeDouble(): Double {
         val anchor = timeAnchor
-        if (!isCurrentlyPlaying) return anchor.vlcMs.toDouble()
-        val elapsedRealMs = (System.nanoTime() - anchor.nanoTime) / 1_000_000.0
-        return anchor.vlcMs + elapsedRealMs * currentRate
+        val raw = if (!isCurrentlyPlaying) anchor.vlcMs.toDouble() else {
+            val elapsedRealMs = ((System.nanoTime() - anchor.nanoTime) / 1_000_000.0)
+                .coerceAtMost(MAX_EXTRAPOLATION_MS.toDouble())
+            anchor.vlcMs + elapsedRealMs * currentRate
+        }
+        val floored = raw.coerceAtLeast(lastReturnedMs)
+        lastReturnedMs = floored
+        return floored
     }
 
     fun setRate(rate: Float) {
@@ -262,9 +290,19 @@ class VideoBackground private constructor(
         isCurrentlyPlaying = false  // playing 이벤트 수신 전까지 보간 억제
         timeAnchor = TimeAnchor(0L, System.nanoTime())
         rewindGraceUntilNs = System.nanoTime() + 150_000_000L
+        lastReturnedMs = 0.0
         lastVolumeGuardAtMs = 0L
         targetVolumePercent = 100   // audioFade 등으로 변경된 볼륨을 항상 기본값으로 복원
-        vlcExecutor.submit { mediaPlayer?.media()?.play(path) }
+        // 네트워크 스트림(HLS 등)은 세그먼트를 순차적으로 가져와야 하므로 기본 캐싱만으로는
+        // 조기 EOF로 오판(playing 직후 finished)하거나, 세그먼트 경계마다 선반입이 부족해
+        // 노트 스크롤이 끊기는 원인이 될 수 있다. network-caching은 일반 access/stream 계층
+        // 버퍼링, adaptive-maxbuffer는 HLS/DASH 전용 "adaptive" 데먹서 자체의 선반입 버퍼링
+        // 상한이라 둘 다 넉넉하게 늘려야 세그먼트 전환 시 끊김이 최소화된다. -c copy는 소스의
+        // 키프레임 간격에 맞춰 세그먼트를 자르므로(요청한 2초보다 훨씬 길어질 수 있음) 버퍼를
+        // 크게 잡아 여러 세그먼트를 미리 확보해둔다.
+        val options = if (path.startsWith("http://") || path.startsWith("https://"))
+            arrayOf(":network-caching=8000", ":adaptive-maxbuffer=30000") else emptyArray()
+        vlcExecutor.submit { mediaPlayer?.media()?.play(path, *options) }
     }
 
     /** 재생하지 않고 미디어만 파싱 및 로드합니다. */
@@ -294,6 +332,7 @@ class VideoBackground private constructor(
         //log.debug("[VLC] seek 요청: {}ms", ms)
         timeAnchor = TimeAnchor(ms, System.nanoTime())
         rewindGraceUntilNs = System.nanoTime() + 1_000_000_000L
+        lastReturnedMs = ms.toDouble()
         vlcExecutor.submit {
             mediaPlayer?.controls()?.setTime(ms)
             enforceVolumeInternal(mediaPlayer)

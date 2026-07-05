@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory
  * GLFW 윈도우 + OpenGL 컨텍스트 래퍼.
  *
  * ## 스레드 규칙
- * - [createWindow], [swapBuffers], [destroy] 는 반드시 **메인 스레드**에서 호출.
+ * - [createWindow], [swapBuffers], [destroy] 는 반드시 메인 스레드에서 호출.
  * - OpenGL 드로우콜은 [createWindow] 호출 스레드(메인)에서만 유효.
  *
  * ## 좌표계

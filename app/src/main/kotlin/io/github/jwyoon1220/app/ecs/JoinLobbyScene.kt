@@ -2,6 +2,7 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.app.resolveMultiplayerMediaPath
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerCacheManager
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.multiplayer.MultiplayerPlayScene
@@ -65,26 +66,36 @@ class JoinLobbyScene(
             connected = false
             statusMsg = "호스트가 연결을 끊었습니다."
         }
-        manager.onStartGame = { songRelPath, difficulty, files ->
-            Thread {
-                // 관전자는 곡 파일이 없어도 되므로 파일 대기/차트 파싱 없이 바로 전환
-                if (spectate) {
-                    ctx.sceneRouter.navigate(SpectatorScene(ctx, manager))
-                    return@Thread
-                }
-                waitForFiles(files.map { it.sha256 })
-                val songEntry = findSongEntry(songRelPath)
-                if (songEntry == null) {
-                    statusMsg = "곡을 찾을 수 없습니다: $songRelPath"
-                    return@Thread
-                }
-                val diffFile = File(songEntry.songDir, songEntry.song.difficulties[difficulty] ?: return@Thread)
-                val chart = runCatching { ChartParser.parseChart(diffFile) }.getOrNull() ?: run {
-                    statusMsg = "차트 로드 실패"
-                    return@Thread
-                }
-                ctx.sceneRouter.navigate(MultiplayerPlayScene(ctx, songEntry, chart, manager))
-            }.apply { isDaemon = true; start() }
+        // 오프셋 보정 대기 UI는 MultiplayerPlayScene 자체에서 처리(배경 영상이 자연스럽게 보이도록) —
+        // 곡 정보가 도착하는 즉시 (차트+오디오+영상 전체 파일을 기다린 뒤) 곧바로 플레이 화면으로 진입한다.
+        manager.onCalibrateStart = { songRelPath, difficulty, files, hlsUrl ->
+            if (spectate) {
+                // 관전자는 정밀 보정 없이 즉시 준비 완료 처리(공정성에 영향 없음)
+                manager.sendReady()
+                manager.onStartGame = { _ -> ctx.sceneRouter.navigate(SpectatorScene(ctx, manager)) }
+            } else {
+                Thread {
+                    waitForFiles(files.map { it.sha256 })
+                    val songEntry = findSongEntry(songRelPath)
+                    if (songEntry == null) {
+                        statusMsg = "곡을 찾을 수 없습니다: $songRelPath"
+                        return@Thread
+                    }
+                    val diffPath = songEntry.song.difficulties[difficulty]
+                    if (diffPath == null) {
+                        statusMsg = "난이도 정보를 찾을 수 없습니다"
+                        return@Thread
+                    }
+                    val diffFile = File(songEntry.songDir, diffPath)
+                    val chart = runCatching { ChartParser.parseChart(diffFile) }.getOrNull()
+                    if (chart == null) {
+                        statusMsg = "차트 로드 실패"
+                        return@Thread
+                    }
+                    val mediaPath = songEntry.resolveMultiplayerMediaPath(files)
+                    ctx.sceneRouter.navigate(MultiplayerPlayScene(ctx, songEntry, chart, manager, hlsUrl, mediaPath))
+                }.apply { isDaemon = true; start() }
+            }
         }
     }
 
@@ -92,6 +103,7 @@ class JoinLobbyScene(
         manager.onPlayerListUpdated = null
         manager.onStartGame = null
         manager.onHostDisconnected = null
+        manager.onCalibrateStart = null
         super.exit()
     }
 
