@@ -151,4 +151,104 @@ document.addEventListener('DOMContentLoaded', () => {
       eulaEnContent.style.display = 'block';
     });
   }
+
+  // --- Interactive Effects ---
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const isFinePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+  // Click / Tap Star Burst
+  if (!prefersReducedMotion) {
+    const burstColors = ['#ff6b9d', '#a370f7', '#3bcef2', '#ffd166'];
+    const burstGlyphs = ['★', '✦', '✧'];
+
+    const spawnStarBurst = (x, y) => {
+      const ripple = document.createElement('div');
+      ripple.className = 'click-ripple';
+      ripple.style.left = `${x}px`;
+      ripple.style.top = `${y}px`;
+      document.body.appendChild(ripple);
+      ripple.addEventListener('animationend', () => ripple.remove());
+
+      const count = 7 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < count; i++) {
+        const star = document.createElement('span');
+        star.className = 'click-star';
+        star.textContent = burstGlyphs[Math.floor(Math.random() * burstGlyphs.length)];
+        star.style.color = burstColors[Math.floor(Math.random() * burstColors.length)];
+        star.style.left = `${x}px`;
+        star.style.top = `${y}px`;
+        star.style.fontSize = `${10 + Math.random() * 14}px`;
+
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+        const distance = 40 + Math.random() * 60;
+        star.style.setProperty('--tx', `${Math.cos(angle) * distance}px`);
+        star.style.setProperty('--ty', `${Math.sin(angle) * distance}px`);
+        star.style.setProperty('--r', `${(Math.random() - 0.5) * 360}deg`);
+        star.style.setProperty('--s', `${0.6 + Math.random() * 0.8}`);
+
+        document.body.appendChild(star);
+        star.addEventListener('animationend', () => star.remove());
+      }
+    };
+
+    document.addEventListener('pointerdown', (e) => {
+      spawnStarBurst(e.clientX, e.clientY);
+    });
+  }
+
+  // Cursor Glow Trail (desktop / fine pointer only)
+  if (!prefersReducedMotion && isFinePointer) {
+    const glow = document.createElement('div');
+    glow.className = 'cursor-glow';
+    document.body.appendChild(glow);
+
+    let targetX = window.innerWidth / 2;
+    let targetY = window.innerHeight / 2;
+    let currentX = targetX;
+    let currentY = targetY;
+
+    window.addEventListener('mousemove', (e) => {
+      targetX = e.clientX;
+      targetY = e.clientY;
+      glow.classList.add('active');
+    });
+
+    document.addEventListener('mouseleave', () => glow.classList.remove('active'));
+
+    (function animateGlow() {
+      currentX += (targetX - currentX) * 0.12;
+      currentY += (targetY - currentY) * 0.12;
+      glow.style.transform = `translate(${currentX}px, ${currentY}px) translate(-50%, -50%)`;
+      requestAnimationFrame(animateGlow);
+    })();
+  }
+
+  // Hover Tilt + Spotlight Reveal on cards / rows
+  if (!prefersReducedMotion && isFinePointer) {
+    document.querySelectorAll('.card').forEach((card) => {
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const rotateX = ((y - rect.height / 2) / rect.height) * -10;
+        const rotateY = ((x - rect.width / 2) / rect.width) * 10;
+        card.style.transform = `perspective(800px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-6px)`;
+        card.style.setProperty('--mx', `${(x / rect.width) * 100}%`);
+        card.style.setProperty('--my', `${(y / rect.height) * 100}%`);
+      });
+      card.addEventListener('mouseleave', () => {
+        card.style.transform = '';
+      });
+    });
+
+    document.querySelectorAll('.module-row, .guide-step, .disclaimer-item').forEach((el) => {
+      el.addEventListener('mousemove', (e) => {
+        const rect = el.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        el.style.setProperty('--mx', `${(x / rect.width) * 100}%`);
+        el.style.setProperty('--my', `${(y / rect.height) * 100}%`);
+      });
+    });
+  }
 });
