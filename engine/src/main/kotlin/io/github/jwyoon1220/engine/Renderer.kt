@@ -1,7 +1,9 @@
 package io.github.jwyoon1220.engine
 
-
-import org.lwjgl.nanovg.NanoVGGL3.*
+import io.github.jwyoon1220.engine.ecs.Scene
+import io.github.jwyoon1220.engine.render.NanoVGBackend
+import io.github.jwyoon1220.engine.render.RendererContext
+import io.github.jwyoon1220.engine.render.RendererFactory
 import org.lwjgl.opengl.GL11.*
 import org.lwjgl.opengl.GL30.GL_FRAMEBUFFER
 import org.lwjgl.opengl.GL30.glBindFramebuffer
@@ -10,6 +12,11 @@ import org.slf4j.LoggerFactory
 /**
  * OpenGL + NanoVG 기반 렌더러.
  * [init] 은 GLFWWindow 가 생성되고 OpenGL 컨텍스트가 현재 스레드에 bind 된 후에 호출하세요.
+ *
+ * 실제 2D 드로잉(NanoVG 프레임 생명주기, [io.github.jwyoon1220.engine.render.RenderCommand] 실행)은
+ * [io.github.jwyoon1220.engine.render.RendererBackend]([RendererFactory]로 생성된 `"nanovg"` 백엔드,
+ * 기본 구현은 [NanoVGBackend])에 위임합니다. 이 클래스는 letterbox 계산, 비디오 배경, GL 후처리,
+ * ImGui 오버레이 등 백엔드 바깥의 프레임 오케스트레이션을 담당합니다.
  */
 class Renderer(
     private val window: GLFWWindow,
@@ -23,9 +30,11 @@ class Renderer(
         const val DESIGN_H = 720
     }
 
-    private var vg: Long = 0L
-    lateinit var drawContext: DrawContext
-        private set
+    private lateinit var backend: NanoVGBackend
+
+    /** 백엔드가 소유한 [DrawContext]. 비디오 배경 등 커맨드 외 직접 드로잉에 사용합니다. */
+    val drawContext: DrawContext get() = backend.drawContext
+
     private val glQuadBatchRenderer = GlQuadBatchRenderer(DESIGN_W.toFloat(), DESIGN_H.toFloat())
     private val postProcessPass = PostProcessPass()
 
@@ -42,26 +51,25 @@ class Renderer(
     val renderOffsetY: Float get() = offsetY
 
     fun init() {
-        vg = nvgCreate(NVG_ANTIALIAS or NVG_STENCIL_STROKES)
-        check(vg != 0L) { "[Renderer] NanoVG 컨텍스트 생성 실패" }
+        RendererFactory.register("nanovg") { NanoVGBackend() }
+        backend = RendererFactory.create("nanovg", RendererContext(window, videoBackground, DESIGN_W, DESIGN_H)) as NanoVGBackend
+        backend.init(RendererContext(window, videoBackground, DESIGN_W, DESIGN_H))
 
-        FontRegistry.loadAll(vg)
         videoBackground.initGLTexture()
         glQuadBatchRenderer.init()
 
-        drawContext = DrawContext(vg, DESIGN_W, DESIGN_H)
-        log.info("[Renderer] 초기화 완료 vg=0x{}", java.lang.Long.toHexString(vg))
+        log.info("[Renderer] 초기화 완료 (backend={})", backend.id)
     }
 
     fun destroy() {
         postProcessPass.destroy()
         glQuadBatchRenderer.destroy()
-        if (vg != 0L) { nvgDelete(vg); vg = 0L }
+        backend.destroy()
     }
 
     /**
      * 매 프레임 호출합니다.
-     * 순서: glClear → 비디오 업로드 → NVG 프레임 시작 → letterbox 변환 → State 렌더 → NVG 프레임 끝
+     * 순서: glClear → 비디오 업로드 → 백엔드 프레임 시작(NVG + letterbox 변환) → State 렌더 → 백엔드 프레임 종료
      */
     fun renderFrame() {
         val fbW = window.framebufferWidth
@@ -97,26 +105,27 @@ class Renderer(
         offsetX = ox
         offsetY = oy
 
-        // 4. NanoVG 프레임 시작 (픽셀 비율 = 1; 이미 물리 픽셀 크기로 beginFrame)
-        drawContext.beginFrame(fbW, fbH)
+        // 4. 백엔드 프레임 시작 — NanoVG 프레임 시작 + letterbox 변환(논리 1280×720 → 물리 픽셀)까지 백엔드가 적용
+        backend.beginFrame(fbW, fbH, s, ox, oy)
 
         // 5. 비디오 배경 렌더 (State 가 자체 배경을 처리하지 않는 경우)
+        //    변환이 이미 적용된 상태이므로 논리 좌표(0,0,DESIGN_W,DESIGN_H)로 그리면
+        //    물리 좌표 (ox,oy,dw,dh)에 그리는 것과 동일합니다.
         val rendersBg = current?.rendersBackground == true
-        val videoNvgHandle = videoBackground.getNvgImageHandle(vg)
+        val videoNvgHandle = videoBackground.getNvgImageHandle(backend.nvgHandle)
         if (!rendersBg && videoNvgHandle >= 0) {
-            drawContext.drawNvgImage(videoNvgHandle, ox, oy, dw.toFloat(), dh.toFloat())
+            drawContext.drawNvgImage(videoNvgHandle, 0f, 0f, DESIGN_W.toFloat(), DESIGN_H.toFloat())
         }
 
-        // 6. 논리 좌표(1280×720)로 변환 후 State 렌더
-        drawContext.save()
-        drawContext.translate(ox, oy)
-        drawContext.scale(s, s)
-        drawContext.setClip(0f, 0f, DESIGN_W.toFloat(), DESIGN_H.toFloat())
-        stateManager.render(drawContext)
-        drawContext.restore()
+        // 6. State 렌더 — ECS Scene 은 RenderCommand 를 모아 백엔드에 제출, 그 외는 legacy DrawContext 경로
+        if (current is Scene) {
+            backend.submit(current.gatherRenderCommands())
+        } else {
+            current?.render(drawContext)
+        }
 
-        // 7. NanoVG 프레임 끝
-        drawContext.endFrame()
+        // 7. 백엔드 프레임 종료 (변환 복원 + NanoVG 프레임 끝)
+        backend.endFrame()
 
         // 8. 선택적 커스텀 OpenGL 패스 (State 구현 시)
         if (current is OpenGLRenderable && current.useOpenGLRenderer) {
