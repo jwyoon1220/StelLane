@@ -1,11 +1,11 @@
 package io.github.jwyoon1220.engine.render
 
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.FontRegistry
 import io.github.jwyoon1220.engine.GlEffectProvider
 import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.ImGuiManager
 import io.github.jwyoon1220.engine.ImGuiRenderable
+import io.github.jwyoon1220.engine.NvgDrawContext
 import io.github.jwyoon1220.engine.OpenGLRenderable
 import io.github.jwyoon1220.engine.PostProcessPass
 import io.github.jwyoon1220.engine.VideoBackground
@@ -40,8 +40,8 @@ class NanoVGBackend : RendererBackend {
 
     private var vg: Long = 0L
 
-    /** 논리 좌표(1280×720)로 그리기 위한 [DrawContext]. */
-    private lateinit var drawContext: DrawContext
+    /** 논리 좌표(1280×720)로 그리기 위한 [DrawContext] (NanoVG 구현체). */
+    private lateinit var drawContext: NvgDrawContext
     private lateinit var videoBackground: VideoBackground
     private var designW = 0f
     private var designH = 0f
@@ -53,7 +53,7 @@ class NanoVGBackend : RendererBackend {
         vg = nvgCreate(NVG_ANTIALIAS or NVG_STENCIL_STROKES)
         check(vg != 0L) { "[NanoVGBackend] NanoVG 컨텍스트 생성 실패" }
         FontRegistry.loadAll(vg)
-        drawContext = DrawContext(vg, ctx.designWidth, ctx.designHeight)
+        drawContext = NvgDrawContext(vg, ctx.designWidth, ctx.designHeight)
         videoBackground = checkNotNull(ctx.videoBackground) { "[NanoVGBackend] videoBackground가 필요합니다" }
         videoBackground.initGLTexture() // GL 텍스처 생성 — 없으면 getNvgImageHandle()이 항상 -1을 반환해 배경이 그려지지 않음
         designW = ctx.designWidth.toFloat()
