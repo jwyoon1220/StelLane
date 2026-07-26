@@ -40,6 +40,7 @@ dependencies {
 
     implementation(platform("org.lwjgl:lwjgl-bom:$lwjglVersion"))
 
+    // ── OpenGL 백엔드 ──────────────────────────────────────────────────────
     implementation("org.lwjgl:lwjgl")
     implementation("org.lwjgl:lwjgl-glfw")
     implementation("org.lwjgl:lwjgl-opengl")
@@ -48,6 +49,12 @@ dependencies {
     implementation("org.lwjgl:lwjgl-openal")
     implementation("org.lwjgl:lwjgl-tinyfd")
 
+    // ── Vulkan 백엔드 (새로운 렌더링 경로) ────────────────────────────────
+    implementation("org.lwjgl:lwjgl-vulkan")
+    implementation("org.lwjgl:lwjgl-vma")     // Vulkan Memory Allocator
+    implementation("org.lwjgl:lwjgl-shaderc") // Shader 컴파일러
+
+    // ── OpenGL 네이티브 라이브러리 ────────────────────────────────────────
     runtimeOnly("org.lwjgl:lwjgl::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-glfw::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-opengl::$lwjglNatives")
@@ -55,6 +62,10 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-stb::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-openal::$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-tinyfd::$lwjglNatives")
+
+    // ── Vulkan 네이티브 라이브러리 ────────────────────────────────────────
+    runtimeOnly("org.lwjgl:lwjgl-vma::$lwjglNatives")
+    runtimeOnly("org.lwjgl:lwjgl-shaderc::$lwjglNatives")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
