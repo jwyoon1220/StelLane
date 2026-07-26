@@ -28,12 +28,13 @@ import io.github.jwyoon1220.engine.GlQuadBatchRenderer
 import io.github.jwyoon1220.engine.ecs.Scene
 import java.awt.BasicStroke
 import java.io.File
-import java.io.FileWriter
+import java.nio.file.Files
 import java.util.ArrayDeque
 import kotlin.math.abs
 import io.github.jwyoon1220.core.replay.ReplayFrame
 import io.github.jwyoon1220.engine.DrawFontMetrics
 import it.unimi.dsi.fastutil.objects.ObjectArrayList
+import org.slf4j.LoggerFactory
 
 /**
  * ECS 기반 게임플레이 씬.
@@ -73,6 +74,13 @@ class PlayScene(
         private val COLOR_STAT_TEXT    = RenderColor.of(200, 190, 225)
         private val COLOR_HINT_TEXT    = RenderColor.of(140, 130, 160)
 
+        // 정확도 바 색상 (은은하게)
+        private val COLOR_ACC_BAR_BG   = RenderColor.of(22, 15, 38, 90)
+        private val COLOR_ACC_FILL_HIGH = RenderColor.of(59, 180, 210, 130)   // 탁한 청록  >= 95%
+        private val COLOR_ACC_FILL_MID  = RenderColor.of(190, 90, 130, 130)   // 탁한 분홍  >= 80%
+        private val COLOR_ACC_FILL_LOW  = RenderColor.of(185, 155, 65, 130)   // 탁한 골드  >= 60%
+        private val COLOR_ACC_FILL_MISS = RenderColor.of(185, 55, 55, 130)    // 탁한 빨강  < 60%
+
         // 판정 색상 배열 (Judgment 순서와 일치)
         private val JUDGMENT_COLORS = arrayOf(
             RenderColor.of(59, 206, 242),   // PERFECT - Cyan
@@ -98,8 +106,20 @@ class PlayScene(
         private val COLOR_READY_LABEL = RenderColor.of(255, 107, 157)
         private val COLOR_COUNTDOWN_GO = RenderColor.of(59, 206, 242)
 
+        private val log = LoggerFactory.getLogger(PlayScene::class.java)
+
         private val REPLAY_MAPPER = com.fasterxml.jackson.databind.ObjectMapper().apply {
             enable(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT)
+        }
+
+        /**
+         * 가중치 정확도(PERFECT=3, GREAT=2, GOOD=1, MISS=0) 계산.
+         * [defaultIfEmpty]: 판정이 하나도 없을 때 반환할 기본값.
+         */
+        fun computeAccuracy(perfect: Int, great: Int, good: Int, miss: Int, defaultIfEmpty: Double = 100.0): Double {
+            val total = perfect + great + good + miss
+            return if (total > 0) (perfect * 3 + great * 2 + good) / (total * 3.0) * 100.0
+            else defaultIfEmpty
         }
 
         // playSpeed 변환 상수
@@ -115,10 +135,13 @@ class PlayScene(
     private var cachedScoreStr = "0000000"
     private val cachedCounts = IntArray(4) { -1 }
     private var cachedCountsStr = "P:0  G:0  g:0  M:0"
+    private var cachedReplayCounts: List<Int> = listOf(0, 0, 0, 0)
     private var cachedMaxCombo = -1
     private var cachedMaxComboStr = "MAX COMBO: 0"
     private var cachedCombo = -1
     private var cachedComboStr = ""
+    private var cachedAccuracy = -1.0
+    private var cachedAccuracyStr = "100.0%"
 
     // update()에서 매 프레임 재사용 — mutableListOf() 반복 할당 방지
     private val pressedLanesBuf  = ArrayList<Int>(4)
@@ -416,7 +439,7 @@ class PlayScene(
                 score              = scoreEngine.score,
                 combo              = combo,
                 maxCombo           = scoreEngine.maxCombo,
-                judgmentCounts     = scoreEngine.counts.toList(),
+                judgmentCounts     = cachedReplayCounts,
                 judgmentThisFrame  = replayLastJudgment,
                 activeNoteIndices  = synchronized(notesLock) { (0 until soaSize).filter { soaActive[it] } }
             ))
@@ -595,6 +618,42 @@ class PlayScene(
             g.globalAlpha = old
         }
 
+        // 실시간 정확도 바 (콤보 아래, 화면 상단)
+        val liveC = scoreEngine.counts  // 로컬 캡처로 counts 다중 접근 제거
+        val accuracy = computeAccuracy(liveC[0], liveC[1], liveC[2], liveC[3])
+
+        val barW = 200f
+        val barH = 8f
+        val barX = (w - barW) / 2f
+        val barY = 132f
+        val barR = barH / 2f
+
+        g.renderColor = COLOR_ACC_BAR_BG
+        g.fillRoundRect(barX, barY, barW, barH, barR)
+
+        val fillW = (barW * accuracy / 100.0).toFloat().coerceIn(0f, barW)
+        val accFillColor = when {
+            accuracy >= 95.0 -> COLOR_ACC_FILL_HIGH
+            accuracy >= 80.0 -> COLOR_ACC_FILL_MID
+            accuracy >= 60.0 -> COLOR_ACC_FILL_LOW
+            else             -> COLOR_ACC_FILL_MISS
+        }
+        if (fillW > 0f) {
+            g.scoped {
+                setClip(barX, barY, fillW, barH)
+                renderColor = accFillColor
+                fillRoundRect(barX, barY, barW, barH, barR)
+            }
+        }
+
+        if (cachedAccuracy != accuracy) {
+            cachedAccuracy = accuracy
+            cachedAccuracyStr = "%.1f%%".format(accuracy)
+        }
+        g.font = hintFont
+        g.renderColor = RenderColor.of(170, 160, 195)
+        g.drawStringCentered(cachedAccuracyStr, w / 2f, barY + 18f)
+
         // 점수 (우상단)
         g.font  = scoreFont
         g.renderColor = RenderColor.WHITE
@@ -655,12 +714,9 @@ class PlayScene(
         g.renderColor = COLOR_RESULT_OVERLAY
         g.fillRect(0, 0, w, h)
 
-        val counts    = scoreEngine.counts
-        val score     = scoreEngine.score
-        val totalHits = counts[0] + counts[1] + counts[2] + counts[3]
-        val accuracy  = if (totalHits > 0)
-            (counts[0] * 100.0 + counts[1] * 70.0 + counts[2] * 30.0) / (totalHits * 100.0) * 100.0
-        else 0.0
+        val counts   = scoreEngine.counts
+        val score    = scoreEngine.score
+        val accuracy = computeAccuracy(counts[0], counts[1], counts[2], counts[3], defaultIfEmpty = 0.0)
         val rank = when {
             score >= 980_000 -> "SS"
             score >= 950_000 -> "S"
@@ -813,29 +869,26 @@ class PlayScene(
         judgmentColor     = judgColor(j)
         judgmentFadeMs    = JUDGE_FADE_MS
         replayLastJudgment = j.name
+        val c = scoreEngine.counts
+        cachedReplayCounts = listOf(c[0], c[1], c[2], c[3])
     }
 
     private fun saveReplay() {
         try {
             val replay = ReplayFile(
-                chartId = "${songEntry.song.title}_${chart.notes.size}",
-                offsetMs = chart.offsetMs,
+                chartId    = "${songEntry.song.title}_${chart.notes.size}",
+                offsetMs   = chart.offsetMs,
                 totalNotes = chart.notes.size,
-                bpm = (songEntry.song.bpm ?: 120).toFloat(),
-                targetFps = 60,
-                frames = replayFrames
+                bpm        = (songEntry.song.bpm ?: 120).toFloat(),
+                targetFps  = 60,
+                frames     = replayFrames
             )
-
-            val jsonStr = REPLAY_MAPPER.writeValueAsString(replay)
-
-            val replayDir = File(songEntry.songDir, "replays").apply { mkdirs() }
+            val replayDir  = File(songEntry.songDir, "replays").apply { mkdirs() }
             val outputFile = File(replayDir, "golden_replay.json")
-
-            FileWriter(outputFile).use { it.write(jsonStr) }
-            println("✓ Replay saved: ${outputFile.absolutePath}")
+            Files.writeString(outputFile.toPath(), REPLAY_MAPPER.writeValueAsString(replay), Charsets.UTF_8)
+            log.info("리플레이 저장 완료: {}", outputFile.absolutePath)
         } catch (e: Exception) {
-            System.err.println("✗ Failed to save replay: ${e.message}")
-            e.printStackTrace()
+            log.error("리플레이 저장 실패", e)
         }
     }
 
