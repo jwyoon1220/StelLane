@@ -42,18 +42,14 @@ class VulkanContextSmokeTest {
 
             repeat(5) {
                 glfwPollEvents()
-                backend.beginFrame(window.framebufferWidth, window.framebufferHeight, 1f, 0f, 0f)
-                backend.submit(emptyList())
-                backend.endFrame()
+                backend.renderFrame(null, window.framebufferWidth, window.framebufferHeight, 1f, 0f, 0f)
             }
 
             // 리사이즈 시뮬레이션 — out-of-date 없이도 명시적 재생성 경로가 안전한지 확인
             backend.notifyResize(window.framebufferWidth / 2, window.framebufferHeight / 2)
             repeat(3) {
                 glfwPollEvents()
-                backend.beginFrame(window.framebufferWidth / 2, window.framebufferHeight / 2, 1f, 0f, 0f)
-                backend.submit(emptyList())
-                backend.endFrame()
+                backend.renderFrame(null, window.framebufferWidth / 2, window.framebufferHeight / 2, 1f, 0f, 0f)
             }
 
             backend.destroy()

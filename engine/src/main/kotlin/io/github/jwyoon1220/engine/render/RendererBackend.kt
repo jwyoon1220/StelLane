@@ -1,7 +1,9 @@
 package io.github.jwyoon1220.engine.render
 
 import io.github.jwyoon1220.engine.GLFWWindow
+import io.github.jwyoon1220.engine.ImGuiManager
 import io.github.jwyoon1220.engine.VideoBackground
+import io.github.jwyoon1220.engine.ecs.Scene
 
 /**
  * 렌더러 컨텍스트 — RendererBackend 초기화에 필요한 환경 정보를 담습니다.
@@ -21,21 +23,32 @@ data class RendererContext(
 /**
  * 렌더러 백엔드 인터페이스 — 실제 GPU 그리기를 담당하는 플러그 가능한 구현체.
  *
+ * [io.github.jwyoon1220.engine.Renderer]는 이 인터페이스 뒤에서 무슨 일이 일어나는지 전혀 모릅니다 —
+ * 프레임버퍼 크기와 letterbox/pillarbox 변환값(scale/offset)만 계산해서 [renderFrame]에 넘길 뿐,
+ * 클리어/비디오 배경 합성/RenderCommand 실행/후처리/UI 오버레이는 전부 백엔드 책임입니다.
+ * 그래서 `org.lwjgl.opengl.*` 같은 그래픽스 API 심볼은 Renderer가 아니라 각 백엔드 구현체에만
+ * 등장해야 합니다.
+ *
  * ## 구현 예
- * - `NanoVGBackend`: 기존 엔진 렌더링 파이프라인 (NanoVG + OpenGL + ImGui)
- * - `DebugBackend`: 테스트용 no-op 구현
+ * - [io.github.jwyoon1220.engine.render.NanoVGBackend]: NanoVG + OpenGL + GL 후처리 + ImGui
+ * - [io.github.jwyoon1220.engine.vulkan.VulkanBackend]: Vulkan (RenderCommand 실행은 아직 미구현)
  *
  * ## 스레드 요구사항
  * 모든 메서드는 **GLFW 메인 스레드**에서 호출해야 합니다.
- * `GL.createCapabilities()` 이후 [init]이 최초로 호출됩니다.
  */
 interface RendererBackend {
 
-    /** 백엔드 고유 식별자 (예: "nanovg", "debug"). [RendererFactory] 등록 키와 일치해야 합니다. */
+    /** 백엔드 고유 식별자 (예: "nanovg", "vulkan"). [RendererFactory] 등록 키와 일치해야 합니다. */
     val id: String
 
     /**
-     * OpenGL 컨텍스트가 활성화된 상태에서 백엔드를 초기화합니다.
+     * Dear ImGui 관리자 (선택). 앱 초기화 순서상 [init] 이후에 설정되는 경우가 많아 별도 프로퍼티로
+     * 노출합니다. ImGui 렌더링을 지원하지 않는 백엔드(현재 Vulkan)는 이 값을 무시해도 됩니다.
+     */
+    var imGuiManager: ImGuiManager?
+
+    /**
+     * 그래픽스 컨텍스트가 활성화된 상태에서 백엔드를 초기화합니다.
      * GLFW 창 생성 직후, 게임 루프 시작 전에 호출됩니다.
      *
      * @param ctx 렌더러 컨텍스트 (창 핸들, 비디오 배경 등)
@@ -43,15 +56,19 @@ interface RendererBackend {
     fun init(ctx: RendererContext)
 
     /**
-     * 새 프레임을 시작합니다.
+     * 한 프레임을 통째로 그립니다 — 클리어, 비디오 배경 합성, [scene]의 RenderCommand 실행,
+     * 백엔드별 커스텀 패스(OpenGL 후처리/커스텀 GL 렌더러 등), UI 오버레이(ImGui)까지 이 호출
+     * 하나에서 전부 처리합니다. [GLFWWindow.swapBuffers]는 게임 루프가 별도로 호출합니다.
      *
+     * @param scene             이번 프레임의 현재 씬. 아직 씬이 없으면 null.
      * @param framebufferWidth  실제 프레임버퍼 너비 (HiDPI 스케일 적용)
      * @param framebufferHeight 실제 프레임버퍼 높이
-     * @param scale             framebuffer / window 비율
-     * @param offsetX           letterbox/pillarbox X 오프셋
-     * @param offsetY           letterbox/pillarbox Y 오프셋
+     * @param scale             framebuffer / 논리 해상도(designWidth/Height) 비율
+     * @param offsetX           letterbox/pillarbox X 오프셋 (물리 픽셀)
+     * @param offsetY           letterbox/pillarbox Y 오프셋 (물리 픽셀)
      */
-    fun beginFrame(
+    fun renderFrame(
+        scene: Scene?,
         framebufferWidth: Int,
         framebufferHeight: Int,
         scale: Float,
@@ -60,22 +77,8 @@ interface RendererBackend {
     )
 
     /**
-     * [RenderCommand] 목록을 GPU에 제출합니다.
-     * [beginFrame] 이후, [endFrame] 이전에 호출합니다.
-     *
-     * @param commands 이번 프레임의 렌더 커맨드 목록 (순서 보장)
-     */
-    fun submit(commands: List<RenderCommand>)
-
-    /**
-     * 프레임을 완료합니다 (NanoVG endFrame, ImGui render 등).
-     * [GLFWWindow.swapBuffers]는 게임 루프가 별도로 호출합니다.
-     */
-    fun endFrame()
-
-    /**
      * 백엔드를 해제합니다. 창이 닫힐 때 호출됩니다.
-     * OpenGL 객체, NanoVG 컨텍스트, 텍스처 등을 정리하세요.
+     * GPU 객체, 그래픽스 컨텍스트, 텍스처 등을 정리하세요.
      */
     fun destroy()
 }
