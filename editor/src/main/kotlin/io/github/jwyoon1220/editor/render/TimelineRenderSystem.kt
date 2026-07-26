@@ -67,6 +67,15 @@ class TimelineRenderSystem(
 
         fun msToX(ms: Long) = tlX + ((ms - scrollMs).toDouble() / visMs * tlW).toInt()
 
+        // BPM 그리드 파라미터를 한 번만 계산 — 눈금자·각 레인에서 재사용합니다.
+        // stepMs = beatMs/4 (16분음표 기준), null이면 BPM 그리드 없음(범위 초과 포함).
+        val bpmGrid: Triple<Double, Long, Long>? = if (bpm != null && bpm > 0) {
+            val stepMs = (60_000.0 / bpm) / 4.0
+            val first  = (scrollMs / stepMs).toLong() - 1
+            val last   = ((scrollMs + visMs) / stepMs).toLong() + 1
+            if (last - first in 0..2000) Triple(stepMs, first, last) else null
+        } else null
+
         out.add(RenderCommand.LegacyDrawContext {
 
             val g = this
@@ -83,33 +92,28 @@ class TimelineRenderSystem(
             g.fillRect(tlX, rY, tlW, rH)
             g.font = rulerFont
 
-            if (bpm != null && bpm > 0) {
-                val beatMs = 60_000.0 / bpm
-                val stepMs = beatMs / 4.0
-                val first = (scrollMs / stepMs).toLong() - 1
-                val last  = ((scrollMs + visMs) / stepMs).toLong() + 1
-                if (last - first in 0..2000) {
-                    for (i in first..last) {
-                        val tMs = i * stepMs
-                        val bx  = tlX + ((tMs - scrollMs) / visMs * tlW).toInt()
-                        if (bx < tlX || bx > tlX + tlW) continue
-                        val isBeat    = i % 4 == 0L
-                        val isMeasure = i % 16 == 0L
-                        when {
-                            isMeasure -> {
-                                g.renderColor = RenderColor.of(100, 80, 160)
-                                g.drawLine(bx, rY, bx, rY + rH)
-                                g.renderColor = RenderColor.of(180, 155, 230)
-                                g.drawString(EditorUtils.formatTime(tMs.toLong()).dropLast(4), (bx + 2).toFloat(), (rY + rH - 3).toFloat())
-                            }
-                            isBeat -> {
-                                g.renderColor = RenderColor.of(55, 45, 90)
-                                g.drawLine(bx, rY + rH / 3, bx, rY + rH)
-                            }
-                            else -> {
-                                g.renderColor = RenderColor.of(35, 28, 60)
-                                g.drawLine(bx, rY + rH / 2, bx, rY + rH)
-                            }
+            if (bpmGrid != null) {
+                val (stepMs, first, last) = bpmGrid
+                for (i in first..last) {
+                    val tMs = i * stepMs
+                    val bx  = tlX + ((tMs - scrollMs) / visMs * tlW).toInt()
+                    if (bx < tlX || bx > tlX + tlW) continue
+                    val isBeat    = i % 4 == 0L
+                    val isMeasure = i % 16 == 0L
+                    when {
+                        isMeasure -> {
+                            g.renderColor = RenderColor.of(100, 80, 160)
+                            g.drawLine(bx, rY, bx, rY + rH)
+                            g.renderColor = RenderColor.of(180, 155, 230)
+                            g.drawString(EditorUtils.formatTime(tMs.toLong()).dropLast(4), (bx + 2).toFloat(), (rY + rH - 3).toFloat())
+                        }
+                        isBeat -> {
+                            g.renderColor = RenderColor.of(55, 45, 90)
+                            g.drawLine(bx, rY + rH / 3, bx, rY + rH)
+                        }
+                        else -> {
+                            g.renderColor = RenderColor.of(35, 28, 60)
+                            g.drawLine(bx, rY + rH / 2, bx, rY + rH)
                         }
                     }
                 }
@@ -138,20 +142,15 @@ class TimelineRenderSystem(
                 g.renderColor = LANE_BG[lane]; g.fillRect(tlX, ly, tlW, lH)
                 g.renderColor = RenderColor.of(40, 32, 62, 120); g.drawLine(tlX, ly, tlX + tlW, ly)
 
-                // BPM 그리드 수직선 (얕게)
-                if (bpm != null && bpm > 0) {
-                    val beatMs = 60_000.0 / bpm
-                    val stepMs = beatMs / 4.0
-                    val first = (scrollMs / stepMs).toLong() - 1
-                    val last  = ((scrollMs + visMs) / stepMs).toLong() + 1
-                    if (last - first in 0..2000) {
-                        for (i in first..last) {
-                            val bx = tlX + ((i * stepMs - scrollMs) / visMs * tlW).toInt()
-                            if (bx < tlX || bx > tlX + tlW) continue
-                            val isBeat = i % 4 == 0L
-                            g.renderColor = if (isBeat) RenderColor.of(45, 38, 70, 100) else RenderColor.of(30, 25, 52, 70)
-                            g.drawLine(bx, ly, bx, ly + lH)
-                        }
+                // BPM 그리드 수직선 (얕게) — 눈금자와 동일한 bpmGrid 재사용
+                if (bpmGrid != null) {
+                    val (stepMs, first, last) = bpmGrid
+                    for (i in first..last) {
+                        val bx = tlX + ((i * stepMs - scrollMs) / visMs * tlW).toInt()
+                        if (bx < tlX || bx > tlX + tlW) continue
+                        val isBeat = i % 4 == 0L
+                        g.renderColor = if (isBeat) RenderColor.of(45, 38, 70, 100) else RenderColor.of(30, 25, 52, 70)
+                        g.drawLine(bx, ly, bx, ly + lH)
                     }
                 }
 
@@ -161,9 +160,19 @@ class TimelineRenderSystem(
                 g.drawStringCentered(LANE_LABELS[lane], (thW / 2).toFloat(), (ly + lH / 2 + 5).toFloat())
             }
 
-            // 노트 렌더링
-            val notesCopy = synchronized(notesLock) { chart.notes.toList() }
-            notesCopy.forEachIndexed { idx, note ->
+            // 노트 렌더링 — 화면에 보이는 시간 구간만 이진탐색으로 잘라서 순회합니다.
+            // (notes는 항상 time 오름차순 정렬 상태이므로 전체 복사+순회 없이 O(log n + 보이는 노트 수)로 충분합니다.)
+            val marginMs = if (tlW > 0) (20.0 / tlW * visMs).toLong() else visMs
+            val minMs = scrollMs - marginMs
+            val maxMs = scrollMs + visMs + marginMs
+            val (windowStart, notesWindow) = synchronized(notesLock) {
+                val all = chart.notes
+                val lo = EditorUtils.lowerBoundByTime(all, minMs)
+                val hi = EditorUtils.upperBoundByTime(all, maxMs)
+                lo to ArrayList(all.subList(lo, hi))
+            }
+            notesWindow.forEachIndexed { i, note ->
+                val idx = windowStart + i
                 val nx = msToX(note.time)
                 if (nx < tlX - 20 || nx > tlX + tlW + 20) return@forEachIndexed
                 val ly = layout.laneY(note.lane)
