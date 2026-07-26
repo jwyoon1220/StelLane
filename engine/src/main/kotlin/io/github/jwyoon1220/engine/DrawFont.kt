@@ -10,7 +10,6 @@ data class DrawFont(
     val size: Float
 ) {
     fun deriveFont(newSize: Float): DrawFont = copy(size = newSize)
-    fun deriveFont(style: Int, newSize: Float): DrawFont = copy(size = newSize)
     /** java.awt.Font.size2D 호환 */
     val size2D: Float get() = size
 }

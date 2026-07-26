@@ -3,7 +3,6 @@ package io.github.jwyoon1220.app.ecs
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.WindowMode
 import io.github.jwyoon1220.engine.ecs.InputSnapshot
@@ -22,7 +21,7 @@ import kotlin.math.sin
  */
 class SettingsScene(
     private val ctx: GameContext,
-    private val previous: GameState,
+    private val previous: Scene,
     private val startAt: Int = 0
 ) : Scene() {
 

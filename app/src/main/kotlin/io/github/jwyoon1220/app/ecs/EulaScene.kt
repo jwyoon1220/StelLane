@@ -3,7 +3,6 @@ package io.github.jwyoon1220.app.ecs
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
-import io.github.jwyoon1220.engine.GameState
 import io.github.jwyoon1220.engine.Keys
 import io.github.jwyoon1220.engine.ecs.InputSnapshot
 import io.github.jwyoon1220.engine.ecs.RenderProducer
@@ -20,7 +19,7 @@ import kotlin.system.exitProcess
  */
 class EulaScene(
     private val ctx: GameContext,
-    private val returnTo: GameState? = null
+    private val returnTo: Scene? = null
 ) : Scene() {
 
     private val isReadOnly = returnTo != null

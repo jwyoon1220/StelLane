@@ -3,13 +3,6 @@ package io.github.jwyoon1220.engine
 import io.github.jwyoon1220.engine.ecs.Scene
 import org.lwjgl.glfw.GLFW.glfwPollEvents
 
-/**
- * GLFW 메인 스레드에서 실행되는 게임 루프.
- *
- * GLFW 는 glfwPollEvents() 를 메인 스레드에서만 호출할 수 있으므로
- * 루프 전체가 메인 스레드에서 작동합니다.
- * [start] 는 블로킹 호출이며, 창이 닫힐 때까지 반환되지 않습니다.
- */
 class GameLoop(
     private val window: GLFWWindow,
     private val stateManager: SceneRouter,
