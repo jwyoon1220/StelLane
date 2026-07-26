@@ -26,6 +26,12 @@ import kotlin.math.*
 
 enum class SelectMode { PLAY, EDIT, MULTIPLAYER_HOST }
 
+enum class SortMode(val label: String) {
+    TITLE_ASC("제목 ▲"), TITLE_DESC("제목 ▼"),
+    ARTIST_ASC("아티스트 ▲"),
+    BPM_ASC("BPM ▲"), BPM_DESC("BPM ▼")
+}
+
 /**
  * 곡 선택 화면 (ECS Scene + Dear ImGui 가져오기/내보내기 다이얼로그).
  *
@@ -84,6 +90,9 @@ class SongSelectScene(
         private val COLOR_SCROLL_BAR_BG = RenderColor.of(30, 22, 50)
         private val COLOR_SCROLL_BAR_THUMB = RenderColor.of(255, 107, 157, 160) // Glowing pink scrollbar thumb
         private val COLOR_EMPTY_SONGS = RenderColor.of(163, 112, 247)
+
+        // 파일명 sanitize용 Regex — companion object에서 한 번만 컴파일합니다.
+        private val UNSAFE_FILENAME_CHARS = Regex("[^a-zA-Z0-9가-힣\\-_ ]")
     }
 
     private val log = LoggerFactory.getLogger(SongSelectScene::class.java)
@@ -125,6 +134,17 @@ class SongSelectScene(
     private val PREVIEW_START_MS = 20_000L
     private var lastPreviewSong: String? = null
 
+    // ── 검색 / 정렬 ──────────────────────────────────────────────────────────
+    private val SEARCH_BAR_H = 36
+    private var searchStr = ""
+    private var searchActive = false
+    private var skipNextKeyTyped = false
+    private var sortMode = SortMode.TITLE_ASC
+    private var displayedSongsCache: List<io.github.jwyoon1220.core.data.SongEntry> = emptyList()
+
+    // 백그라운드 임포트 스레드가 완료되면 true로 세팅 → onUpdate()에서 게임 루프 스레드로 rebuild 위임
+    @Volatile private var pendingRefresh = false
+
     // ── 애니메이션 ───────────────────────────────────────────────────────────
     private var time       = 0.0
     private var scrollAnim = 0f
@@ -150,13 +170,40 @@ class SongSelectScene(
     private var importDialogEntries: List<FileBrowserEntry> = emptyList()
     private var importDialogSelected: File? = null
 
-    private val songs    get() = ctx.songManager.songs
-    private val curSong  get() = songs.getOrNull(songIndex)
-    private val curDiffs get() = curSong?.song?.difficulties?.keys?.toList() ?: emptyList()
+    private val songs   get() = displayedSongsCache
+    private val curSong get() = songs.getOrNull(songIndex)
+
+    private var _curSongForDiffs: Any? = null
+    private var _cachedDiffs: List<String> = emptyList()
+    private val curDiffs: List<String>
+        get() {
+            val s = curSong
+            if (s !== _curSongForDiffs) { _curSongForDiffs = s; _cachedDiffs = s?.song?.difficulties?.keys?.toList() ?: emptyList() }
+            return _cachedDiffs
+        }
+
+    private fun rebuildSongList() {
+        val base = ctx.songManager.songs
+        val query = searchStr.trim()
+        val filtered = if (query.isEmpty()) base
+        else base.filter {
+            it.song.title.contains(query, ignoreCase = true) ||
+            it.song.artist.contains(query, ignoreCase = true)
+        }
+        displayedSongsCache = when (sortMode) {
+            SortMode.TITLE_ASC   -> filtered.sortedBy { it.song.title.lowercase() }
+            SortMode.TITLE_DESC  -> filtered.sortedByDescending { it.song.title.lowercase() }
+            SortMode.ARTIST_ASC  -> filtered.sortedBy { it.song.artist.lowercase() }
+            SortMode.BPM_ASC     -> filtered.sortedBy { it.song.bpm ?: Int.MAX_VALUE }
+            SortMode.BPM_DESC    -> filtered.sortedByDescending { it.song.bpm ?: 0 }
+        }
+        songIndex = songIndex.coerceIn(0, maxOf(0, displayedSongsCache.lastIndex))
+    }
 
     override fun enter() {
         super.enter()
         ctx.songManager.refresh()
+        rebuildSongList()
         log.info("SongSelectScene enter mode={} songs={}", mode, ctx.songManager.songs.size)
         songIndex = 0; diffIndex = 0; lastPreviewSong = null; time = 0.0
         ctx.inputManager.clearEvents()
@@ -189,6 +236,14 @@ class SongSelectScene(
         time += deltaTime
         val targetY = songIndex * ROW_H.toFloat()
         scrollAnim += (targetY - scrollAnim) * (1f - exp(-deltaTime.toFloat() * 12f))
+
+        // 임포트 완료 신호 처리 — 반드시 게임 루프 스레드에서 실행
+        if (pendingRefresh) {
+            pendingRefresh = false
+            rebuildSongList()
+            songIndex = 0; diffIndex = 0; lastPreviewSong = null
+            playPreviewForCurrent()
+        }
     }
 
     private fun getCoverImage(entry: SongEntry): BufferedImage? {
@@ -395,11 +450,47 @@ class SongSelectScene(
             g.drawStringCentered("N 를 눌러 새 곡 만들기", PANEL_W / 2f, h / 2f + 24f)
         }
 
-        // ── 오른쪽: 스크롤 목록 ─────────────────────────────────────────────
+        // ── 오른쪽: 검색/정렬 바 ─────────────────────────────────────────────
         val listX  = PANEL_W + 1
         val listW  = w - listX
-        val topPad = HEADER_H
+        val topPad = HEADER_H + SEARCH_BAR_H
         val areaH  = h - topPad - 28
+
+        g.renderColor = RenderColor.of(14, 9, 28)
+        g.fillRect(listX, HEADER_H, listW, SEARCH_BAR_H)
+        g.renderColor = RenderColor.of(40, 28, 65, 80)
+        g.drawLine(listX, HEADER_H + SEARCH_BAR_H - 1, listX + listW, HEADER_H + SEARCH_BAR_H - 1)
+
+        val sortBtnX = (listX + 8).toFloat()
+        val sortBtnY = (HEADER_H + 6).toFloat()
+        val sortBtnW = 100f
+        val sortBtnH = 24f
+        g.renderColor = RenderColor.of(42, 28, 72)
+        g.fillRoundRect(sortBtnX, sortBtnY, sortBtnW, sortBtnH, 5f)
+        g.renderColor = RenderColor.of(200, 160, 80, 140)
+        g.drawRoundRect(sortBtnX, sortBtnY, sortBtnW, sortBtnH, 5f)
+        g.font = metaFont
+        g.renderColor = COLOR_DIFF_ARROW
+        g.drawStringCentered(sortMode.label, sortBtnX + sortBtnW / 2f, sortBtnY + 15.5f)
+
+        val sInputX = sortBtnX + sortBtnW + 8f
+        val sInputW = (listW - sortBtnW.toInt() - 32).toFloat().coerceAtLeast(60f)
+        val sInputY = (HEADER_H + 6).toFloat()
+        val sInputH = 24f
+        g.renderColor = if (searchActive) RenderColor.of(36, 24, 60) else RenderColor.of(22, 15, 40)
+        g.fillRoundRect(sInputX, sInputY, sInputW, sInputH, 5f)
+        g.renderColor = if (searchActive) RenderColor.of(255, 107, 157, 130) else RenderColor.of(65, 50, 90, 100)
+        g.drawRoundRect(sInputX, sInputY, sInputW, sInputH, 5f)
+        val displaySearchText = when {
+            searchStr.isNotEmpty() -> searchStr + if (searchActive) "│" else ""
+            searchActive -> "│"
+            else -> "/  검색   Tab  정렬"
+        }
+        g.font = metaFont
+        g.renderColor = if (searchStr.isNotEmpty() || searchActive) RenderColor.WHITE else RenderColor.of(85, 72, 112)
+        g.drawString(displaySearchText, sInputX + 8f, sInputY + 15.5f)
+
+        // ── 오른쪽: 스크롤 목록 ─────────────────────────────────────────────
 
         g.scoped {
             setClip(listX, topPad, listW, areaH)
@@ -510,6 +601,23 @@ class SongSelectScene(
             importDialogOpen = false
             return
         }
+        // 검색 모드: ESC → 검색 종료
+        if (searchActive && key == Keys.ESCAPE) {
+            searchActive = false
+            searchStr = ""
+            rebuildSongList()
+            songIndex = 0; diffIndex = 0; lastPreviewSong = null
+            playPreviewForCurrent()
+            return
+        }
+        // 검색 모드: Backspace → 마지막 문자 삭제
+        if (searchActive && key == Keys.BACKSPACE && searchStr.isNotEmpty()) {
+            searchStr = searchStr.dropLast(1)
+            rebuildSongList()
+            songIndex = 0; diffIndex = 0; lastPreviewSong = null
+            playPreviewForCurrent()
+            return
+        }
         when (key) {
             Keys.UP     -> if (songs.isNotEmpty()) { songIndex = (songIndex - 1 + songs.size) % songs.size; diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
             Keys.DOWN   -> if (songs.isNotEmpty()) { songIndex = (songIndex + 1) % songs.size;             diffIndex = 0; lastPreviewSong = null; playPreviewForCurrent() }
@@ -519,16 +627,28 @@ class SongSelectScene(
             Keys.RIGHT  -> {
                 if (curDiffs.isNotEmpty()) diffIndex = (diffIndex + 1) % curDiffs.size
             }
-            Keys.LEFT_SHIFT, Keys.RIGHT_SHIFT -> {
+            Keys.TAB -> {
+                sortMode = SortMode.entries[(sortMode.ordinal + 1) % SortMode.entries.size]
+                rebuildSongList()
+                playPreviewForCurrent()
+            }
+            Keys.SLASH -> {
+                if (!searchActive) {
+                    searchActive = true
+                    searchStr = ""
+                    skipNextKeyTyped = true
+                }
+            }
+            Keys.LEFT_SHIFT, Keys.RIGHT_SHIFT -> if (!searchActive) {
                 io.github.jwyoon1220.app.AppSettings.playSpeed = (io.github.jwyoon1220.app.AppSettings.playSpeed + 0.5f).coerceAtMost(35.0f)
             }
-            Keys.LEFT_CONTROL, Keys.RIGHT_CONTROL -> {
+            Keys.LEFT_CONTROL, Keys.RIGHT_CONTROL -> if (!searchActive) {
                 io.github.jwyoon1220.app.AppSettings.playSpeed = (io.github.jwyoon1220.app.AppSettings.playSpeed - 0.5f).coerceAtLeast(0.5f)
             }
             Keys.ENTER  -> onConfirm()
-            Keys.N      -> if (mode == SelectMode.EDIT) ctx.sceneRouter.navigate(NewSongScene(ctx))
-            Keys.I      -> if (mode == SelectMode.EDIT) openImportDialog()
-            Keys.E      -> if (mode == SelectMode.EDIT) openExportDialog()
+            Keys.N      -> if (!searchActive && mode == SelectMode.EDIT) ctx.sceneRouter.navigate(NewSongScene(ctx))
+            Keys.I      -> if (!searchActive && mode == SelectMode.EDIT) openImportDialog()
+            Keys.E      -> if (!searchActive && mode == SelectMode.EDIT) openExportDialog()
             Keys.ESCAPE -> {
                 if (onCancel != null) onCancel()
                 else ctx.sceneRouter.navigate(MainMenuScene(ctx))
@@ -536,11 +656,34 @@ class SongSelectScene(
         }
     }
 
+    override fun keyTyped(codepoint: Int) {
+        if (skipNextKeyTyped) { skipNextKeyTyped = false; return }
+        if (!searchActive) return
+        val ch = String(Character.toChars(codepoint))
+        searchStr += ch
+        rebuildSongList()
+        songIndex = 0; diffIndex = 0; lastPreviewSong = null
+        playPreviewForCurrent()
+    }
+
     override fun mouseDragged(x: Float, y: Float, button: Int) { mouseX = x; mouseY = y; updateHover(x, y) }
     override fun mousePressed(x: Float, y: Float, button: Int, mods: Int) { mouseX = x; mouseY = y; updateHover(x, y) }
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
         mouseX = x; mouseY = y; updateHover(x, y)
+
+        // 검색/정렬 바 클릭
+        if (x > PANEL_W && y >= HEADER_H && y <= HEADER_H + SEARCH_BAR_H) {
+            val sortBtnXStart = PANEL_W + 8
+            val sortBtnXEnd   = sortBtnXStart + 100
+            if (x in sortBtnXStart.toFloat()..sortBtnXEnd.toFloat()) {
+                sortMode = SortMode.entries[(sortMode.ordinal + 1) % SortMode.entries.size]
+                rebuildSongList(); playPreviewForCurrent()
+            } else if (x > sortBtnXEnd && !searchActive) {
+                searchActive = true
+            }
+            return
+        }
 
         // 왼쪽 패널 난이도 버튼
         if (x < PANEL_W && curDiffs.isNotEmpty()) {
@@ -554,7 +697,7 @@ class SongSelectScene(
         }
 
         // 오른쪽 목록 클릭
-        val areaTop = HEADER_H; val areaH = 720 - areaTop - 28
+        val areaTop = HEADER_H + SEARCH_BAR_H; val areaH = 720 - areaTop - 28
         val anchorY = areaTop + areaH / 4
         val baseOff = anchorY - scrollAnim.toInt()
         for (i in songs.indices) {
@@ -575,7 +718,7 @@ class SongSelectScene(
 
     private fun updateHover(x: Float, y: Float) {
         if (x < PANEL_W) { hoverIdx = -1; return }
-        val areaTop = HEADER_H; val areaH = 720 - areaTop - 28
+        val areaTop = HEADER_H + SEARCH_BAR_H; val areaH = 720 - areaTop - 28
         val anchorY = areaTop + areaH / 4
         val baseOff = anchorY - scrollAnim.toInt()
         hoverIdx = -1
@@ -683,11 +826,9 @@ class SongSelectScene(
             }
                 .onSuccess {
                     ctx.songManager.refresh()
-                    songIndex = songIndex.coerceIn(0, maxOf(0, songs.lastIndex))
-                    diffIndex = 0
-                    lastPreviewSong = null
-                    playPreviewForCurrent()
                     importMessage = "가져오기 완료: ${selected.name}"
+                    // rebuildSongList/playPreviewForCurrent는 게임 루프 스레드에서만 안전
+                    pendingRefresh = true
                 }
                 .onFailure {
                     importMessage = "가져오기 실패: ${it.message ?: "알 수 없는 오류"}"
@@ -722,7 +863,7 @@ class SongSelectScene(
     }
 
     private fun sanitizeFileName(name: String): String {
-        val safe = name.replace(Regex("[^a-zA-Z0-9가-힣\\-_ ]"), "_").trim().replace(" ", "_")
+        val safe = name.replace(UNSAFE_FILENAME_CHARS, "_").trim().replace(" ", "_")
         return safe.ifEmpty { "song" }.take(80)
     }
 

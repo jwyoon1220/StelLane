@@ -70,6 +70,7 @@ object Keys {
     const val PLUS   = GLFW_KEY_KP_ADD  // 334 (키패드 +)
     const val COMMA  = GLFW_KEY_COMMA   // 44
     const val PERIOD = GLFW_KEY_PERIOD  // 46
+    const val SLASH  = GLFW_KEY_SLASH   // 47
 
     // ── 마우스 버튼 ───────────────────────────────────────────────────────────
     const val MOUSE_LEFT   = GLFW_MOUSE_BUTTON_LEFT   // 0
