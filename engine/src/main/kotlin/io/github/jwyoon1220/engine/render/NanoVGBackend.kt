@@ -55,6 +55,7 @@ class NanoVGBackend : RendererBackend {
         FontRegistry.loadAll(vg)
         drawContext = DrawContext(vg, ctx.designWidth, ctx.designHeight)
         videoBackground = checkNotNull(ctx.videoBackground) { "[NanoVGBackend] videoBackground가 필요합니다" }
+        videoBackground.initGLTexture() // GL 텍스처 생성 — 없으면 getNvgImageHandle()이 항상 -1을 반환해 배경이 그려지지 않음
         designW = ctx.designWidth.toFloat()
         designH = ctx.designHeight.toFloat()
 
