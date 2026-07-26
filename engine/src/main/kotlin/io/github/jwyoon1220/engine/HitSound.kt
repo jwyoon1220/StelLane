@@ -5,7 +5,9 @@ import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 import javax.sound.sampled.Clip
 import javax.sound.sampled.DataLine
+import javax.sound.sampled.FloatControl
 import kotlin.math.exp
+import kotlin.math.log10
 import kotlin.random.Random
 
 /**
@@ -30,6 +32,29 @@ object HitSound {
     private val format = AudioFormat(SAMPLE_RATE, SAMPLE_BITS, CHANNELS, true, false)
     private val clips  = Array<Clip?>(POLYPHONY) { null }
     private var clipIndex = 0
+
+    /** 히트사운드 볼륨 (0.0f~1.0f). AppSettings에서 주입됩니다. Swing EDT에서 쓸 수 있으므로 volatile. */
+    @field:Volatile
+    var volume: Float = 1.0f
+        set(v) {
+            field = v.coerceIn(0f, 1f)
+            applyVolumeToClips()
+        }
+
+    private fun applyVolumeToClips() {
+        val v = volume
+        for (clip in clips) {
+            clip ?: continue
+            try {
+                val gainCtrl = clip.getControl(FloatControl.Type.MASTER_GAIN) as FloatControl
+                // Double 정밀도로 계산 후 Float 변환 (순서 중요: 먼저 곱셈, 마지막에 변환)
+                val db = if (v <= 0f) gainCtrl.minimum
+                         else (20.0 * log10(v.toDouble())).toFloat()
+                             .coerceIn(gainCtrl.minimum, gainCtrl.maximum)
+                gainCtrl.value = db
+            } catch (_: Exception) {}
+        }
+    }
 
     init {
         try {
@@ -57,6 +82,7 @@ object HitSound {
                 clips[i] = clip
             }
             log.info("[HitSound] {} 클립 초기화 완료", POLYPHONY)
+            applyVolumeToClips()
         } catch (e: Exception) {
             log.warn("[HitSound] 초기화 실패 — 타격음이 비활성화됩니다: {}", e.message)
         }

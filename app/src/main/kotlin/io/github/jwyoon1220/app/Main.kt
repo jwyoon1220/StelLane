@@ -5,6 +5,7 @@ import io.github.jwyoon1220.app.ecs.MainMenuScene
 import io.github.jwyoon1220.core.song.SongManager
 import io.github.jwyoon1220.engine.GLFWWindow
 import io.github.jwyoon1220.engine.GameLoop
+import io.github.jwyoon1220.engine.HitSound
 import io.github.jwyoon1220.engine.ImGuiManager
 import io.github.jwyoon1220.engine.InputManager
 import io.github.jwyoon1220.engine.Renderer
@@ -13,6 +14,7 @@ import io.github.jwyoon1220.engine.VideoBackground
 import io.github.jwyoon1220.engine.data.pool.ObjectPool
 import io.github.jwyoon1220.engine.data.pool.VisualNote
 import io.github.jwyoon1220.app.render.NoteRenderer
+import io.github.jwyoon1220.engine.WindowMode
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerCacheManager
 import org.apache.commons.cli.DefaultParser
 import org.apache.commons.cli.HelpFormatter
@@ -84,13 +86,13 @@ fun main(args: Array<String>) {
 
     renderer.init()
     ctx.renderer = renderer
+    HitSound.volume = AppSettings.hitSoundVolume
 
     val imGuiManager = ImGuiManager(window.handle)
     imGuiManager.init()
     renderer.imGuiManager   = imGuiManager
     inputManager.imGuiManager = imGuiManager
 
-    // TODO: 레거시 기능 제거
     inputManager.stateKeyPressed  = { key, mods -> sceneRouter.current?.keyPressed(key, mods) }
     inputManager.stateKeyReleased = { key, mods -> sceneRouter.current?.keyReleased(key, mods) }
     inputManager.stateKeyTyped    = { cp          -> sceneRouter.current?.keyTyped(cp) }
@@ -106,7 +108,11 @@ fun main(args: Array<String>) {
 
     val gameLoop = GameLoop(window, sceneRouter, renderer, inputManager)
     ctx.gameLoop = gameLoop
-    gameLoop.onFpsUpdate = { fps -> window.title = "StelLane  |  $fps FPS" }
+    gameLoop.onFpsUpdate = { fps -> // Windowed 모드에서만 창 타이틀 변경
+        if (AppSettings.windowMode == WindowMode.WINDOWED) {
+            window.title = "StelLane  |  $fps FPS"
+        }
+    }
     gameLoop.targetFPS = AppSettings.targetFps
 
     // Blocking
@@ -117,5 +123,6 @@ fun main(args: Array<String>) {
     renderer.destroy()
     window.destroy()
     videoBackground.release()
+    logger.info("Game Exited.")
     exitProcess(0)
 }

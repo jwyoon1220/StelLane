@@ -7,6 +7,9 @@ import java.util.prefs.Preferences
 object AppSettings {
     private val prefs = Preferences.userNodeForPackage(AppSettings::class.java)
 
+    // OS 사용자명은 JVM 시작 후 불변 — 한 번만 읽어 캐싱합니다.
+    private val DEFAULT_NICKNAME = System.getProperty("user.name")?.take(16) ?: "Player"
+
     var windowMode: WindowMode
         get() = try { WindowMode.valueOf(prefs.get("windowMode", WindowMode.BORDERLESS.name)) }
                 catch (_: Exception) { WindowMode.BORDERLESS }
@@ -40,9 +43,14 @@ object AppSettings {
             prefs.putFloat("musicVolume", value)
         }
 
+    /** 히트사운드 볼륨 (0.0 ~ 1.0). 기본값은 1.0 (최대). */
+    var hitSoundVolume: Float
+        get() = prefs.getFloat("hitSoundVolume", 1.0f).coerceIn(0.0f, 1.0f)
+        set(v) { prefs.putFloat("hitSoundVolume", v.coerceIn(0.0f, 1.0f)) }
+
     /** 멀티플레이어 닉네임 (최대 16자). 기본값은 OS 사용자명. */
     var nickname: String
-        get() = prefs.get("nickname", System.getProperty("user.name") ?: "Player").take(16)
+        get() = prefs.get("nickname", DEFAULT_NICKNAME).take(16)
         set(v) { prefs.put("nickname", v.take(16)) }
 
     /** EULA 동의 여부. 최초 실행 시 false. */

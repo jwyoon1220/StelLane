@@ -2,6 +2,7 @@ package io.github.jwyoon1220.app.ui
 
 import io.github.jwyoon1220.app.AppSettings
 import io.github.jwyoon1220.app.WindowManager
+import io.github.jwyoon1220.engine.HitSound
 import io.github.jwyoon1220.engine.WindowMode
 import java.awt.BorderLayout
 import java.awt.Color
@@ -34,7 +35,7 @@ class SettingsDialog(
 
     init {
         isUndecorated = false
-        preferredSize = Dimension(420, 360)
+        preferredSize = Dimension(420, 430)
 
         contentPane.background = bg
         layout = BorderLayout(0, 0)
@@ -116,6 +117,39 @@ class SettingsDialog(
         gbc.insets = Insets(4, 20, 4, 20)
         content.add(sliderPanel, gbc)
 
+        // ── 히트사운드 볼륨 설정 ──────────────────────────────────────────────────
+        gbc.gridy++
+        gbc.insets = Insets(12, 20, 4, 20)
+        val hitSoundSectionLabel = JLabel("히트사운드 볼륨").apply {
+            foreground = Color(130, 100, 200)
+            font = Font("SansSerif", Font.BOLD, 13)
+        }
+        content.add(hitSoundSectionLabel, gbc)
+
+        val initialHitVol = (AppSettings.hitSoundVolume * 100).toInt()
+        val hitVolumeLabel = JLabel("$initialHitVol%").apply {
+            foreground = fg
+            font = Font("SansSerif", Font.PLAIN, 13)
+            preferredSize = Dimension(40, 20)
+        }
+
+        val hitVolumeSlider = JSlider(0, 100, initialHitVol).apply {
+            background = bg
+            foreground = fg
+            preferredSize = Dimension(200, 20)
+            addChangeListener {
+                hitVolumeLabel.text = "$value%"
+            }
+        }
+
+        val hitSliderPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply { background = bg }
+        hitSliderPanel.add(hitVolumeSlider)
+        hitSliderPanel.add(hitVolumeLabel)
+
+        gbc.gridy++
+        gbc.insets = Insets(4, 20, 4, 20)
+        content.add(hitSliderPanel, gbc)
+
         add(content, BorderLayout.CENTER)
 
         // ── 버튼 ──────────────────────────────────────────────────────────
@@ -128,6 +162,8 @@ class SettingsDialog(
             isFocusPainted = false
             addActionListener {
                 AppSettings.musicVolume = volumeSlider.value / 100f
+                AppSettings.hitSoundVolume = hitVolumeSlider.value / 100f
+                HitSound.volume = AppSettings.hitSoundVolume
                 dispose()
                 windowManager.applyMode(selectedMode)
             }
