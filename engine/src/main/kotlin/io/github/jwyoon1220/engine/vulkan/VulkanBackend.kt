@@ -27,6 +27,8 @@ class VulkanBackend(private val enableValidation: Boolean = true) : RendererBack
     override var imGuiManager: ImGuiManager? = null
 
     private lateinit var vk: VulkanContext
+    private var designW = 1280f
+    private var designH = 720f
     private var warnedUnsupportedCommands = false
     private var warnedImGuiIgnored = false
 
@@ -34,6 +36,8 @@ class VulkanBackend(private val enableValidation: Boolean = true) : RendererBack
         check(ctx.window.api == RenderApi.VULKAN) {
             "VulkanBackend는 RenderApi.VULKAN으로 생성된 GLFWWindow가 필요합니다 (실제: ${ctx.window.api})"
         }
+        designW = ctx.designWidth.toFloat()
+        designH = ctx.designHeight.toFloat()
         vk = VulkanContext.create(
             appName = "StelLane",
             windowHandle = ctx.window.handle,
@@ -61,7 +65,17 @@ class VulkanBackend(private val enableValidation: Boolean = true) : RendererBack
             log.warn("[Vulkan] ImGui는 아직 지원하지 않습니다 — 무시합니다")
         }
 
-        vk.drawFrame(framebufferWidth, framebufferHeight)
+        vk.drawFrame(framebufferWidth, framebufferHeight, scale, offsetX, offsetY, designW, designH) { batcher ->
+            // TODO(vulkan-renderer): task #12~14가 끝나면 여기서 RenderCommand를 VulkanDrawContext로 실행합니다.
+            // 지금은 배치 파이프라인 전체(변환/시저/텍스처 바인딩/draw call)가 실제로 동작하는지 확인하는
+            // 테스트 사각형 하나만 그립니다 — 흰 텍스처가 이미 바인딩되어 있으므로 mode=SOLID로 그립니다.
+            batcher.pushQuad(
+                x = designW / 2f - 100f, y = designH / 2f - 60f, w = 200f, h = 120f,
+                u0 = 0f, v0 = 0f, u1 = 1f, v1 = 1f,
+                r = 1f, g = 0.42f, b = 0.62f, a = 1f, // COLOR_ROW_SEL_INDICATOR 핑크와 맞춘 임시 테스트 색
+                mode = Vulkan2DVertex.MODE_SOLID
+            )
+        }
     }
 
     /** 창 리사이즈 콜백에서 호출하면 다음 [renderFrame] 전에 스왑체인을 미리 맞춰둘 수 있습니다(선택 사항 — renderFrame도 out-of-date 시 자동 재생성함). */

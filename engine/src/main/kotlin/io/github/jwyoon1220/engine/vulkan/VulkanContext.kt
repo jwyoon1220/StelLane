@@ -1,6 +1,7 @@
 package io.github.jwyoon1220.engine.vulkan
 
 import org.lwjgl.system.MemoryStack.stackPush
+import org.lwjgl.system.MemoryUtil
 import org.lwjgl.vulkan.KHRSwapchain.*
 import org.lwjgl.vulkan.VK10.*
 import org.lwjgl.vulkan.VkClearValue
@@ -36,7 +37,12 @@ class VulkanContext private constructor(
     private val commandPool: Long,
     private val commandBuffers: List<VkCommandBuffer>,
     private val syncs: List<FrameSync>,
-    private var renderFinishedSemaphores: LongArray
+    private var renderFinishedSemaphores: LongArray,
+    private val allocator: VmaAllocator,
+    val pipeline2D: Vulkan2DPipeline,
+    private val whiteTexture: VulkanTexture,
+    val whiteTextureDescriptorSet: Long,
+    val batcher: Vulkan2DBatcher
 ) {
     companion object {
         private val log = LoggerFactory.getLogger(VulkanContext::class.java)
@@ -66,8 +72,26 @@ class VulkanContext private constructor(
             // renderFinished는 프레임이 아니라 "스왑체인 이미지"당 하나 — 자세한 이유는 FrameSync 문서 참고.
             val renderFinished = VulkanSyncObjects.createSemaphores(device.handle, swapchain.images.size)
 
+            val allocator = VmaAllocator.create(instance.handle, physical.handle, device.handle)
+            val pipeline2D = Vulkan2DPipeline.create(device.handle, renderPass, swapchain.format)
+
+            // 1x1 흰 텍스처 — 단색 채우기를 "이미지 모드" 셰이더 경로로 그리기 위한 기본 텍스처
+            // (GlQuadBatchRenderer의 whiteTexture와 동일한 용도).
+            val whitePixel = MemoryUtil.memAlloc(4).apply {
+                put(0, 0xFF.toByte()); put(1, 0xFF.toByte()); put(2, 0xFF.toByte()); put(3, 0xFF.toByte())
+            }
+            val whiteTexture = VulkanTexture.createFromRgba(device.handle, allocator, commandPool, device.graphicsQueue, 1, 1, whitePixel)
+            MemoryUtil.memFree(whitePixel)
+            val whiteDescSet = pipeline2D.createTextureDescriptorSet(whiteTexture.imageView)
+
+            val batcher = Vulkan2DBatcher(pipeline2D, allocator, MAX_FRAMES_IN_FLIGHT)
+
             log.info("[Vulkan] 부트스트랩 완료 — {}×{}, {}개 스왑체인 이미지", swapchain.extentW, swapchain.extentH, swapchain.images.size)
-            return VulkanContext(windowHandle, instance, surface, physical, device, swapchain, renderPass, framebuffers, commandPool, commandBuffers, syncs, renderFinished)
+            return VulkanContext(
+                windowHandle, instance, surface, physical, device, swapchain, renderPass, framebuffers,
+                commandPool, commandBuffers, syncs, renderFinished,
+                allocator, pipeline2D, whiteTexture, whiteDescSet, batcher
+            )
         }
     }
 
@@ -79,8 +103,18 @@ class VulkanContext private constructor(
     /**
      * 한 프레임을 그리고 프레젠트합니다. [fbWidth]/[fbHeight]는 호출측(창 리사이즈 콜백 등)이
      * 최신 프레임버퍼 크기를 넘겨줘야 하며, out-of-date/suboptimal이면 자동으로 스왑체인을 재생성합니다.
+     *
+     * @param scale/offsetX/offsetY letterbox 변환값 — [io.github.jwyoon1220.engine.Renderer]가 계산해 넘겨준 값
+     * @param designW/designH 논리 해상도 (보통 1280×720)
+     * @param draw2D 렌더패스 begin 이후, end 이전에 호출됩니다 — [batcher]로 실제 지오메트리를 그리세요.
+     *   흰 텍스처가 기본 바인딩되어 있으니 단색 채우기는 바로 그릴 수 있습니다.
      */
-    fun drawFrame(fbWidth: Int, fbHeight: Int) {
+    fun drawFrame(
+        fbWidth: Int, fbHeight: Int,
+        scale: Float = 1f, offsetX: Float = 0f, offsetY: Float = 0f,
+        designW: Float = fbWidth.toFloat(), designH: Float = fbHeight.toFloat(),
+        draw2D: (Vulkan2DBatcher) -> Unit = {}
+    ) {
         if (fbWidth <= 0 || fbHeight <= 0) return // 최소화된 창 — 그릴 것 없음
 
         val sync = syncs[currentFrame]
@@ -100,7 +134,7 @@ class VulkanContext private constructor(
         vkResetFences(device.handle, sync.inFlightFence)
 
         val cmdBuf = commandBuffers[currentFrame]
-        recordCommandBuffer(cmdBuf, imageIndex)
+        recordCommandBuffer(cmdBuf, imageIndex, scale, offsetX, offsetY, designW, designH, draw2D)
         submit(cmdBuf, sync, imageIndex)
 
         val presentResult = present(imageIndex)
@@ -113,7 +147,11 @@ class VulkanContext private constructor(
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT
     }
 
-    private fun recordCommandBuffer(cmdBuf: VkCommandBuffer, imageIndex: Int) = stackPush().use { stack ->
+    private fun recordCommandBuffer(
+        cmdBuf: VkCommandBuffer, imageIndex: Int,
+        scale: Float, offsetX: Float, offsetY: Float, designW: Float, designH: Float,
+        draw2D: (Vulkan2DBatcher) -> Unit
+    ) = stackPush().use { stack ->
         vkCheck(vkResetCommandBuffer(cmdBuf, 0), "vkResetCommandBuffer 실패")
 
         val beginInfo = VkCommandBufferBeginInfo.calloc(stack).sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO)
@@ -131,7 +169,12 @@ class VulkanContext private constructor(
         renderPassInfo.renderArea().extent().width(swapchain.extentW).height(swapchain.extentH)
 
         vkCmdBeginRenderPass(cmdBuf, renderPassInfo, VK_SUBPASS_CONTENTS_INLINE)
-        // TODO(vulkan-renderer): 2D 배치 파이프라인이 완성되면 여기서 RenderCommand를 실행합니다.
+
+        batcher.beginFrame(cmdBuf, currentFrame, swapchain.extentW, swapchain.extentH, scale, offsetX, offsetY, designW, designH)
+        batcher.bindTexture(whiteTextureDescriptorSet)
+        draw2D(batcher)
+        batcher.endFrame()
+
         vkCmdEndRenderPass(cmdBuf)
 
         vkCheck(vkEndCommandBuffer(cmdBuf), "vkEndCommandBuffer 실패")
@@ -183,6 +226,10 @@ class VulkanContext private constructor(
 
     fun destroy() {
         device.waitIdle()
+        batcher.destroy()
+        whiteTexture.destroy(device.handle, allocator)
+        pipeline2D.destroy()
+        allocator.destroy()
         VulkanSyncObjects.destroy(device.handle, syncs)
         VulkanSyncObjects.destroySemaphores(device.handle, renderFinishedSemaphores)
         VulkanCommandPool.destroy(device.handle, commandPool)
