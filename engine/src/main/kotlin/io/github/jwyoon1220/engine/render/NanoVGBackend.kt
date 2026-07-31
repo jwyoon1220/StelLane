@@ -139,6 +139,41 @@ class NanoVGBackend : RendererBackend {
             if (scene is ImGuiRenderable) scene.renderImGui()
             imgui.render()
         }
+
+        // Vulkan 쪽과 같은 원시(raw framebuffer) 비교를 위한 디버그 캡처 — swapBuffers 전이라
+        // GL_BACK이 방금 그린 이 프레임의 내용입니다.
+        pendingCapturePath?.let { path ->
+            debugCaptureBackBuffer(fbW, fbH, path)
+            pendingCapturePath = null
+        }
+    }
+
+    private var pendingCapturePath: String? = null
+
+    /** 디버그 전용 — 다음 프레임을 raw glReadPixels로 PNG에 저장합니다(Vulkan 캡처와 픽셀 단위 비교용). */
+    override fun debugCaptureFrame(path: String) {
+        pendingCapturePath = path
+    }
+
+    private fun debugCaptureBackBuffer(w: Int, h: Int, path: String) {
+        val buf = org.lwjgl.system.MemoryUtil.memAlloc(w * h * 4)
+        org.lwjgl.opengl.GL11.glReadPixels(0, 0, w, h, org.lwjgl.opengl.GL11.GL_RGBA, org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, buf)
+        val img = java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        // GL은 원점이 좌하단 — 이미지 좌표계(좌상단 원점)로 뒤집으면서 읽습니다.
+        for (y in 0 until h) {
+            val srcRow = h - 1 - y
+            for (x in 0 until w) {
+                val o = (srcRow * w + x) * 4
+                val r = buf.get(o).toInt() and 0xFF
+                val g = buf.get(o + 1).toInt() and 0xFF
+                val b = buf.get(o + 2).toInt() and 0xFF
+                val a = buf.get(o + 3).toInt() and 0xFF
+                img.setRGB(x, y, (a shl 24) or (r shl 16) or (g shl 8) or b)
+            }
+        }
+        org.lwjgl.system.MemoryUtil.memFree(buf)
+        javax.imageio.ImageIO.write(img, "png", java.io.File(path))
+        log.info("[NanoVGBackend] 디버그 스크린샷 저장: {} ({}×{})", path, w, h)
     }
 
     override fun destroy() {

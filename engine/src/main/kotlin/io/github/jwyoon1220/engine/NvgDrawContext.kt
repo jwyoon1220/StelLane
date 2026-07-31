@@ -270,7 +270,7 @@ class NvgDrawContext(
     override fun drawString(str: String, x: Int, y: Int) = drawString(str, x.toFloat(), y.toFloat())
     override fun drawString(str: String, x: Float, y: Float) {
         val f = font ?: return
-        nvgFontFaceId(vg, f.id)
+        nvgFontFaceId(vg, FontRegistry.nvgFontId(vg, f.id))
         nvgFontSize(vg, f.size)
         nvgTextAlign(vg, NVG_ALIGN_LEFT or NVG_ALIGN_BASELINE)
         applyFillColor()
@@ -439,7 +439,7 @@ class NvgDrawContext(
     // ── 텍스트 정렬 변형 ─────────────────────────────────────────────────────
     override fun drawStringCentered(str: String, cx: Float, y: Float) {
         val f = font ?: return
-        nvgFontFaceId(vg, f.id)
+        nvgFontFaceId(vg, FontRegistry.nvgFontId(vg, f.id))
         nvgFontSize(vg, f.size)
         nvgTextAlign(vg, NVG_ALIGN_CENTER or NVG_ALIGN_BASELINE)
         applyFillColor()
@@ -448,7 +448,7 @@ class NvgDrawContext(
 
     override fun drawStringRight(str: String, x: Float, y: Float) {
         val f = font ?: return
-        nvgFontFaceId(vg, f.id)
+        nvgFontFaceId(vg, FontRegistry.nvgFontId(vg, f.id))
         nvgFontSize(vg, f.size)
         nvgTextAlign(vg, NVG_ALIGN_RIGHT or NVG_ALIGN_BASELINE)
         applyFillColor()
@@ -463,7 +463,7 @@ class NvgDrawContext(
     // ── 텍스트 측정 ─────────────────────────────────────────────────────────
     override fun measureStringWidth(str: String, f: DrawFont): Float {
         if (str.isEmpty()) return 0f
-        nvgFontFaceId(vg, f.id)
+        nvgFontFaceId(vg, FontRegistry.nvgFontId(vg, f.id))
         nvgFontSize(vg, f.size)
         val bounds = FloatArray(4)
         return nvgTextBounds(vg, 0f, 0f, str, bounds)
@@ -533,7 +533,7 @@ class NvgFontMetrics(private val vg: Long, private val font: DrawFont) : DrawFon
     override val height:  Int get() { ensureMetrics(); return _lineH.toInt()   }
 
     private fun applyFont() {
-        nvgFontFaceId(vg, font.id)
+        nvgFontFaceId(vg, FontRegistry.nvgFontId(vg, font.id))
         nvgFontSize(vg, font.size)
         nvgTextAlign(vg, NVG_ALIGN_LEFT or NVG_ALIGN_BASELINE)
     }

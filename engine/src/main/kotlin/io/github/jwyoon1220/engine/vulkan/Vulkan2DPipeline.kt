@@ -45,6 +45,7 @@ layout(push_constant) uniform PushConstants {
     vec4 uViewport;    // x,y,w,h — 물리 픽셀
     vec2 uDesign;      // 논리 해상도
     vec2 uFramebuffer; // 물리 프레임버퍼 크기
+    float uFontBlur;   // SDF 텍스트 블러 반경(디자인 픽셀) — 프래그먼트 셰이더 전용, 여기선 미사용
 } pc;
 
 layout(location = 0) in vec2 aPos;
@@ -71,6 +72,13 @@ void main() {
 
 private const val FRAG_SRC = """
 #version 450
+layout(push_constant) uniform PushConstants {
+    vec4 uViewport;
+    vec2 uDesign;
+    vec2 uFramebuffer;
+    float uFontBlur;
+} pc;
+
 layout(location = 0) in vec2 vUV;
 layout(location = 1) in vec4 vColor;
 layout(location = 2) in float vMode;
@@ -86,8 +94,16 @@ void main() {
         FragColor = texture(uTex, vUV) * vColor;
     } else {
         float dist = texture(uTex, vUV).r;
+        // VulkanFontAtlas.stbtt_GetCodepointSDF가 ON_EDGE_VALUE=180으로 굽기 때문에 "글자 경계"는
+        // 0.5가 아니라 180/255입니다 — 이 값과 어긋나면 글리프가 실제보다 두껍게 번져(과잉 잉킹)
+        // 세리프 디테일이 뭉개지고 완전히 다른(더 뭉툭한) 서체처럼 보입니다.
+        const float onEdge = 180.0 / 255.0;
         float aa = max(fwidth(dist), 1e-4);
-        float alpha = smoothstep(0.5 - aa, 0.5 + aa, dist);
+        // NanoVG의 fontBlur(가우시안 블러)를 SDF에서는 별도 흐림 패스 없이 alpha 전환 구간을
+        // 넓히는 것만으로 흉내낼 수 있습니다 — SDF 거리값 자체가 이미 경계까지의 거리이므로,
+        // 전환 폭을 넓히면 부드러운 글로우/그림자로 보입니다.
+        float spread = aa + pc.uFontBlur * 0.02;
+        float alpha = smoothstep(onEdge - spread, onEdge + spread, dist);
         FragColor = vec4(vColor.rgb, vColor.a * alpha);
     }
 }
@@ -109,7 +125,7 @@ class Vulkan2DPipeline private constructor(
     val sampler: Long
 ) {
     companion object {
-        const val PUSH_CONSTANT_SIZE = 8 * 4 // vec4 + vec2 + vec2 = 8 floats
+        const val PUSH_CONSTANT_SIZE = 9 * 4 // vec4 + vec2 + vec2 + float = 9 floats
         private const val MAX_TEXTURES = 256 // 디스크립터 풀 용량 — 텍스처(흰 1x1 + SDF 폰트 아틀라스 + 업로드 이미지들) 상한
 
         fun create(device: VkDevice, renderPass: Long, colorFormat: Int): Vulkan2DPipeline = stackPush().use { stack ->
@@ -155,7 +171,7 @@ class Vulkan2DPipeline private constructor(
 
             // ── 파이프라인 레이아웃 (디스크립터 셋 + 푸시 상수) ──────────────────────
             val pushConstantRange = VkPushConstantRange.calloc(1, stack)
-            pushConstantRange[0].stageFlags(VK_SHADER_STAGE_VERTEX_BIT).offset(0).size(PUSH_CONSTANT_SIZE)
+            pushConstantRange[0].stageFlags(VK_SHADER_STAGE_VERTEX_BIT or VK_SHADER_STAGE_FRAGMENT_BIT).offset(0).size(PUSH_CONSTANT_SIZE)
             val pipelineLayoutInfo = VkPipelineLayoutCreateInfo.calloc(stack)
                 .sType(VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO)
                 .pSetLayouts(stack.longs(descriptorSetLayout))

@@ -59,6 +59,15 @@ class Renderer(
         backend.destroy()
     }
 
+    /** 디버그 전용 — 다음 프레임을 원시 프레임버퍼 픽셀 그대로 PNG로 저장합니다(백엔드가 지원하는 경우). */
+    fun debugCaptureFrame(path: String) = backend.debugCaptureFrame(path)
+
+    /**
+     * VSync를 켜고 끕니다. GL은 [GLFWWindow.setVSync]가 처리하므로 이건 주로 Vulkan을 위한
+     * 것입니다 — [io.github.jwyoon1220.app.WindowManager.applyVSync]가 두 호출을 함께 합니다.
+     */
+    fun setVSync(enabled: Boolean) = backend.setVSync(enabled)
+
     /**
      * 매 프레임 호출합니다. 프레임버퍼 크기를 읽고 letterbox 변환값을 계산해 백엔드에 위임합니다.
      */

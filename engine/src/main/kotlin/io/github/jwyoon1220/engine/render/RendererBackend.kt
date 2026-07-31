@@ -81,4 +81,18 @@ interface RendererBackend {
      * GPU 객체, 그래픽스 컨텍스트, 텍스처 등을 정리하세요.
      */
     fun destroy()
+
+    /**
+     * 디버그 전용 — 다음 [renderFrame] 결과를 원시 프레임버퍼 픽셀 그대로 PNG로 저장합니다
+     * (OS 스크린샷/색 관리를 거치지 않아 백엔드 간 픽셀 단위 비교에 씁니다). 지원하지 않는
+     * 백엔드는 기본 구현(무시)을 그대로 씁니다.
+     */
+    fun debugCaptureFrame(path: String) {}
+
+    /**
+     * VSync를 켜고 끕니다. OpenGL은 [io.github.jwyoon1220.engine.GLFWWindow.setVSync]가
+     * glfwSwapInterval로 직접 처리하므로 기본 구현(무시)이면 충분 — Vulkan은 스왑체인 present
+     * mode를 다시 골라야 해서 오버라이드합니다([io.github.jwyoon1220.engine.vulkan.VulkanBackend]).
+     */
+    fun setVSync(enabled: Boolean) {}
 }

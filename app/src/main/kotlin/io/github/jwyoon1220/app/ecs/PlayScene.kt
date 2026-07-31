@@ -24,7 +24,7 @@ import io.github.jwyoon1220.engine.OpenGLRenderable
 import io.github.jwyoon1220.engine.GlEffectProvider
 import io.github.jwyoon1220.engine.GlScreenEffectData
 import io.github.jwyoon1220.engine.render.RenderColor
-import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.QuadBatchRenderer
 import io.github.jwyoon1220.engine.ecs.Scene
 import java.awt.BasicStroke
 import java.io.File
@@ -816,7 +816,7 @@ class PlayScene(
     override fun collectActiveGlEffects(): List<GlScreenEffectData> =
         decorationRenderer?.collectGlEffects(currentTimeMs) ?: emptyList()
 
-    override fun renderOpenGL(renderer: GlQuadBatchRenderer) {
+    override fun renderOpenGL(renderer: QuadBatchRenderer) {
         ctx.noteRenderer.render(renderer, this)
     }
 

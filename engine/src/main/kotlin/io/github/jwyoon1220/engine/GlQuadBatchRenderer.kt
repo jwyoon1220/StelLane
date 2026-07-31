@@ -54,7 +54,7 @@ class GlQuadBatchRenderer(
     private val designWidth: Float,
     private val designHeight: Float,
     private val maxQuads: Int = 4096
-) {
+) : QuadBatchRenderer {
     companion object {
         private const val STRIDE_FLOATS = 8 // pos2 + uv2 + color4
         private const val VERTS_PER_QUAD = 6
@@ -116,6 +116,11 @@ class GlQuadBatchRenderer(
     private var boundTexture = -1
     private var frameBegun = false
     private lateinit var uploadBuffer: FloatBuffer
+    // FloatBuffer.put(index, value)는 JDK 21에서 호출마다 ScopedMemoryAccess 라이브니스 체크를 하는데
+    // (Vulkan2DBatcher.pushVertex 프로파일링에서 메인 스레드 샘플의 절반 이상을 차지했던 것과 동일한
+    // 원인 — LWJGL의 MemoryUtil.memPutFloat도 내부적으로 같은 체크를 거침) putVertexF가 초당 수만 번
+    // 불리는 경로라 sun.misc.Unsafe로 직접 씁니다(UnsafeMemory 참고).
+    private var uploadAddr = 0L
 
     fun init() {
         if (quadShader != null) return
@@ -156,6 +161,7 @@ class GlQuadBatchRenderer(
         glBindTexture(GL_TEXTURE_2D, 0)
 
         uploadBuffer = MemoryUtil.memAllocFloat(maxVertices * STRIDE_FLOATS)
+        uploadAddr = MemoryUtil.memAddress(uploadBuffer)
     }
 
     fun destroy() {
@@ -209,7 +215,7 @@ class GlQuadBatchRenderer(
         frameBegun = false
     }
 
-    fun drawRect(x: Float, y: Float, w: Float, h: Float, color: RenderColor, textureId: Int = whiteTexture) {
+    override fun drawRect(x: Float, y: Float, w: Float, h: Float, color: RenderColor, textureId: Int) {
         drawGradientRect(x, y, w, h, color, color, color, color, textureId)
     }
 
@@ -217,7 +223,7 @@ class GlQuadBatchRenderer(
      * GL 텍스처를 지정한 사각형 영역에 있는 그대로(불투명 흰색 곱) 렌더링합니다.
      * 비디오 프레임 등 텍스처를 색 보정 없이 그릴 때 사용하세요.
      */
-    fun drawTexturedRect(x: Float, y: Float, w: Float, h: Float, textureId: Int) {
+    override fun drawTexturedRect(x: Float, y: Float, w: Float, h: Float, textureId: Int) {
         if (!frameBegun || w <= 0f || h <= 0f) return
         ensureTexture(textureId)
         ensureCapacity(VERTS_PER_QUAD)
@@ -232,13 +238,14 @@ class GlQuadBatchRenderer(
     }
 
     /** 텍스처 샘플 결과와 정점 색상을 곱해 그립니다(기본: whiteTexture). */
-    fun drawGradientRect(
+    override fun drawGradientRect(
         x: Float, y: Float, w: Float, h: Float,
         topLeft: RenderColor, topRight: RenderColor, bottomRight: RenderColor, bottomLeft: RenderColor,
-        textureId: Int = whiteTexture
+        textureId: Int
     ) {
+        val resolvedTextureId = if (textureId == -1) whiteTexture else textureId
         if (!frameBegun || w <= 0f || h <= 0f) return
-        ensureTexture(textureId)
+        ensureTexture(resolvedTextureId)
         ensureCapacity(VERTS_PER_QUAD)
 
         val x0 = x
@@ -275,15 +282,16 @@ class GlQuadBatchRenderer(
     // 오프힙 FloatBuffer에 절대 인덱스로 직접 씁니다.
     // JVM 힙 FloatArray → 오프힙 복사 단계가 없어 flush() 시 memcopy 1회 제거됩니다.
     private fun putVertexF(x: Float, y: Float, u: Float, v: Float, r: Float, g: Float, b: Float, a: Float) {
-        val base = floatIdx
-        uploadBuffer.put(base,     x)
-        uploadBuffer.put(base + 1, y)
-        uploadBuffer.put(base + 2, u)
-        uploadBuffer.put(base + 3, v)
-        uploadBuffer.put(base + 4, r)
-        uploadBuffer.put(base + 5, g)
-        uploadBuffer.put(base + 6, b)
-        uploadBuffer.put(base + 7, a)
+        val base = uploadAddr + floatIdx.toLong() * 4L
+        val unsafe = UnsafeMemory.UNSAFE
+        unsafe.putFloat(base,      x)
+        unsafe.putFloat(base + 4,  y)
+        unsafe.putFloat(base + 8,  u)
+        unsafe.putFloat(base + 12, v)
+        unsafe.putFloat(base + 16, r)
+        unsafe.putFloat(base + 20, g)
+        unsafe.putFloat(base + 24, b)
+        unsafe.putFloat(base + 28, a)
         floatIdx += STRIDE_FLOATS
         vertexCount++
     }
