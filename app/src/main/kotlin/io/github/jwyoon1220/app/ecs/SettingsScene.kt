@@ -45,7 +45,8 @@ class SettingsScene(
     private var editingNickname = false
     private var volumeDragActive = false
 
-    private val fpsOptions = arrayOf(30, 60, 120, 144, 165, 240, 360, 480, 720)
+    /** 0 = Unlimited (프레임 페이싱 대기 없음). */
+    private val fpsOptions = arrayOf(30, 60, 120, 144, 165, 240, 360, 480, 720, 0)
     private val modes      = WindowMode.entries
     private val modeLabels           = mapOf(
         WindowMode.WINDOWED   to "창 모드 (리사이즈 가능)",
@@ -202,7 +203,7 @@ class SettingsScene(
                 0 -> modeLabels[localMode] ?: ""
                 1 -> if (localOffset >= 0) "+$localOffset ms" else "$localOffset ms"
                 2 -> "${(localVolume * 100).toInt()}%"
-                3 -> "$localFps FPS"
+                3 -> if (localFps == 0) "Unlimited" else "$localFps FPS"
                 4 -> if (localVSync) "켜짐" else "꺼짐"
                 else -> ""
             }

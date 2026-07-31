@@ -13,9 +13,12 @@ class GameLoop(
      */
     private val inputManager: InputManager? = null
 ) {
-    /** 목표 FPS. 언제든지 변경 가능 — 다음 루프 사이클부터 반영됩니다. */
+    /** 목표 FPS. 0이면 Unlimited(프레임 페이싱 대기 없음). 언제든지 변경 가능 — 다음 루프 사이클부터 반영됩니다. */
     @Volatile var targetFPS: Int = 60
-        set(v) { field = v.coerceAtLeast(1); optimalTimeNs = 1_000_000_000L / field }
+        set(v) {
+            field = v.coerceAtLeast(0)
+            optimalTimeNs = if (field == 0) 0L else 1_000_000_000L / field
+        }
 
     @Volatile private var optimalTimeNs = 1_000_000_000L / 60
 
