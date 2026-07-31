@@ -35,8 +35,9 @@ fun main(args: Array<String>) {
     val options = Options().apply {
         addOption("d", "debug",   false, "DEBUG 레벨 로깅 활성화")
         addOption("c", "console", false, "콘솔 로그 출력 활성화")
-        addOption("v", "vulkan",  false, "실험적 Vulkan 렌더러 백엔드 사용 (기본은 OpenGL/NanoVG). ImGui 기반 UI는 아직 지원하지 않습니다.")
-        addOption(null, "screenshot", false, "[디버그] 4초 후 Vulkan 스왑체인을 vulkan_debug_screenshot.png로 저장하고 종료합니다(--vulkan 전용).")
+        addOption("v", "vulkan",  false, "실험적 Vulkan 렌더러 백엔드 사용 (기본은 OpenGL/NanoVG). ImGui 기반 UI는 아직 지원하지 않습니다. 지정하면 렌더러 선택 창을 건너뜁니다.")
+        addOption("g", "opengl",  false, "OpenGL 렌더러 백엔드 사용. 지정하면 렌더러 선택 창을 건너뜁니다.")
+        addOption(null, "screenshot", false, "[디버그] 4초 후 스왑체인/프레임버퍼를 *_debug_screenshot.png로 저장하고 종료합니다.")
     }
 
     val cmd = try {
@@ -51,7 +52,21 @@ fun main(args: Array<String>) {
         console = cmd.hasOption("console")
     )
 
-    val useVulkan = cmd.hasOption("vulkan")
+    // --vulkan/--opengl이 명시되면 그 값을 그대로 쓰고(자동화 테스트/스크립트용 — 스윙 창이 뜨면 블로킹됨),
+    // 아니면 GLFW/LWJGL을 아직 건드리기 전에 렌더러 선택 창을 띄워 사용자가 고르게 합니다.
+    val useVulkan = when {
+        cmd.hasOption("vulkan") -> true
+        cmd.hasOption("opengl") -> false
+        else -> {
+            val choice = RendererChoiceDialog.choose(AppSettings.preferredRenderApi)
+            if (choice == null) {
+                logger.info("[Main] 렌더러 선택 취소 — 종료")
+                exitProcess(0)
+            }
+            AppSettings.preferredRenderApi = choice
+            choice == RenderApi.VULKAN
+        }
+    }
     logger.info("StelLane 시작 (debug={}, console={}, vulkan={})", cmd.hasOption("debug"), cmd.hasOption("console"), useVulkan)
 
     // 멀티플레이어 캐시 만료 항목 정리 (백그라운드, 게임 루프와 무관)

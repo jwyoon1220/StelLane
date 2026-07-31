@@ -1,5 +1,6 @@
 package io.github.jwyoon1220.app
 
+import io.github.jwyoon1220.engine.RenderApi
 import io.github.jwyoon1220.engine.WindowMode
 import java.util.prefs.Preferences
 
@@ -14,6 +15,12 @@ object AppSettings {
         get() = try { WindowMode.valueOf(prefs.get("windowMode", WindowMode.BORDERLESS.name)) }
                 catch (_: Exception) { WindowMode.BORDERLESS }
         set(v) { prefs.put("windowMode", v.name) }
+
+    /** 시작 시 렌더러 선택 다이얼로그에서 마지막으로 고른 백엔드(다음 실행 때 기본 선택값). */
+    var preferredRenderApi: RenderApi
+        get() = try { RenderApi.valueOf(prefs.get("preferredRenderApi", RenderApi.OPENGL.name)) }
+                catch (_: Exception) { RenderApi.OPENGL }
+        set(v) { prefs.put("preferredRenderApi", v.name) }
 
     /** 오디오/비디오 보정 오프셋 (ms). 양수 = 노트를 더 일찍 표시. */
     var calibrationOffsetMs: Long
