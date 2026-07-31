@@ -67,21 +67,32 @@ val prepareRunEnv by tasks.registering(Copy::class) {
                 into(file("${runDir}/assets"))
             }
         }
-        
+
         // 디폴트 songs 폴더 생성
         val songsDir = file("${runDir}/songs")
         if (!songsDir.exists()) {
             songsDir.mkdirs()
         }
+
+        // VLC 동봉 — 시스템에 VLC가 안 깔려 있어도 영상 배경이 동작하도록
+        // (engine 모듈 테스트 태스크와 동일한 vlc/ 폴더를 재사용 — VideoBackground.registerBundledVlcIfPresent 참고)
+        val vlcSrc = rootProject.file("vlc")
+        if (vlcSrc.exists()) {
+            copy {
+                from(vlcSrc)
+                into(file("${runDir}/vlc"))
+            }
+        }
     }
 }
 
 // 커스텀 runGame 테스크 생성: run 폴더에서 실행
+// -Pvulkan 으로 실험적 Vulkan 백엔드를 켤 수 있습니다: ./gradlew :app:runGame -Pvulkan
 tasks.register<JavaExec>("runGame") {
     group = "application"
-    description = "prepareRunEnv 수행 후 run/ 디렉토리에서 게임을 실행합니다."
+    description = "prepareRunEnv 수행 후 run/ 디렉토리에서 게임을 실행합니다. -Pvulkan으로 Vulkan 백엔드 사용."
     dependsOn(prepareRunEnv)
-    args("--debug", "--console")
+    args(listOfNotNull("--debug", "--console", "--vulkan".takeIf { project.hasProperty("vulkan") }))
     jvmArgs("-XX:+UseZGC")
 
     mainClass.set(application.mainClass)
@@ -163,7 +174,18 @@ tasks.register("deploy") {
         val songsSrc  = rootProject.file("run/songs") // 복사할 원본 run/songs 폴더
         val songsDest = File(appDir, "songs")
 
-        // ── VLC DLL 복사는 더 이상 필요 없음 (FFmpeg 및 OpenAL은 자바 클래스패스 라이브러리 자동 추출 방식을 사용) ──
+        // 1. VLC 동봉 — FFmpeg/OpenAL과 달리 VLC(libvlc)는 클래스패스 자동 추출 대상이 아니라
+        //    시스템에 별도 설치가 필요한 서드파티 앱입니다. 안 넣으면 VLC 미설치 PC에서
+        //    "VLC 초기화 실패"로 영상 배경이 통째로 빠집니다(VideoBackground.registerBundledVlcIfPresent 참고).
+        if (vlcSrc.exists()) {
+            copy {
+                from(vlcSrc)
+                into(vlcDest)
+            }
+            println("VLC copied from ${vlcSrc.absolutePath} to ${vlcDest.absolutePath}")
+        } else {
+            println("WARNING: vlc/ folder not found at project root — deployed build will require system-installed VLC.")
+        }
 
         // 2. run/songs 폴더 내의 파일들을 jpackage 앱 이미지 내부의 songs/ 폴더로 복사
         if (songsSrc.exists()) {
