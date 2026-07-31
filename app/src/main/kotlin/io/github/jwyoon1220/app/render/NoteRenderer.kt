@@ -2,7 +2,7 @@ package io.github.jwyoon1220.app.render
 
 import io.github.jwyoon1220.app.Const
 import io.github.jwyoon1220.app.ecs.PlayScene
-import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.QuadBatchRenderer
 import io.github.jwyoon1220.engine.Renderer as EngineRenderer
 import io.github.jwyoon1220.engine.render.RenderColor
 import kotlin.math.max
@@ -29,7 +29,7 @@ open class NoteRenderer {
         private const val NOTE_BORDER_THICKNESS = 1.5f
     }
 
-    open fun render(renderer: GlQuadBatchRenderer, state: PlayScene) {
+    open fun render(renderer: QuadBatchRenderer, state: PlayScene) {
         val laneAlpha = state.laneAlpha
         if (laneAlpha <= 0f) return
 

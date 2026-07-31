@@ -20,10 +20,10 @@ object AppSettings {
         get() = prefs.getLong("calibrationOffsetMs", 0L)
         set(v) { prefs.putLong("calibrationOffsetMs", v) }
 
-    /** 목표 FPS 제한 (30~720). */
+    /** 목표 FPS 제한 (30~720, 0=Unlimited). */
     var targetFps: Int
-        get() = prefs.getInt("targetFps", 60).coerceIn(30, 720)
-        set(v) { prefs.putInt("targetFps", v.coerceIn(30, 720)) }
+        get() = prefs.getInt("targetFps", 60).let { if (it == 0) 0 else it.coerceIn(30, 720) }
+        set(v) { prefs.putInt("targetFps", if (v == 0) 0 else v.coerceIn(30, 720)) }
 
     /** VSync 활성화 여부. 기본값 false (직접 FPS 제한 방식 사용). */
     var vSync: Boolean

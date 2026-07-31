@@ -11,7 +11,14 @@ import org.lwjgl.system.MemoryUtil.NULL
 import org.slf4j.LoggerFactory
 
 /**
- * GLFW 윈도우 + OpenGL 컨텍스트 래퍼.
+ * 창이 사용하는 그래픽 API. [RenderApi.VULKAN]인 경우 GLFW는 OpenGL 컨텍스트를 만들지 않고
+ * (`GLFW_CLIENT_API = GLFW_NO_API`) 대신 창 핸들만 제공 — Vulkan 서피스는 백엔드가 직접 만듭니다.
+ */
+enum class RenderApi { OPENGL, VULKAN }
+
+/**
+ * GLFW 윈도우 래퍼. [api]에 따라 OpenGL 컨텍스트를 갖거나(OPENGL), 컨텍스트 없이
+ * 창 핸들만 제공합니다(VULKAN — VulkanBackend가 서피스/스왑체인을 직접 소유).
  *
  * ## 스레드 규칙
  * - [createWindow], [swapBuffers], [destroy] 는 반드시 메인 스레드에서 호출.
@@ -21,7 +28,7 @@ import org.slf4j.LoggerFactory
  * - [framebufferWidth] / [framebufferHeight] = 실제 픽셀 (HiDPI에서 논리 크기 ≠ FB 크기).
  * - 입력 콜백의 x/y 는 **논리(screen) 좌표** — Renderer가 FB 스케일로 변환.
  */
-class GLFWWindow private constructor(val handle: Long) {
+class GLFWWindow private constructor(val handle: Long, val api: RenderApi = RenderApi.OPENGL) {
 
     private val log = LoggerFactory.getLogger(GLFWWindow::class.java)
 
@@ -47,6 +54,11 @@ class GLFWWindow private constructor(val handle: Long) {
     // ── 현재 커서 위치 (논리 좌표) ───────────────────────────────────────────
     var cursorX: Double = 0.0; private set
     var cursorY: Double = 0.0; private set
+
+    /** 현재 VSync 상태. OpenGL은 [setVSync]가 즉시 glfwSwapInterval로 적용하고, Vulkan은
+     * 이 값을 읽어서 백엔드가 스왑체인 present mode를 고를 때 씁니다([VulkanBackend.init]/
+     * `Renderer.setVSync` 참고) — Vulkan은 glfwSwapInterval과 무관합니다. */
+    var vSync: Boolean = true; private set
 
     // ── 창 모드 ──────────────────────────────────────────────────────────────
     private var currentMode: WindowMode = WindowMode.WINDOWED
@@ -95,7 +107,11 @@ class GLFWWindow private constructor(val handle: Long) {
         glfwSetFramebufferSizeCallback(handle) { _, w, h ->
             framebufferWidth  = w
             framebufferHeight = h
-            glViewport(0, 0, w, h)
+            // glViewport는 OpenGL 전용 — Vulkan 모드는 GL 컨텍스트 자체가 없어(GLFW_CLIENT_API=GLFW_NO_API)
+            // 이 콜백이 그대로 호출되면 네이티브 크래시가 납니다(실제로 전체화면 전환 후 수 초 뒤
+            // 발생하는 프레임버퍼 리사이즈 이벤트에서 재현됨). Vulkan 쪽 뷰포트는 매 프레임
+            // Vulkan2DBatcher.beginFrame이 vkCmdSetViewport로 직접 갱신하므로 여기서 할 일이 없습니다.
+            if (api == RenderApi.OPENGL) glViewport(0, 0, w, h)
         }
 
         glfwSetWindowSizeCallback(handle) { _, w, h ->
@@ -109,8 +125,11 @@ class GLFWWindow private constructor(val handle: Long) {
 
     /** 메인 루프에서 매 프레임 호출. 반드시 메인 스레드. */
 
-    /** 렌더링 완료 후 호출. VSync 대기 포함 (glfwSwapInterval(1) 기준). */
-    fun swapBuffers() = glfwSwapBuffers(handle)
+    /**
+     * 렌더링 완료 후 호출. VSync 대기 포함 (glfwSwapInterval(1) 기준).
+     * Vulkan 모드에서는 no-op — 프레젠테이션은 VulkanBackend가 vkQueuePresentKHR로 직접 수행합니다.
+     */
+    fun swapBuffers() { if (api == RenderApi.OPENGL) glfwSwapBuffers(handle) }
 
     fun shouldClose(): Boolean = glfwWindowShouldClose(handle)
 
@@ -165,8 +184,16 @@ class GLFWWindow private constructor(val handle: Long) {
     /** 현재 커서 위치를 논리 좌표로 반환 (Pair<x, y>) */
     fun getCursorPos(): Pair<Double, Double> = Pair(cursorX, cursorY)
 
-    /** VSync 설정. 0=꺼짐, 1=활성화 */
-    fun setVSync(interval: Int) = glfwSwapInterval(interval)
+    /**
+     * VSync 설정. 0=꺼짐, 1=활성화. OpenGL 모드에서만 glfwSwapInterval을 직접 호출합니다
+     * (Vulkan 모드에서 호출하면 GL 컨텍스트가 없어 "GLFW_NO_CURRENT_CONTEXT" 오류가 남 — Vulkan
+     * 쪽은 [vSync] 값을 읽어 [io.github.jwyoon1220.engine.vulkan.VulkanBackend]가 스왑체인을
+     * 다시 만드는 방식으로 적용해야 하므로 `Renderer.setVSync`를 함께 호출하세요).
+     */
+    fun setVSync(interval: Int) {
+        vSync = interval != 0
+        if (api == RenderApi.OPENGL) glfwSwapInterval(interval)
+    }
 
     /** 콜백 해제 → 윈도우 파괴 → GLFW 종료. 메인 스레드에서 호출. */
     fun destroy() {
@@ -196,6 +223,16 @@ class GLFWWindow private constructor(val handle: Long) {
         private val log = LoggerFactory.getLogger(GLFWWindow::class.java)
 
         /**
+         * 이 머신에 Vulkan 로더/드라이버가 있는지 확인합니다(창 생성 전에도 호출 가능 — 필요하면
+         * 내부적으로 GLFW를 초기화합니다). Vulkan 스모크 테스트를 다른 모듈(예: app)에서 작성할 때
+         * 원시 GLFW 심볼 없이 이 헬퍼로 "지원 안 하면 skip" 패턴을 쓸 수 있습니다.
+         */
+        fun isVulkanSupported(): Boolean {
+            glfwInit()
+            return org.lwjgl.glfw.GLFWVulkan.glfwVulkanSupported()
+        }
+
+        /**
          * GLFW 초기화 + 윈도우 생성 + GL 컨텍스트 활성화.
          * 반드시 **메인 스레드**에서 호출.
          *
@@ -203,27 +240,34 @@ class GLFWWindow private constructor(val handle: Long) {
          * @param width    초기 논리 너비 (WindowMode.WINDOWED일 때만 의미있음)
          * @param height   초기 논리 높이
          * @param mode     초기 창 모드
-         * @param vSync    VSync 활성화 여부 (기본 true)
+         * @param vSync    VSync 활성화 여부 (기본 true, OpenGL에서만 의미 있음)
+         * @param api      그래픽 API (기본 OPENGL). VULKAN이면 GL 컨텍스트를 만들지 않습니다.
          */
         fun createWindow(
             title:  String,
             width:  Int         = 1280,
             height: Int         = 720,
             mode:   WindowMode  = WindowMode.WINDOWED,
-            vSync:  Boolean     = true
+            vSync:  Boolean     = true,
+            api:    RenderApi   = RenderApi.OPENGL
         ): GLFWWindow {
             // 에러 콜백 설정 (초기화 전 먼저)
             GLFWErrorCallback.createPrint(System.err).set()
 
             check(glfwInit()) { "GLFW 초기화 실패" }
 
-            // OpenGL 3.3 Core Profile
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3)
-            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3)
-            glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE)
-            glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE)  // macOS 대응 (Windows는 무해)
-            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE)                // 창 위치 설정 후 표시
-            glfwWindowHint(GLFW_STENCIL_BITS, 8)                   // NanoVG 스텐실 필요
+            if (api == RenderApi.OPENGL) {
+                // OpenGL 3.3 Core Profile
+                glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3)
+                glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3)
+                glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE)
+                glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE)  // macOS 대응 (Windows는 무해)
+                glfwWindowHint(GLFW_STENCIL_BITS, 8)                   // NanoVG 스텐실 필요
+            } else {
+                // Vulkan은 GLFW가 컨텍스트를 만들지 않아야 함 — 서피스는 VulkanBackend가 직접 생성
+                glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)
+            }
+            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE)                    // 창 위치 설정 후 표시
 
             val monitor = glfwGetPrimaryMonitor()
             val vidMode = checkNotNull(glfwGetVideoMode(monitor)) { "VideoMode 없음" }
@@ -253,15 +297,18 @@ class GLFWWindow private constructor(val handle: Long) {
                 glfwSetWindowAttrib(handle, GLFW_DECORATED, GLFW_FALSE)
             }
 
-            glfwMakeContextCurrent(handle)
-            GL.createCapabilities()
-            glfwSwapInterval(if (vSync) 1 else 0)
+            if (api == RenderApi.OPENGL) {
+                glfwMakeContextCurrent(handle)
+                GL.createCapabilities()
+                glfwSwapInterval(if (vSync) 1 else 0)
+            }
 
             glfwShowWindow(handle)
-            log.info("GLFWWindow created: {}×{} mode={} vSync={}", actualW, actualH, mode, vSync)
+            log.info("GLFWWindow created: {}×{} mode={} api={} vSync={}", actualW, actualH, mode, api, vSync)
 
-            val win = GLFWWindow(handle)
+            val win = GLFWWindow(handle, api)
             win.currentMode = mode
+            win.vSync = vSync
             return win
         }
 

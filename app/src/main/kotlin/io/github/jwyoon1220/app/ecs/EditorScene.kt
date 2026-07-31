@@ -14,7 +14,7 @@ import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.DecorationParser
 import io.github.jwyoon1220.engine.OpenGLRenderable
 import io.github.jwyoon1220.engine.GlEffectProvider
-import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.QuadBatchRenderer
 import io.github.jwyoon1220.engine.GlScreenEffectData
 import io.github.jwyoon1220.engine.ImGuiRenderable
 import io.github.jwyoon1220.engine.ecs.Scene
@@ -80,7 +80,7 @@ class EditorScene(
         return decComp?.renderer?.collectGlEffects(t) ?: emptyList()
     }
 
-    override fun renderOpenGL(renderer: GlQuadBatchRenderer) {
+    override fun renderOpenGL(renderer: QuadBatchRenderer) {
         val texId = ctx.videoBackground.getGlTextureId()
         if (texId == 0 || editorEntity == 0L) return
         val layout = world.get<LayoutComp>(editorEntity) ?: return

@@ -8,6 +8,7 @@ import io.github.jwyoon1220.engine.GameLoop
 import io.github.jwyoon1220.engine.HitSound
 import io.github.jwyoon1220.engine.ImGuiManager
 import io.github.jwyoon1220.engine.InputManager
+import io.github.jwyoon1220.engine.RenderApi
 import io.github.jwyoon1220.engine.Renderer
 import io.github.jwyoon1220.engine.SceneRouter
 import io.github.jwyoon1220.engine.VideoBackground
@@ -16,6 +17,8 @@ import io.github.jwyoon1220.engine.data.pool.VisualNote
 import io.github.jwyoon1220.app.render.NoteRenderer
 import io.github.jwyoon1220.engine.WindowMode
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerCacheManager
+import io.github.jwyoon1220.engine.render.RendererFactory
+import io.github.jwyoon1220.engine.vulkan.VulkanBackend
 import org.apache.commons.cli.DefaultParser
 import org.apache.commons.cli.HelpFormatter
 import org.apache.commons.cli.Options
@@ -32,6 +35,8 @@ fun main(args: Array<String>) {
     val options = Options().apply {
         addOption("d", "debug",   false, "DEBUG 레벨 로깅 활성화")
         addOption("c", "console", false, "콘솔 로그 출력 활성화")
+        addOption("v", "vulkan",  false, "실험적 Vulkan 렌더러 백엔드 사용 (기본은 OpenGL/NanoVG). ImGui 기반 UI는 아직 지원하지 않습니다.")
+        addOption(null, "screenshot", false, "[디버그] 4초 후 Vulkan 스왑체인을 vulkan_debug_screenshot.png로 저장하고 종료합니다(--vulkan 전용).")
     }
 
     val cmd = try {
@@ -46,7 +51,8 @@ fun main(args: Array<String>) {
         console = cmd.hasOption("console")
     )
 
-    logger.info("StelLane 시작 (debug={}, console={})", cmd.hasOption("debug"), cmd.hasOption("console"))
+    val useVulkan = cmd.hasOption("vulkan")
+    logger.info("StelLane 시작 (debug={}, console={}, vulkan={})", cmd.hasOption("debug"), cmd.hasOption("console"), useVulkan)
 
     // 멀티플레이어 캐시 만료 항목 정리 (백그라운드, 게임 루프와 무관)
     thread(start = true, isDaemon = true, name = "cache-cleaner") {
@@ -58,7 +64,8 @@ fun main(args: Array<String>) {
         width  = 1280,
         height = 720,
         mode   = AppSettings.windowMode,
-        vSync  = AppSettings.vSync
+        vSync  = AppSettings.vSync,
+        api    = if (useVulkan) RenderApi.VULKAN else RenderApi.OPENGL
     )
 
     val sceneRouter     = SceneRouter()
@@ -76,20 +83,25 @@ fun main(args: Array<String>) {
     }.thenAccept { logger.info("[Main] NotePool 초기 할당 완료: poolSize={}", notePool.poolSize) }
 
     val renderer     = Renderer(window, sceneRouter, videoBackground)
+    if (useVulkan) {
+        RendererFactory.register("vulkan") { VulkanBackend() }
+        renderer.backendId = "vulkan"
+    }
     val inputManager = InputManager(window, renderer)
 
     val workingDir   = File(System.getProperty("user.dir"))
     val songManager  = SongManager(workingDir)
 
-    val windowManager = WindowManager(window)
+    val windowManager = WindowManager(window, renderer)
     val ctx = GameContext(sceneRouter, songManager, videoBackground, notePool, inputManager, windowManager, NoteRenderer())
 
     renderer.init()
     ctx.renderer = renderer
     HitSound.volume = AppSettings.hitSoundVolume
 
-    val imGuiManager = ImGuiManager(window.handle)
-    imGuiManager.init()
+    // ImGui는 imgui-java-lwjgl3(OpenGL 전용)에 의존 — Vulkan 모드(GL 컨텍스트 없음)에서는 건너뜁니다.
+    // ImGui 기반 UI(에디터의 가져오기/내보내기 다이얼로그, 장식 편집 등)는 Vulkan에서 아직 지원하지 않습니다.
+    val imGuiManager = if (!useVulkan) ImGuiManager(window.handle).also { it.init() } else null
     renderer.imGuiManager   = imGuiManager
     inputManager.imGuiManager = imGuiManager
 
@@ -108,9 +120,22 @@ fun main(args: Array<String>) {
 
     val gameLoop = GameLoop(window, sceneRouter, renderer, inputManager)
     ctx.gameLoop = gameLoop
+    var screenshotSecondsElapsed = 0
     gameLoop.onFpsUpdate = { fps -> // Windowed 모드에서만 창 타이틀 변경
         if (AppSettings.windowMode == WindowMode.WINDOWED) {
             window.title = "StelLane  |  $fps FPS"
+        }
+        // --screenshot 디버그 훅 — Vulkan 큐 제출은 스레드 안전하지 않으므로 별도 스레드의 sleep이
+        // 아니라 게임 루프와 같은 메인 스레드에서 도는 이 콜백(초당 1회)으로 타이밍을 잡습니다.
+        // 백엔드 무관(Renderer.debugCaptureFrame이 위임) — OpenGL/Vulkan 픽셀 단위 비교에 씀.
+        if (cmd.hasOption("screenshot")) {
+            screenshotSecondsElapsed++
+            if (screenshotSecondsElapsed == 4) {
+                val name = if (useVulkan) "vulkan_debug_screenshot.png" else "opengl_debug_screenshot.png"
+                renderer.debugCaptureFrame(File(workingDir, name).absolutePath)
+            } else if (screenshotSecondsElapsed >= 5) {
+                window.requestClose()
+            }
         }
     }
     gameLoop.targetFPS = AppSettings.targetFps
@@ -119,7 +144,7 @@ fun main(args: Array<String>) {
     gameLoop.start()
 
     // Exit of game
-    imGuiManager.dispose()
+    imGuiManager?.dispose()
     renderer.destroy()
     window.destroy()
     videoBackground.release()

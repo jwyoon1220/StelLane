@@ -16,7 +16,7 @@ import io.github.jwyoon1220.engine.ecs.InputSnapshot
 import io.github.jwyoon1220.engine.ecs.RenderProducer
 import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderCommand
-import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.QuadBatchRenderer
 import io.github.jwyoon1220.engine.GlScreenEffectData
 import io.github.jwyoon1220.engine.ecs.Scene
 import io.github.jwyoon1220.engine.render.RenderColor
@@ -318,7 +318,7 @@ class MultiplayerPlayScene(
     // ── OpenGLRenderable / GlEffectProvider 위임 ─────────────────────────────────
 
     override val useOpenGLRenderer: Boolean get() = inner.useOpenGLRenderer
-    override fun renderOpenGL(renderer: GlQuadBatchRenderer) = inner.renderOpenGL(renderer)
+    override fun renderOpenGL(renderer: QuadBatchRenderer) = inner.renderOpenGL(renderer)
     override fun collectActiveGlEffects(): List<GlScreenEffectData> = inner.collectActiveGlEffects()
 
     // ── 입력 위임 ────────────────────────────────────────────────────────────────

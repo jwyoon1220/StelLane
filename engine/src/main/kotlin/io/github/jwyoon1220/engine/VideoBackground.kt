@@ -26,6 +26,7 @@ import org.lwjgl.opengl.GL30.GL_MAP_WRITE_BIT
 import org.lwjgl.opengl.GL30.glMapBufferRange
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferInt
+import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 
@@ -128,8 +129,33 @@ class VideoBackground private constructor(
             "--volume=256"                // 초기 볼륨 100% 강제 (--no-volume-save 시 0으로 시작하는 경우 방지)
         )
 
+        /**
+         * 배포판에 동봉한 `vlc/` 폴더(project root 기준, jpackage 배포 시 앱 폴더 옆에 복사됨 —
+         * [app/build.gradle.kts]의 `deploy`/`prepareRunEnv` 참고)가 있으면 vlcj가 그걸 쓰도록
+         * 등록합니다. 이걸 안 하면 시스템에 VLC가 따로 설치돼 있어야만(vlcj 기본 NativeDiscovery가
+         * "Program Files\VideoLAN\VLC" 등 표준 설치 경로만 찾음) 영상 배경이 동작합니다 — 개발
+         * 머신에는 VLC가 깔려 있어서 이 문제가 안 보였을 뿐, 순수 배포판만 받은 사용자 PC에서는
+         * "VLC 초기화 실패"로 나타납니다.
+         *
+         * libvlccore.dll을 절대경로로 먼저 `System.load`해두면(JNA/Windows 검색경로에 기대지 않고)
+         * 뒤이어 vlcj가 libvlc.dll을 로드할 때 같은 이름의 라이브러리가 이미 프로세스에 적재돼 있어
+         * 의존성 해석이 자동으로 됩니다. `jna.library.path`는 libvlc.dll 자체를 찾을 경로입니다.
+         */
+        private fun registerBundledVlcIfPresent() {
+            val vlcDir = File(System.getProperty("user.dir"), "vlc")
+            if (!vlcDir.isDirectory) return // 없으면 시스템 설치 VLC(vlcj 기본 NativeDiscovery)에 맡김
+            val coreDll = File(vlcDir, "libvlccore.dll")
+            if (coreDll.isFile) {
+                runCatching { System.load(coreDll.absolutePath) }
+                    .onFailure { LoggerFactory.getLogger(VideoBackground::class.java)
+                        .warn("[VideoBackground] 동봉 libvlccore.dll 로드 실패: {}", it.message) }
+            }
+            System.setProperty("jna.library.path", vlcDir.absolutePath)
+        }
+
         fun create(): VideoBackground {
             return try {
+                registerBundledVlcIfPresent()
                 val factory = MediaPlayerFactory(*FACTORY_OPTIONS)
                 val player  = factory.mediaPlayers().newEmbeddedMediaPlayer()
                 VideoBackground(isAvailable = true, factory = factory, mediaPlayer = player)
@@ -154,7 +180,6 @@ class VideoBackground private constructor(
                  * - VLC 내부 색공간·포맷 변환 필터 체인이 전혀 필요 없어
                  *   "chain filter error: Too high level of recursion" 오류가 발생하지 않음.
                  * - 최대 1920×1080으로 제한해 Java 측 YUV→ARGB 변환 비용을 관리.
-                 *   (I420→I420 스케일은 단일 swscale 필터로 재귀 없음)
                  */
                 override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
                     // VLC가 내부적으로 RV32(ARGB)로 변환하여 넘겨주도록 요청합니다.

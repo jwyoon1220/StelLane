@@ -1,67 +1,184 @@
 package io.github.jwyoon1220.engine.render
 
-import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.FontRegistry
+import io.github.jwyoon1220.engine.GlEffectProvider
+import io.github.jwyoon1220.engine.GlQuadBatchRenderer
+import io.github.jwyoon1220.engine.ImGuiManager
+import io.github.jwyoon1220.engine.ImGuiRenderable
+import io.github.jwyoon1220.engine.NvgDrawContext
+import io.github.jwyoon1220.engine.OpenGLRenderable
+import io.github.jwyoon1220.engine.PostProcessPass
+import io.github.jwyoon1220.engine.VideoBackground
+import io.github.jwyoon1220.engine.ecs.Scene
 import org.lwjgl.nanovg.NanoVGGL3.NVG_ANTIALIAS
 import org.lwjgl.nanovg.NanoVGGL3.NVG_STENCIL_STROKES
 import org.lwjgl.nanovg.NanoVGGL3.nvgCreate
 import org.lwjgl.nanovg.NanoVGGL3.nvgDelete
+import org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT
+import org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT
+import org.lwjgl.opengl.GL11.GL_STENCIL_BUFFER_BIT
+import org.lwjgl.opengl.GL11.glClear
+import org.lwjgl.opengl.GL11.glClearColor
+import org.lwjgl.opengl.GL11.glViewport
+import org.lwjgl.opengl.GL30.GL_FRAMEBUFFER
+import org.lwjgl.opengl.GL30.glBindFramebuffer
 import org.slf4j.LoggerFactory
 
 /**
- * 기본 [RendererBackend] 구현 — NanoVG + OpenGL 기반 2D 드로잉으로 [RenderCommand]를 실행합니다.
+ * 기본 [RendererBackend] 구현 — NanoVG + OpenGL 기반 2D 드로잉으로 [io.github.jwyoon1220.engine.ecs.Scene]을
+ * 렌더링합니다. 기존에 [io.github.jwyoon1220.engine.Renderer]가 직접 하던 GL 클리어/비디오 배경 합성/
+ * GL 후처리/커스텀 GL 노트 렌더러/ImGui 오케스트레이션을 전부 이 클래스가 소유합니다 — Renderer는
+ * letterbox 변환값만 계산해서 [renderFrame]에 넘길 뿐입니다.
  *
- * [RendererFactory]에 `"nanovg"` 키로 등록되며, [io.github.jwyoon1220.engine.Renderer]가
- * 이 백엔드를 통해 씬의 렌더 커맨드를 제출합니다. letterbox/pillarbox 변환은 [beginFrame]에
- * 전달된 scale/offset을 기준으로 이 백엔드가 직접 적용합니다.
+ * [RendererFactory]에 `"nanovg"` 키로 등록됩니다.
  */
 class NanoVGBackend : RendererBackend {
     private val log = LoggerFactory.getLogger(NanoVGBackend::class.java)
 
     override val id: String = "nanovg"
+    override var imGuiManager: ImGuiManager? = null
 
     private var vg: Long = 0L
 
-    /** 논리 좌표(1280×720)로 그리기 위한 [DrawContext]. 비디오 배경 등 커맨드 외 직접 드로잉에도 사용됩니다. */
-    lateinit var drawContext: DrawContext
-        private set
+    /** 논리 좌표(1280×720)로 그리기 위한 [DrawContext] (NanoVG 구현체). */
+    private lateinit var drawContext: NvgDrawContext
+    private lateinit var videoBackground: VideoBackground
+    private var designW = 0f
+    private var designH = 0f
 
-    /** NanoVG 컨텍스트 핸들. [io.github.jwyoon1220.engine.VideoBackground.getNvgImageHandle] 등에 필요합니다. */
-    val nvgHandle: Long get() = vg
+    private val postProcessPass = PostProcessPass()
+    private lateinit var glQuadBatchRenderer: GlQuadBatchRenderer
 
     override fun init(ctx: RendererContext) {
         vg = nvgCreate(NVG_ANTIALIAS or NVG_STENCIL_STROKES)
         check(vg != 0L) { "[NanoVGBackend] NanoVG 컨텍스트 생성 실패" }
         FontRegistry.loadAll(vg)
-        drawContext = DrawContext(vg, ctx.designWidth, ctx.designHeight)
+        drawContext = NvgDrawContext(vg, ctx.designWidth, ctx.designHeight)
+        videoBackground = checkNotNull(ctx.videoBackground) { "[NanoVGBackend] videoBackground가 필요합니다" }
+        videoBackground.initGLTexture() // GL 텍스처 생성 — 없으면 getNvgImageHandle()이 항상 -1을 반환해 배경이 그려지지 않음
+        designW = ctx.designWidth.toFloat()
+        designH = ctx.designHeight.toFloat()
+
+        glQuadBatchRenderer = GlQuadBatchRenderer(designW, designH)
+        glQuadBatchRenderer.init()
+
         log.info("[NanoVGBackend] 초기화 완료 vg=0x{}", java.lang.Long.toHexString(vg))
     }
 
-    override fun beginFrame(
+    override fun renderFrame(
+        scene: Scene?,
         framebufferWidth: Int,
         framebufferHeight: Int,
         scale: Float,
         offsetX: Float,
         offsetY: Float
     ) {
-        drawContext.beginFrame(framebufferWidth, framebufferHeight)
-        // letterbox/pillarbox 변환: 논리 좌표(0,0,designW,designH) → 물리 프레임버퍼 좌표
+        val fbW = framebufferWidth
+        val fbH = framebufferHeight
+
+        // GL 후처리 효과 수집 (FBO 사용 여부 결정)
+        val glEffects = (scene as? GlEffectProvider)?.collectActiveGlEffects() ?: emptyList()
+        val hasGlEffects = glEffects.isNotEmpty()
+
+        // 1. 비디오 프레임 GL 텍스처 업로드 (새 프레임 있을 때만)
+        videoBackground.uploadPendingFrame()
+
+        // 2. 렌더 대상 설정 및 클리어
+        if (hasGlEffects) {
+            postProcessPass.beginCapture(fbW, fbH) // 효과 활성화 — FBO-A에 캡처 (내부에서 클리어)
+        } else {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            glViewport(0, 0, fbW, fbH)
+            glClearColor(0f, 0f, 0f, 1f)
+            glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT or GL_STENCIL_BUFFER_BIT)
+        }
+
+        // 3. NanoVG 프레임 시작 — letterbox 변환(논리 좌표 → 물리 픽셀) 적용
+        drawContext.beginFrame(fbW, fbH)
         drawContext.save()
         drawContext.translate(offsetX, offsetY)
         drawContext.scale(scale, scale)
         drawContext.setClip(0f, 0f, drawContext.width.toFloat(), drawContext.height.toFloat())
-    }
 
-    override fun submit(commands: List<RenderCommand>) {
-        for (cmd in commands) cmd.executeOnDrawContext(drawContext)
-    }
+        // 4. 비디오 배경 렌더 (Scene이 자체 배경을 처리하지 않는 경우)
+        val rendersBg = scene?.rendersBackground == true
+        val videoNvgHandle = videoBackground.getNvgImageHandle(vg)
+        if (!rendersBg && videoNvgHandle >= 0) {
+            drawContext.drawNvgImage(videoNvgHandle, 0f, 0f, designW, designH)
+        }
 
-    override fun endFrame() {
+        // 5. Scene 렌더 — RenderCommand 모아서 실행
+        if (scene != null) {
+            for (cmd in scene.gatherRenderCommands()) cmd.executeOnDrawContext(drawContext)
+        }
+
+        // 6. NanoVG 프레임 종료 (변환 복원)
         drawContext.restore()
         drawContext.endFrame()
+
+        // 7. 선택적 커스텀 OpenGL 패스 (Scene이 OpenGLRenderable을 구현한 경우 — 예: PlayScene 노트 렌더러)
+        if (scene is OpenGLRenderable && scene.useOpenGLRenderer) {
+            // 기존 Renderer와 동일하게 정수로 truncate 후 Float 변환 (letterbox 픽셀 경계와 일치시킴)
+            val dw = (designW * scale).toInt()
+            val dh = (designH * scale).toInt()
+            glQuadBatchRenderer.begin(fbW, fbH, offsetX, offsetY, dw.toFloat(), dh.toFloat())
+            scene.renderOpenGL(glQuadBatchRenderer)
+            glQuadBatchRenderer.end()
+        }
+
+        // 8. GL 후처리 효과 적용 — FBO 캡처 종료 후 화면에 출력
+        if (hasGlEffects) {
+            postProcessPass.endCapture()
+            postProcessPass.apply(glEffects, fbW, fbH, (System.nanoTime() / 1_000_000_000f))
+        }
+
+        // 9. Dear ImGui 패스 (ImGuiRenderable 구현 Scene에서만, 또는 빈 프레임)
+        val imgui = imGuiManager
+        if (imgui != null) {
+            imgui.newFrame()
+            if (scene is ImGuiRenderable) scene.renderImGui()
+            imgui.render()
+        }
+
+        // Vulkan 쪽과 같은 원시(raw framebuffer) 비교를 위한 디버그 캡처 — swapBuffers 전이라
+        // GL_BACK이 방금 그린 이 프레임의 내용입니다.
+        pendingCapturePath?.let { path ->
+            debugCaptureBackBuffer(fbW, fbH, path)
+            pendingCapturePath = null
+        }
+    }
+
+    private var pendingCapturePath: String? = null
+
+    /** 디버그 전용 — 다음 프레임을 raw glReadPixels로 PNG에 저장합니다(Vulkan 캡처와 픽셀 단위 비교용). */
+    override fun debugCaptureFrame(path: String) {
+        pendingCapturePath = path
+    }
+
+    private fun debugCaptureBackBuffer(w: Int, h: Int, path: String) {
+        val buf = org.lwjgl.system.MemoryUtil.memAlloc(w * h * 4)
+        org.lwjgl.opengl.GL11.glReadPixels(0, 0, w, h, org.lwjgl.opengl.GL11.GL_RGBA, org.lwjgl.opengl.GL11.GL_UNSIGNED_BYTE, buf)
+        val img = java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        // GL은 원점이 좌하단 — 이미지 좌표계(좌상단 원점)로 뒤집으면서 읽습니다.
+        for (y in 0 until h) {
+            val srcRow = h - 1 - y
+            for (x in 0 until w) {
+                val o = (srcRow * w + x) * 4
+                val r = buf.get(o).toInt() and 0xFF
+                val g = buf.get(o + 1).toInt() and 0xFF
+                val b = buf.get(o + 2).toInt() and 0xFF
+                val a = buf.get(o + 3).toInt() and 0xFF
+                img.setRGB(x, y, (a shl 24) or (r shl 16) or (g shl 8) or b)
+            }
+        }
+        org.lwjgl.system.MemoryUtil.memFree(buf)
+        javax.imageio.ImageIO.write(img, "png", java.io.File(path))
+        log.info("[NanoVGBackend] 디버그 스크린샷 저장: {} ({}×{})", path, w, h)
     }
 
     override fun destroy() {
+        if (::glQuadBatchRenderer.isInitialized) glQuadBatchRenderer.destroy()
+        postProcessPass.destroy()
         if (vg != 0L) {
             nvgDelete(vg)
             vg = 0L
