@@ -55,6 +55,11 @@ class GLFWWindow private constructor(val handle: Long, val api: RenderApi = Rend
     var cursorX: Double = 0.0; private set
     var cursorY: Double = 0.0; private set
 
+    /** 현재 VSync 상태. OpenGL은 [setVSync]가 즉시 glfwSwapInterval로 적용하고, Vulkan은
+     * 이 값을 읽어서 백엔드가 스왑체인 present mode를 고를 때 씁니다([VulkanBackend.init]/
+     * `Renderer.setVSync` 참고) — Vulkan은 glfwSwapInterval과 무관합니다. */
+    var vSync: Boolean = true; private set
+
     // ── 창 모드 ──────────────────────────────────────────────────────────────
     private var currentMode: WindowMode = WindowMode.WINDOWED
     /** 창 모드 변경 전 windowed 위치/크기 복원용 */
@@ -102,7 +107,11 @@ class GLFWWindow private constructor(val handle: Long, val api: RenderApi = Rend
         glfwSetFramebufferSizeCallback(handle) { _, w, h ->
             framebufferWidth  = w
             framebufferHeight = h
-            glViewport(0, 0, w, h)
+            // glViewport는 OpenGL 전용 — Vulkan 모드는 GL 컨텍스트 자체가 없어(GLFW_CLIENT_API=GLFW_NO_API)
+            // 이 콜백이 그대로 호출되면 네이티브 크래시가 납니다(실제로 전체화면 전환 후 수 초 뒤
+            // 발생하는 프레임버퍼 리사이즈 이벤트에서 재현됨). Vulkan 쪽 뷰포트는 매 프레임
+            // Vulkan2DBatcher.beginFrame이 vkCmdSetViewport로 직접 갱신하므로 여기서 할 일이 없습니다.
+            if (api == RenderApi.OPENGL) glViewport(0, 0, w, h)
         }
 
         glfwSetWindowSizeCallback(handle) { _, w, h ->
@@ -175,8 +184,16 @@ class GLFWWindow private constructor(val handle: Long, val api: RenderApi = Rend
     /** 현재 커서 위치를 논리 좌표로 반환 (Pair<x, y>) */
     fun getCursorPos(): Pair<Double, Double> = Pair(cursorX, cursorY)
 
-    /** VSync 설정. 0=꺼짐, 1=활성화 */
-    fun setVSync(interval: Int) = glfwSwapInterval(interval)
+    /**
+     * VSync 설정. 0=꺼짐, 1=활성화. OpenGL 모드에서만 glfwSwapInterval을 직접 호출합니다
+     * (Vulkan 모드에서 호출하면 GL 컨텍스트가 없어 "GLFW_NO_CURRENT_CONTEXT" 오류가 남 — Vulkan
+     * 쪽은 [vSync] 값을 읽어 [io.github.jwyoon1220.engine.vulkan.VulkanBackend]가 스왑체인을
+     * 다시 만드는 방식으로 적용해야 하므로 `Renderer.setVSync`를 함께 호출하세요).
+     */
+    fun setVSync(interval: Int) {
+        vSync = interval != 0
+        if (api == RenderApi.OPENGL) glfwSwapInterval(interval)
+    }
 
     /** 콜백 해제 → 윈도우 파괴 → GLFW 종료. 메인 스레드에서 호출. */
     fun destroy() {
@@ -204,6 +221,16 @@ class GLFWWindow private constructor(val handle: Long, val api: RenderApi = Rend
 
     companion object {
         private val log = LoggerFactory.getLogger(GLFWWindow::class.java)
+
+        /**
+         * 이 머신에 Vulkan 로더/드라이버가 있는지 확인합니다(창 생성 전에도 호출 가능 — 필요하면
+         * 내부적으로 GLFW를 초기화합니다). Vulkan 스모크 테스트를 다른 모듈(예: app)에서 작성할 때
+         * 원시 GLFW 심볼 없이 이 헬퍼로 "지원 안 하면 skip" 패턴을 쓸 수 있습니다.
+         */
+        fun isVulkanSupported(): Boolean {
+            glfwInit()
+            return org.lwjgl.glfw.GLFWVulkan.glfwVulkanSupported()
+        }
 
         /**
          * GLFW 초기화 + 윈도우 생성 + GL 컨텍스트 활성화.
@@ -281,6 +308,7 @@ class GLFWWindow private constructor(val handle: Long, val api: RenderApi = Rend
 
             val win = GLFWWindow(handle, api)
             win.currentMode = mode
+            win.vSync = vSync
             return win
         }
 
