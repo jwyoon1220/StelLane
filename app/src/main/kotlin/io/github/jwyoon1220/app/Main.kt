@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 package io.github.jwyoon1220.app
 
 import io.github.jwyoon1220.app.ecs.EulaScene

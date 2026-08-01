@@ -150,15 +150,18 @@ StelLane은 **맵 데이터(채보)** 및 관련 **음원·영상**을 직접 �
 
 ## 📜 라이선스
 
-이 프로젝트는 두 가지 라이선스로 구성됩니다:
+이 프로젝트는 **GNU General Public License v3.0**으로 라이선스됩니다.
 
-- 루트 코드 — [Apache License 2.0](./LICENSE)
-- `engine` 모듈 — [GNU GPL 3.0](./engine/LICENSE)
+- 전체 소스 코드 — [GNU GPL 3.0](./LICENSE)
 
 추가 리소스(폰트, 오픈소스 고지)는 `assets/src/main/resources`를 참고하세요.
 
 ---
 
+## 생성형 인공지능 사용에 관한 안내
+ - 본 프로젝트는 생성형 인공지능을 이용해 이미지 등을 생성했습니다.
+
+---
 <div align="center">
 
 *별이 빛나는 밤, 오늘도 레인을 달립니다* 🌠

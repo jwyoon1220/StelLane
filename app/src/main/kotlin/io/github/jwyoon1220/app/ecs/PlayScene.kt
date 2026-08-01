@@ -183,6 +183,12 @@ class PlayScene(
     /** [readyPhaseGate]가 닫혀있는 동안(READY 페이즈에서) 매 프레임 호출되는 커스텀 오버레이. */
     var calibrationOverlayRenderer: ((io.github.jwyoon1220.engine.DrawContext) -> Unit)? = null
 
+    /** 설정되어 있으면 ESC 입력 시 기본 SongSelectScene 이동 대신 이 콜백이 호출됩니다(스토리 모드 등). */
+    var onExit: (() -> Unit)? = null
+
+    /** 설정되어 있으면 RESULT 페이즈에서 Enter 입력 시 기본 SongSelectScene 이동 대신 이 콜백이 호출됩니다. */
+    var onResultConfirmed: (() -> Unit)? = null
+
     // FontMetrics 캐싱
     private var comboFontMetrics: DrawFontMetrics? = null
     private var judgeFontMetrics: DrawFontMetrics? = null
@@ -822,11 +828,13 @@ class PlayScene(
 
     override fun keyPressed(key: Int, mods: Int) {
         if (key == Keys.ESCAPE) {
-            ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
+            val exit = onExit
+            if (exit != null) exit() else ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
             return
         }
         if (phase == Phase.RESULT && key == Keys.ENTER) {
-            ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
+            val confirmed = onResultConfirmed
+            if (confirmed != null) confirmed() else ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
         }
     }
 

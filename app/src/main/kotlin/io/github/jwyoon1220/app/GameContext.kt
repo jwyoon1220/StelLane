@@ -3,6 +3,9 @@ package io.github.jwyoon1220.app
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.render.NoteRenderer
 import io.github.jwyoon1220.core.song.SongManager
+import io.github.jwyoon1220.core.story.StoryDataLoader
+import io.github.jwyoon1220.core.story.StoryMode
+import io.github.jwyoon1220.core.story.StoryProgressManager
 import io.github.jwyoon1220.engine.GameLoop
 import io.github.jwyoon1220.engine.InputManager
 import io.github.jwyoon1220.engine.Renderer
@@ -21,6 +24,10 @@ class GameContext(
     val windowManager: WindowManager,
     val noteRenderer: NoteRenderer
 ) {
+    /** 스토리 모드 정적 데이터(챕터/대사/필요곡) — `assets/story/story_data.json`에서 1회 로드. */
+    val storyModeData: StoryMode by lazy { StoryDataLoader.loadFromResources() }
+    /** 스토리 모드 진행도 저장/로드. */
+    val storyProgressMgr: StoryProgressManager = StoryProgressManager()
     /** 게임 루프. Main에서 생성 직후 주입됩니다. */
     lateinit var gameLoop: GameLoop
     /** 렌더러. Main에서 생성 직후 주입됩니다. */

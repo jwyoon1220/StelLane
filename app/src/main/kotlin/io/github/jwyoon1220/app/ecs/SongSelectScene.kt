@@ -183,7 +183,7 @@ class SongSelectScene(
         }
 
     private fun rebuildSongList() {
-        val base = ctx.songManager.songs
+        val base = ctx.songManager.songs.filter { !it.song.hidden }
         val query = searchStr.trim()
         val filtered = if (query.isEmpty()) base
         else base.filter {

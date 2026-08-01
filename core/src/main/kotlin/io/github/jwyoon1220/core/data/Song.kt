@@ -12,7 +12,9 @@ data class Song(
     val coverImagePath: String? = null,
     val videoPath: String? = null,
     val audioPath: String? = null,
-    val difficulties: Map<String, String> = emptyMap()
+    val difficulties: Map<String, String> = emptyMap(),
+    // 일반 곡 선택 목록에는 노출하지 않고 스토리 모드 등 특정 흐름에서만 사용하는 곡
+    val hidden: Boolean = false
 )
 
 // 런타임에 사용하는 곡 정보 (파일 경로 포함)
