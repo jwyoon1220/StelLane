@@ -1,0 +1,128 @@
+{
+  "id" : "ch2_alignment_of_galaxy",
+  "title" : "은하수의 정렬",
+  "description" : "각자의 상처와 정체를 숨긴 2기생(유니버스) 멤버들이 음악을 통해 각자의 별을 각인시킨다.",
+  "order" : 2,
+  "cutscenes" : [ {
+    "id" : "ch2_opening",
+    "timing" : "before_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "며칠이 지났다. 홀에는 하나둘 낯익은 얼굴들이 모여든다 — 2기생, '유니버스'."
+    }, {
+      "character" : "타비",
+      "characterImage" : "tabi.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "다들... 각자 사정이 있었던 거지? 나도 말 못 한 게 많아."
+    }, {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "나는... 무서워서 숨어 있었어. 노래하면 들킬 것 같아서."
+    }, {
+      "character" : "히나",
+      "characterImage" : "hina.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "숨길 필요 없어! 우리 모두 별이잖아. 각자의 색으로 빛나면 돼."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "그래, 처음부터 완벽할 필요 없어. 부딪히면서 맞춰가면 되지."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "서로 다른 상처를 지닌 네 개의 별이, 조심스레 첫 화음을 맞춰본다."
+    } ]
+  }, {
+    "id" : "ch2_interlude",
+    "timing" : "after_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "방금... 우리 목소리가 겹쳤을 때, 뭔가 반짝였어!"
+    }, {
+      "character" : "타비",
+      "characterImage" : "tabi.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "진짜야! 다들 조금씩 밝아지고 있어."
+    }, {
+      "character" : "히나",
+      "characterImage" : "hina.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "이게 바로 '정렬'이라는 걸까? 우리 넷의 별이 하나의 선으로 이어지는 거."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "그럼 이번엔 제대로 맞춰보자. 처음부터 끝까지, 넷이 함께."
+    } ]
+  }, {
+    "id" : "ch2_climax",
+    "timing" : "after_song_1",
+    "backgroundImage" : "stellive_music_hall.jpg",
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "무대 전체를 채우던 흑백의 게이지가, 네 개의 색으로 물들며 폭발하듯 반전된다."
+    }, {
+      "character" : "히나",
+      "characterImage" : "hina.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "봐, 우리 모두... 색깔을 되찾았어!"
+    }, {
+      "character" : "타비",
+      "characterImage" : "tabi.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "이제야 진짜 '유니버스'가 된 기분이야."
+    }, {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "숨을 필요 없었네. 처음부터."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "다음 별을 찾으러 가자. 아직 어둠 속에 있는 그 애를."
+    } ]
+  } ],
+  "requiredSongs" : [ {
+    "songEntryId" : "dear_my_fairy",
+    "difficulty" : "Normal",
+    "minAccuracy" : 0,
+    "description" : "유닛 호흡 스테이지"
+  }, {
+    "songEntryId" : "stars_align",
+    "difficulty" : "Normal",
+    "minAccuracy" : 0,
+    "description" : "2기생 클라이맥스 — 4개의 별이 정렬하며 게이지가 컬러로 반전"
+  } ],
+  "rewards" : {
+    "unlockNextChapter" : true,
+    "unlockedCharacters" : [ "히나" ],
+    "unlockedEmojis" : [ ]
+  }
+}

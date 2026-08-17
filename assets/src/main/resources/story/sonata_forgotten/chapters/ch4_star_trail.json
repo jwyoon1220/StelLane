@@ -1,0 +1,134 @@
+{
+  "id" : "ch4_star_trail",
+  "title" : "별의 궤적: STAR TRAIL",
+  "description" : "유니가 손을 내밀고 멤버들이 이름을 부르자, 마룡 상태였던 후야가 빛을 되찾고 1기생(Everys)으로 완전히 합류한다.",
+  "order" : 4,
+  "cutscenes" : [ {
+    "id" : "ch4_opening",
+    "timing" : "before_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "빛을 잃은 마룡 앞에서, 유니가 조용히 손을 내민다."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "이름이... 후야, 맞지? 2,000년 전에도, 지금도 — 네 목소리를 기다린 사람들이 있어."
+    }, {
+      "character" : "후야",
+      "characterImage" : "huya.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "(갈라진 목소리로) ...내 목소리 따위, 이제 아무도..."
+    }, {
+      "character" : "타비",
+      "characterImage" : "tabi.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "아니, 우리가 들을게. 지금, 여기서."
+    }, {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "노래해줘, 후야. 우리도 함께 부를게."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "여섯 개의 목소리가 하나의 선율로 겹쳐지기 시작한다."
+    } ]
+  }, {
+    "id" : "ch4_interlude",
+    "timing" : "after_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "후야의 몸을 뒤덮었던 어둠이, 노래가 이어질 때마다 조금씩 빛의 조각으로 부서져 내린다."
+    }, {
+      "character" : "후야",
+      "characterImage" : "huya.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "목소리가... 다시 나와. 2,000년 만에..."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "이제 시작이야. 우리랑 같이 완전한 노래를, 처음부터."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "1기생 자리 하나가 비어 있었어. 원래 네 자리였나 봐."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "후야의 눈에 다시 별빛이 맺힌다."
+    } ]
+  }, {
+    "id" : "ch4_closing",
+    "timing" : "after_song_1",
+    "backgroundImage" : "stellive_music_hall.jpg",
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "완전히 빛을 되찾은 후야가, 1기생 'Everys'의 마지막 별로 궤적 위에 선다."
+    }, {
+      "character" : "후야",
+      "characterImage" : "huya.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "다녀왔습니다 — 아니, 처음 왔습니다. 잘 부탁해, 모두."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "환영해, 후야. 이제 진짜 우리 궤적이 완성됐어."
+    }, {
+      "character" : "리제",
+      "characterImage" : "lize2.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "짜잔, 이걸로 Everys 전원 집합이네!"
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "별의 궤적 위로, 여섯 개의 빛이 하나의 길을 그리며 흐른다."
+    } ]
+  } ],
+  "requiredSongs" : [ {
+    "songEntryId" : "yuni_huya_duet",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "실시간 보컬 스위칭 채보"
+  }, {
+    "songEntryId" : "STAR_TRAIL",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "후야 합류 기념 1기생 메인 단체곡 풀 버전"
+  } ],
+  "rewards" : {
+    "unlockNextChapter" : true,
+    "unlockedCharacters" : [ "후야", "리제" ],
+    "unlockedEmojis" : [ ]
+  }
+}

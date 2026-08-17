@@ -7,15 +7,17 @@ import io.github.jwyoon1220.engine.DrawContext
 import io.github.jwyoon1220.engine.render.RenderColor
 import java.awt.BasicStroke
 import java.awt.image.BufferedImage
+import java.io.File
 import javax.imageio.ImageIO
 
 /**
  * 이미지 기반 시각소설 형식으로 [StoryScene]의 현재 대사를 렌더링합니다.
  * 배경 + 캐릭터 스프라이트 + 대화창으로 구성되며, GUI 컨트롤(버튼 등)은 사용하지 않습니다.
  *
- * 리소스는 `assets/src/main/resources/story/` 아래의 이미지를 클래스패스에서 로드합니다.
+ * 이미지는 `<workingDir>/story/images/` 아래에서 [imagesDir] 기준 파일로 로드합니다
+ * (스토리 챕터 JSON과 마찬가지로 유저가 직접 교체/추가할 수 있는 위치).
  */
-class DialogueRenderer {
+class DialogueRenderer(private val imagesDir: File) {
 
     private val imageCache = HashMap<String, BufferedImage?>()
 
@@ -23,10 +25,11 @@ class DialogueRenderer {
     private val bodyFont = FontLoader.regular(19f)
     private val hintFont = FontLoader.light(13f)
 
-    private fun loadImage(resourceName: String): BufferedImage? =
-        imageCache.getOrPut(resourceName) {
+    private fun loadImage(fileName: String): BufferedImage? =
+        imageCache.getOrPut(fileName) {
             runCatching {
-                DialogueRenderer::class.java.getResourceAsStream("/story/$resourceName")?.use { ImageIO.read(it) }
+                val file = File(imagesDir, fileName)
+                if (file.isFile) ImageIO.read(file) else null
             }.getOrNull()
         }
 
@@ -35,7 +38,7 @@ class DialogueRenderer {
         val w = g.clipBounds.width.toFloat()
         val h = g.clipBounds.height.toFloat()
 
-        renderBackground(g, scene.backgroundImage, w, h)
+        renderBackground(g, scene, w, h)
 
         val lines = scene.dialogues
         if (lines.isEmpty()) return
@@ -46,8 +49,15 @@ class DialogueRenderer {
         renderContinuePrompt(g, w, h, isLast = idx == lines.lastIndex)
     }
 
-    private fun renderBackground(g: DrawContext, bgPath: String?, w: Float, h: Float) {
-        val img = bgPath?.let { loadImage(it) }
+    private fun renderBackground(g: DrawContext, scene: StoryScene, w: Float, h: Float) {
+        if (scene.backgroundVideo != null) {
+            // 영상 자체는 Renderer가 화면 전체에 자동으로 그려주므로(Scene.rendersBackground 기본값),
+            // 여기서는 대사 가독성을 위한 어둡게 처리만 얹습니다.
+            g.renderColor = RenderColor.of(0, 0, 0, 90)
+            g.fillRect(0f, 0f, w, h)
+            return
+        }
+        val img = scene.backgroundImage?.let { loadImage(it) }
         if (img != null) {
             g.drawImage(img, 0f, 0f, w, h)
             g.renderColor = RenderColor.of(0, 0, 0, 90)

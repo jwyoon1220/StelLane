@@ -7,6 +7,9 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":engine"))
     implementation(project(":editor"))
+    // 메인 메뉴의 "Story Editor" 항목이 게임과 같은 프로세스에서 스토리 에디터(Swing) 창을 띄우기 위한 의존성
+    // (story-editor는 core에만 의존하므로 역방향 의존이 생기지 않습니다).
+    implementation(project(":story-editor"))
     runtimeOnly(project(":assets")) // 에셋 모듈의 리소스를 포함
     implementation("it.unimi.dsi:fastutil:8.5.15")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.0")
@@ -59,12 +62,13 @@ val prepareRunEnv by tasks.registering(Copy::class) {
     rename { "StelLane-app.jar" }
     
     doLast {
-        // assets 리소스 복사
+        // assets 리소스 복사 (story/ 는 아래에서 run/story 로 별도 복사하므로 여기서는 제외)
         val assetDir = rootProject.project(":assets").file("src/main/resources")
         if (assetDir.exists()) {
             copy {
                 from(assetDir)
                 into(file("${runDir}/assets"))
+                exclude("story/**")
             }
         }
 
@@ -74,8 +78,23 @@ val prepareRunEnv by tasks.registering(Copy::class) {
             songsDir.mkdirs()
         }
 
-        // VLC 동봉 — 시스템에 VLC가 안 깔려 있어도 영상 배경이 동작하도록
-        // (engine 모듈 테스트 태스크와 동일한 vlc/ 폴더를 재사용 — VideoBackground.registerBundledVlcIfPresent 참고)
+        // story 팩 데이터 복사 — songs와 마찬가지로 SongManager/StoryManager가 <workingDir>/story 를
+        // 런타임에 스캔합니다. assets 모듈의 story/ 가 기본 제공 팩(sonata_forgotten)의 원본이며, 유저는
+        // run/story 에 새 폴더(<packId>/{pack.json, chapters/, images/, videos/})를 직접 추가하거나
+        // 게임 내 "Story Editor" 메뉴로 자기만의 스토리 팩을 만들 수 있습니다.
+        val storySrc = rootProject.project(":assets").file("src/main/resources/story")
+        val storyDir = file("${runDir}/story")
+        if (storySrc.exists()) {
+            copy {
+                from(storySrc)
+                into(storyDir)
+            }
+        } else if (!storyDir.exists()) {
+            storyDir.mkdirs()
+        }
+
+        // VLC 동봉 — run/ 폴더를 참고용으로 완전히 구성해두기 위한 복사본.
+        // 실제 실행 시 VLC 검색은 runGame 태스크가 설정하는 jna.library.path/PATH가 담당합니다.
         val vlcSrc = rootProject.file("vlc")
         if (vlcSrc.exists()) {
             copy {
@@ -94,6 +113,15 @@ tasks.register<JavaExec>("runGame") {
     dependsOn(prepareRunEnv)
     args(listOfNotNull("--debug", "--console", "--vulkan".takeIf { project.hasProperty("vulkan") }))
     jvmArgs("-XX:+UseZGC")
+
+    // 이 태스크가 사용하는 java 실행 파일은 (배포판과 달리) vlc/ 폴더와 같은 곳에 있지 않으므로,
+    // vlcj 기본 NativeDiscovery가 찾을 수 있도록 jna.library.path/PATH로 직접 알려줍니다
+    // (engine/build.gradle.kts의 test 태스크와 동일한 패턴).
+    val vlcDir = rootProject.file("vlc")
+    if (vlcDir.exists()) {
+        jvmArgs("-Djna.library.path=${vlcDir.absolutePath}")
+        environment("PATH", "${vlcDir.absolutePath};${System.getenv("PATH") ?: ""}")
+    }
 
     mainClass.set(application.mainClass)
     classpath = sourceSets["main"].runtimeClasspath
@@ -168,15 +196,30 @@ tasks.register("deploy") {
     dependsOn("jpackageImage") // jpackageImage 태스크가 플러그인에 의해 정의되어 있으므로 문자열이나 태스크 객체로 지정
 
     doLast {
-        val appDir    = rootProject.layout.projectDirectory.dir("dist/StelLane").asFile
-        val vlcSrc    = rootProject.file("vlc")
-        val vlcDest   = File(appDir, "vlc")
-        val songsSrc  = rootProject.file("run/songs") // 복사할 원본 run/songs 폴더
-        val songsDest = File(appDir, "songs")
+        val appDir     = rootProject.layout.projectDirectory.dir("dist/StelLane").asFile
+        val vlcSrc     = rootProject.file("vlc")
+        val isWindows  = org.gradle.internal.os.OperatingSystem.current().isWindows
+
+        // jpackage app-image 레이아웃은 OS별로 다릅니다:
+        //  - Windows: <name>/runtime/bin/javaw.exe,  <name>/app/<name>.jar
+        //  - Linux:   <name>/lib/runtime/bin/java,    <name>/lib/app/<name>.jar
+        val runtimeBinRel = if (isWindows) "runtime/bin" else "lib/runtime/bin"
+        val appJarRel     = if (isWindows) "app/StelLane-app.jar" else "lib/app/StelLane-app.jar"
+
+        // VLC 검색은 vlcj 기본 NativeDiscovery에 맡깁니다(VideoBackground 참고) — jlink 런타임의
+        // java/javaw 실행 파일과 같은 폴더에 동봉하면 별도 경로 설정 없이 찾아냅니다:
+        //  - Windows: 같은 폴더는 DLL 검색 순서상 최우선으로 탐색됨.
+        //  - Linux: 같은 폴더만으로는 부족해서(동적 링커가 실행 파일 폴더를 자동 탐색하지 않음)
+        //    아래 런처 스크립트에서 LD_LIBRARY_PATH로 명시적으로 잡아줍니다.
+        val vlcDest    = File(appDir, runtimeBinRel)
+        val songsSrc   = rootProject.file("run/songs") // 복사할 원본 run/songs 폴더
+        val songsDest  = File(appDir, "songs")
+        val storySrc   = rootProject.file("run/story") // 복사할 원본 run/story 폴더
+        val storyDest  = File(appDir, "story")
 
         // 1. VLC 동봉 — FFmpeg/OpenAL과 달리 VLC(libvlc)는 클래스패스 자동 추출 대상이 아니라
         //    시스템에 별도 설치가 필요한 서드파티 앱입니다. 안 넣으면 VLC 미설치 PC에서
-        //    "VLC 초기화 실패"로 영상 배경이 통째로 빠집니다(VideoBackground.registerBundledVlcIfPresent 참고).
+        //    "VLC 초기화 실패"로 영상 배경이 통째로 빠집니다.
         if (vlcSrc.exists()) {
             copy {
                 from(vlcSrc)
@@ -203,32 +246,77 @@ tasks.register("deploy") {
             println("WARNING: run/songs/ folder not found. Created an empty songs directory.")
         }
 
-        // 3. EXE 런처 실패 환경 대비 배치 런처 생성 (일부 PC에서 "Failed to launch JVM" 우회)
-        val launchBat = File(appDir, "Launch-StelLane.bat")
-        launchBat.writeText(
-            """
-            @echo off
-            setlocal
-            set APPDIR=%~dp0
-            "%APPDIR%runtime\\bin\\javaw.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt %*
-            endlocal
-            """.trimIndent()
-        )
+        // 3. run/story 폴더 내의 파일들을 jpackage 앱 이미지 내부의 story/ 폴더로 복사 (songs와 동일한 패턴)
+        if (storySrc.exists()) {
+            copy {
+                from(storySrc)
+                into(storyDest)
+            }
+            println("Story copied from ${storySrc.absolutePath} to ${storyDest.absolutePath}")
+        } else {
+            if (!storyDest.exists()) {
+                storyDest.mkdirs()
+            }
+            println("WARNING: run/story/ folder not found. Created an empty story directory.")
+        }
 
-        val debugBat = File(appDir, "Launch-StelLane-Debug.bat")
-        debugBat.writeText(
-            """
-            @echo off
-            setlocal
-            set APPDIR=%~dp0
-            echo [StelLane] Starting debug launcher...
-            "%APPDIR%runtime\\bin\\java.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt --debug --console %*
-            echo.
-            echo [StelLane] Exit code: %ERRORLEVEL%
-            pause
-            endlocal
-            """.trimIndent()
-        )
+        // 4. 네이티브 런처 실패 환경 대비 폴백 런처 스크립트 생성
+        //    (Windows: 일부 PC에서 "Failed to launch JVM" 우회 / Linux: bin/StelLane 대체용)
+        if (isWindows) {
+            val launchBat = File(appDir, "Launch-StelLane.bat")
+            launchBat.writeText(
+                """
+                @echo off
+                setlocal
+                set APPDIR=%~dp0
+                "%APPDIR%runtime\\bin\\javaw.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt %*
+                endlocal
+                """.trimIndent()
+            )
+
+            val debugBat = File(appDir, "Launch-StelLane-Debug.bat")
+            debugBat.writeText(
+                """
+                @echo off
+                setlocal
+                set APPDIR=%~dp0
+                echo [StelLane] Starting debug launcher...
+                "%APPDIR%runtime\\bin\\java.exe" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "%APPDIR%app\\StelLane-app.jar" io.github.jwyoon1220.app.MainKt --debug --console %*
+                echo.
+                echo [StelLane] Exit code: %ERRORLEVEL%
+                pause
+                endlocal
+                """.trimIndent()
+            )
+        } else {
+            val d = "\$" // 트리플쿼트 문자열 안에서 셸 변수(${'$'}...)를 리터럴로 넣기 위한 이스케이프
+
+            val launchSh = File(appDir, "Launch-StelLane.sh")
+            launchSh.writeText(
+                """
+                #!/bin/sh
+                APPDIR="${d}(cd "${d}(dirname "${d}0")" && pwd)"
+                export LD_LIBRARY_PATH="${d}{APPDIR}/$runtimeBinRel:${d}{LD_LIBRARY_PATH}"
+                exec "${d}{APPDIR}/$runtimeBinRel/java" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "${d}{APPDIR}/$appJarRel" io.github.jwyoon1220.app.MainKt "${d}@"
+                """.trimIndent() + "\n"
+            )
+            launchSh.setExecutable(true)
+
+            val debugSh = File(appDir, "Launch-StelLane-Debug.sh")
+            debugSh.writeText(
+                """
+                #!/bin/sh
+                APPDIR="${d}(cd "${d}(dirname "${d}0")" && pwd)"
+                export LD_LIBRARY_PATH="${d}{APPDIR}/$runtimeBinRel:${d}{LD_LIBRARY_PATH}"
+                echo "[StelLane] Starting debug launcher..."
+                "${d}{APPDIR}/$runtimeBinRel/java" -XX:+UseZGC -Dfile.encoding=UTF-8 -cp "${d}{APPDIR}/$appJarRel" io.github.jwyoon1220.app.MainKt --debug --console "${d}@"
+                status=${d}?
+                echo
+                echo "[StelLane] Exit code: ${d}{status}"
+                """.trimIndent() + "\n"
+            )
+            debugSh.setExecutable(true)
+        }
 
         println("Deploy complete: ${appDir.absolutePath}")
     }

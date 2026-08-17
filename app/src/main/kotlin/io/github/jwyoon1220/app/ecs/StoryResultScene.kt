@@ -2,6 +2,7 @@ package io.github.jwyoon1220.app.ecs
 
 import io.github.jwyoon1220.app.FontLoader
 import io.github.jwyoon1220.app.GameContext
+import io.github.jwyoon1220.core.story.LoadedStoryPack
 import io.github.jwyoon1220.core.story.StoryChapter
 import io.github.jwyoon1220.core.story.StoryMode
 import io.github.jwyoon1220.core.story.StoryProgressManager
@@ -17,6 +18,7 @@ import io.github.jwyoon1220.engine.render.RenderCommand
 class StoryResultScene(
     private val ctx: GameContext,
     private val storyMode: StoryMode,
+    private val pack: LoadedStoryPack,
     private val chapter: StoryChapter,
     private val progressMgr: StoryProgressManager
 ) : Scene() {
@@ -48,12 +50,12 @@ class StoryResultScene(
 
     override fun keyPressed(key: Int, mods: Int) {
         if (key == Keys.ENTER || key == Keys.ESCAPE) {
-            ctx.sceneRouter.navigate(StorySelectScene(ctx))
+            ctx.sceneRouter.navigate(StorySelectScene(ctx, pack))
         }
     }
 
     override fun mouseClicked(x: Float, y: Float, button: Int, mods: Int) {
-        ctx.sceneRouter.navigate(StorySelectScene(ctx))
+        ctx.sceneRouter.navigate(StorySelectScene(ctx, pack))
     }
 
     private inner class ResultRenderSystem : RenderProducer {
@@ -80,7 +82,7 @@ class StoryResultScene(
             g.renderColor = COLOR_CHAPTER_TITLE
             g.drawStringCentered("Chapter ${chapter.order}. ${chapter.title}", cx, y); y += 60f
 
-            val progress = progressMgr.loadChapterProgress(chapter.id)
+            val progress = progressMgr.loadChapterProgress(progressMgr.key(pack.pack.id, chapter.id))
             chapter.requiredSongs.forEachIndexed { i, song ->
                 val score = progress.songScores[i]
                 val accuracy = progress.songAccuracies[i]

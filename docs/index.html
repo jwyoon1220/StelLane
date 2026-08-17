@@ -103,33 +103,99 @@
       <!-- Card 1 -->
       <div class="card">
         <div class="card-icon">
-          <i class="fas fa-bolt"></i>
+          <i class="fas fa-bullseye"></i>
         </div>
-        <h3 class="card-title">Kotlin & GLFW/OpenGL</h3>
+        <h3 class="card-title">정밀 판정 &amp; 스코어링</h3>
         <p class="card-desc">
-          현대적인 언어 Kotlin과 경량 그래픽 라이브러리인 GLFW/OpenGL(LWJGL)을 조합하여, 프레임 레이트 안정성과 미세한 레이턴시 입력을 완벽하게 관리합니다.
+          Perfect(±20ms) / Great(±100ms) / Good(±150ms) / Miss 4단계 판정과 콤보 기반 최대 100만점 스코어링, SS~D 등급, 0.5×~35× 노트 속도 조절까지 리듬 게임의 핵심을 꼼꼼하게 구현했습니다.
         </p>
       </div>
-      
+
       <!-- Card 2 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-sliders"></i>
+        </div>
+        <h3 class="card-title">강력한 인게임 채보 에디터</h3>
+        <p class="card-desc">
+          줌 가능한 타임라인과 BPM 기반 퀀타이즈(1/4·1/8·1/16), 곡에 맞춰 직접 태핑해 노트를 찍는 실시간 레코딩 모드, 다중 선택·복사/붙여넣기·실행취소까지 지원합니다.
+        </p>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-wand-magic-sparkles"></i>
+        </div>
+        <h3 class="card-title">데코레이션 &amp; 포스트프로세싱</h3>
+        <p class="card-desc">
+          타임라인에 맞춘 이미지 오버레이(페이드·이동·회전·스케일 트윈)와 블룸·CRT·글리치·필름그레인 등 화면 전체 GLSL 이펙트를 채보와 함께 편집할 수 있습니다.
+        </p>
+      </div>
+
+      <!-- Card 4 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-book-open"></i>
+        </div>
+        <h3 class="card-title">스토리 모드</h3>
+        <p class="card-desc">
+          비주얼노벨풍 컷신(이미지 또는 영상 배경)과 곡 플레이가 이어지는 챕터형 스토리를 즐길 수 있습니다. 곡 데이터와 같은 방식으로 챕터 JSON을 추가하면 누구나 자신만의 스토리를 만들 수 있고, 전용 <code>story-editor</code> 툴로 폼 기반 편집도 가능해요.
+        </p>
+      </div>
+
+      <!-- Card 5 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-satellite-dish"></i>
+        </div>
+        <h3 class="card-title">온라인 멀티플레이</h3>
+        <p class="card-desc">
+          방 호스팅/참가/관전을 지원하며, 실시간 정확도 랭킹, 클라이언트 간 영상 동기화 재생, UPnP 자동 포트매핑으로 별도 설정 없이 함께 플레이할 수 있습니다.
+        </p>
+      </div>
+
+      <!-- Card 6 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-microchip"></i>
+        </div>
+        <h3 class="card-title">듀얼 렌더러 (OpenGL / Vulkan)</h3>
+        <p class="card-desc">
+          안정적인 OpenGL/NanoVG 백엔드와 실험적인 Vulkan 백엔드 중 실행 시점에 선택할 수 있습니다. Kotlin과 LWJGL 조합으로 프레임 안정성과 저지연 입력을 관리합니다.
+        </p>
+      </div>
+
+      <!-- Card 7 -->
       <div class="card">
         <div class="card-icon">
           <i class="fas fa-video"></i>
         </div>
         <h3 class="card-title">VLCJ 백그라운드 영상</h3>
         <p class="card-desc">
-          VLC 미디어 플레이어 런타임을 연동하여 게임 플레이 백그라운드에서 고화질 오피셜 뮤직비디오(MV) 영상을 프레임 저하 없이 재생할 수 있습니다.
+          VLC 미디어 플레이어 런타임을 연동하여 메뉴부터 플레이 화면까지 고화질 오피셜 뮤직비디오(MV) 영상을 프레임 저하 없이 배경으로 재생합니다.
         </p>
       </div>
-      
-      <!-- Card 3 -->
+
+      <!-- Card 8 -->
       <div class="card">
         <div class="card-icon">
-          <i class="fas fa-sliders"></i>
+          <i class="fas fa-music"></i>
         </div>
-        <h3 class="card-title">강력한 인게임 에디터</h3>
+        <h3 class="card-title">자작곡 제작</h3>
         <p class="card-desc">
-          곡의 BPM과 타임라인에 맞춰 퀀타이즈, 노트 배치, 판정 영역 조정 등 리듬 게임 전반의 설정을 실시간으로 조율할 수 있는 차트 에디터를 장착하고 있습니다.
+          인게임 곡 생성 폼(메타데이터 입력 + 커버·오디오·비디오 파일 선택)으로 바로 채보 제작을 시작해, 곧바로 인게임 에디터로 이어서 편집할 수 있습니다.
+        </p>
+      </div>
+
+      <!-- Card 9 -->
+      <div class="card">
+        <div class="card-icon">
+          <i class="fas fa-gear"></i>
+        </div>
+        <h3 class="card-title">세부 설정</h3>
+        <p class="card-desc">
+          창 모드, A/V 싱크 오프셋, 음악/타격음 볼륨, FPS 제한, VSync까지 세밀하게 조절하고, 최초 실행 EULA 동의와 인게임 라이선스·크레딧 뷰어도 갖췄습니다.
         </p>
       </div>
     </div>
@@ -176,6 +242,24 @@
         <div class="module-info">
           <h3 class="module-name">채보 편집 유틸리티</h3>
           <p class="module-desc">타임라인 그리드 뷰, 퀀타이즈 계산, 노트 배치 정렬 등 채보를 창작하는 에디터 기능의 연산 백엔드입니다.</p>
+        </div>
+      </div>
+
+      <!-- Story Editor Module -->
+      <div class="module-row">
+        <div class="module-badge mb-app">story-editor</div>
+        <div class="module-info">
+          <h3 class="module-name">스토리 에디터 (독립 툴)</h3>
+          <p class="module-desc">챕터/컷신/대사를 폼 기반으로 편집하는 별도 Swing 도구입니다. 배경 이미지·영상 첨부와 필요 곡 편집을 지원하며, core의 StoryChapter JSON을 그대로 읽고 씁니다.</p>
+        </div>
+      </div>
+
+      <!-- Assets Module -->
+      <div class="module-row">
+        <div class="module-badge mb-core">assets</div>
+        <div class="module-info">
+          <h3 class="module-name">폰트 &amp; 기본 리소스</h3>
+          <p class="module-desc">폰트, 오픈소스 라이선스 고지, 기본 제공 스토리 모드 데이터(챕터 JSON + 이미지/영상)를 담고 있는 리소스 전용 모듈입니다.</p>
         </div>
       </div>
     </div>

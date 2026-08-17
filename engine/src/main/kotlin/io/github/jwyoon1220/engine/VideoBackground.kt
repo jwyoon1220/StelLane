@@ -26,7 +26,6 @@ import org.lwjgl.opengl.GL30.GL_MAP_WRITE_BIT
 import org.lwjgl.opengl.GL30.glMapBufferRange
 import java.awt.image.BufferedImage
 import java.awt.image.DataBufferInt
-import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 
@@ -130,32 +129,14 @@ class VideoBackground private constructor(
         )
 
         /**
-         * 배포판에 동봉한 `vlc/` 폴더(project root 기준, jpackage 배포 시 앱 폴더 옆에 복사됨 —
-         * [app/build.gradle.kts]의 `deploy`/`prepareRunEnv` 참고)가 있으면 vlcj가 그걸 쓰도록
-         * 등록합니다. 이걸 안 하면 시스템에 VLC가 따로 설치돼 있어야만(vlcj 기본 NativeDiscovery가
-         * "Program Files\VideoLAN\VLC" 등 표준 설치 경로만 찾음) 영상 배경이 동작합니다 — 개발
-         * 머신에는 VLC가 깔려 있어서 이 문제가 안 보였을 뿐, 순수 배포판만 받은 사용자 PC에서는
-         * "VLC 초기화 실패"로 나타납니다.
-         *
-         * libvlccore.dll을 절대경로로 먼저 `System.load`해두면(JNA/Windows 검색경로에 기대지 않고)
-         * 뒤이어 vlcj가 libvlc.dll을 로드할 때 같은 이름의 라이브러리가 이미 프로세스에 적재돼 있어
-         * 의존성 해석이 자동으로 됩니다. `jna.library.path`는 libvlc.dll 자체를 찾을 경로입니다.
+         * VLC 검색은 vlcj 기본 NativeDiscovery에 맡깁니다 — libvlc*.dll/.so가 실행 파일과 같은
+         * 폴더에 있거나 PATH(Linux는 LD_LIBRARY_PATH)에 잡혀 있으면 별도 등록 없이 찾아냅니다.
+         * 배포판은 [app/build.gradle.kts]의 `deploy` 태스크가 jlink 런타임 실행 파일
+         * (java/javaw)과 같은 폴더에 VLC를 동봉하고, 개발 실행은 `runGame` 태스크가
+         * jna.library.path/PATH로 프로젝트 루트 `vlc/`를 가리켜줍니다.
          */
-        private fun registerBundledVlcIfPresent() {
-            val vlcDir = File(System.getProperty("user.dir"), "vlc")
-            if (!vlcDir.isDirectory) return // 없으면 시스템 설치 VLC(vlcj 기본 NativeDiscovery)에 맡김
-            val coreDll = File(vlcDir, "libvlccore.dll")
-            if (coreDll.isFile) {
-                runCatching { System.load(coreDll.absolutePath) }
-                    .onFailure { LoggerFactory.getLogger(VideoBackground::class.java)
-                        .warn("[VideoBackground] 동봉 libvlccore.dll 로드 실패: {}", it.message) }
-            }
-            System.setProperty("jna.library.path", vlcDir.absolutePath)
-        }
-
         fun create(): VideoBackground {
             return try {
-                registerBundledVlcIfPresent()
                 val factory = MediaPlayerFactory(*FACTORY_OPTIONS)
                 val player  = factory.mediaPlayers().newEmbeddedMediaPlayer()
                 VideoBackground(isAvailable = true, factory = factory, mediaPlayer = player)

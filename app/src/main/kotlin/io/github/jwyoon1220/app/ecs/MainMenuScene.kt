@@ -9,8 +9,10 @@ import io.github.jwyoon1220.engine.ecs.Scene
 import io.github.jwyoon1220.engine.ecs.World
 import io.github.jwyoon1220.engine.render.RenderColor
 import io.github.jwyoon1220.engine.render.RenderCommand
+import io.github.jwyoon1220.storyeditor.StoryEditorFrame
 import org.slf4j.LoggerFactory
 import java.io.File
+import javax.swing.SwingUtilities
 import kotlin.math.*
 import kotlin.random.Random
 import kotlin.system.exitProcess
@@ -44,7 +46,7 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
 
     private val log = LoggerFactory.getLogger(MainMenuScene::class.java)
 
-    private val menuItems = arrayOf("Play", "Story Mode", "Multiplayer", "Edit Song", "Settings", "Credits", "License", "Quit")
+    private val menuItems = arrayOf("Play", "Story Mode", "Multiplayer", "Edit Song", "Story Editor", "Settings", "Credits", "License", "Quit")
     private var selectedIndex = 0
     private var hoverIndex    = -1
 
@@ -234,13 +236,22 @@ class MainMenuScene(private val ctx: GameContext) : Scene() {
         log.info("선택: {} (index={})", menuItems[selectedIndex], selectedIndex)
         when (selectedIndex) {
             0 -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.PLAY))
-            1 -> ctx.sceneRouter.navigate(StorySelectScene(ctx))
+            1 -> ctx.sceneRouter.navigate(StoryPackSelectScene(ctx))
             2 -> ctx.sceneRouter.navigate(MultiplayerMenuScene(ctx))
             3 -> ctx.sceneRouter.navigate(SongSelectScene(ctx, SelectMode.EDIT))
-            4 -> ctx.sceneRouter.navigate(SettingsScene(ctx, MainMenuScene(ctx)))
-            5 -> ctx.sceneRouter.navigate(CreditsScene(ctx))
-            6 -> ctx.sceneRouter.navigate(LicenseScene(ctx))
-            7 -> exitProcess(0)
+            4 -> openStoryEditor()
+            5 -> ctx.sceneRouter.navigate(SettingsScene(ctx, MainMenuScene(ctx)))
+            6 -> ctx.sceneRouter.navigate(CreditsScene(ctx))
+            7 -> ctx.sceneRouter.navigate(LicenseScene(ctx))
+            8 -> exitProcess(0)
+        }
+    }
+
+    /** 스토리 에디터(Swing)를 게임과 같은 프로세스 안에서 별도 창으로 엽니다 — 게임 루프는 계속 돌아갑니다. */
+    private fun openStoryEditor() {
+        val storyRoot = ctx.storyManager.storyDir
+        SwingUtilities.invokeLater {
+            StoryEditorFrame(storyRoot).isVisible = true
         }
     }
 }

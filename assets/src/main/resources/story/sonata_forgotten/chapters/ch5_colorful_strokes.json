@@ -1,0 +1,194 @@
+{
+  "id" : "ch5_colorful_strokes",
+  "title" : "칠색의 자화상: Colorful Strokes",
+  "description" : "3기생 클리셰가 데뷔 곡 'Our Tales'의 기억을 밑그림 삼아, 세계의 망각에 맞서 4인 4색의 가장 솔직한 개성을 캔버스 위에 폭발시킨다.",
+  "order" : 5,
+  "cutscenes" : [ {
+    "id" : "ch5_opening",
+    "timing" : "before_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "3기생 '클리셰'의 데뷔 곡 'Our Tales'의 악보 위에, 네 개의 새로운 색이 덧그려지기 시작한다."
+    }, {
+      "character" : "시부키",
+      "characterImage" : "shibuki.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "내 차례, 내 차례! 제일 상큼하고 팝핑하게 갈 거야!"
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "세계의 망각에 맞서, 클리셰는 각자의 색으로 캔버스를 채워나가기로 한다."
+    } ]
+  }, {
+    "id" : "ch5_interlude_rin",
+    "timing" : "before_song_1",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "린",
+      "characterImage" : "rin.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "다음은 나야. 속도로 승부를 볼 시간이지."
+    }, {
+      "character" : "시부키",
+      "characterImage" : "shibuki.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "린 선배 빠르기 실화야?! 나 방금 두 배속으로 보는 줄..."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "고속으로 쏟아지는 폭타 속에서도, 린의 손끝은 흔들림이 없었다."
+    } ]
+  }, {
+    "id" : "ch5_interlude_nana",
+    "timing" : "before_song_2",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "이번엔... 조용히, 그림자처럼 다가갈게."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "나나가 저렇게 능글맞을 줄이야."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "트랩 비트 속에 숨겨진 나나의 목소리가, 은밀하게 관객을 사로잡는다."
+    } ]
+  }, {
+    "id" : "ch5_interlude_riko",
+    "timing" : "before_song_3",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "자, 마지막 페이크 들어갑니다 — 속아줄 준비 됐어?"
+    }, {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "얄밉지만... 저게 리코의 매력이지."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "짓궂은 리듬의 함정들이 무대 곳곳에 숨어든다."
+    } ]
+  }, {
+    "id" : "ch5_climax_intro",
+    "timing" : "before_song_4",
+    "backgroundImage" : "stellive_music_hall.jpg",
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "네 개의 색이 캔버스 위에서 뒤섞이며, 하나의 유성우로 쏟아져 내리기 시작한다."
+    }, {
+      "character" : "시부키",
+      "characterImage" : "shibuki.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "다 같이 가는 거야, 클리셰 전원!"
+    }, {
+      "character" : "린",
+      "characterImage" : "rin.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "우리 넷의 궤적이, 지금 이 순간 하나로 겹쳐진다."
+    }, {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "숨지 않을게. 이제는 당당하게."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "자, 다 함께 — 세계에 우리 색을 새기자!"
+    } ]
+  }, {
+    "id" : "ch5_closing",
+    "timing" : "after_song_4",
+    "backgroundImage" : "stellive_music_hall.jpg",
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "유성우처럼 쏟아지던 4색의 빛이, 무대 전체를 하나의 자화상으로 완성한다."
+    }, {
+      "character" : "시부키",
+      "characterImage" : "shibuki.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "해냈다... 우리, 진짜 해냈어!"
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "세계가 우릴 잊어도, 이 무대는 기억할 거야."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "'클리셰'라는 이름이, 처음으로 세상에 선명하게 새겨졌다."
+    } ]
+  } ],
+  "requiredSongs" : [ {
+    "songEntryId" : "berry_verry_strawberry",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "시부키 — 팝핑 변속"
+  }, {
+    "songEntryId" : "maid_my_way",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "린 — 고속 폭타"
+  }, {
+    "songEntryId" : "hush_trap",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "나나 — 은밀한 트랩"
+  }, {
+    "songEntryId" : "villain_alert",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "리코 — 짓궂은 페이크"
+  }, {
+    "songEntryId" : "meteor_shower",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "4색이 쏟아져 내리는 3기생 클라이맥스"
+  } ],
+  "rewards" : {
+    "unlockNextChapter" : true,
+    "unlockedCharacters" : [ "시부키", "린" ],
+    "unlockedEmojis" : [ ]
+  }
+}

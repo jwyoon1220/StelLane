@@ -1,0 +1,134 @@
+{
+  "id" : "ch3_2000_years_silence",
+  "title" : "2,000년의 정적",
+  "description" : "음향 콘솔에 발생한 공허 노이즈 속에서, 2,000년 동안 빛과 목소리를 잃어가던 마룡 후야의 구조 신호를 포착한다.",
+  "order" : 3,
+  "cutscenes" : [ {
+    "id" : "ch3_opening",
+    "timing" : "before_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "음향 콘솔에서 정체불명의 공허 노이즈가 감지된다.\n신호는 미약하지만, 분명 존재했다."
+    }, {
+      "character" : "마시로",
+      "characterImage" : "mashiro.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "이 파형... 이상해. 음악이 아니라, 비명 같아."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "비명이라니, 무슨 뜻이야?"
+    }, {
+      "character" : "마시로",
+      "characterImage" : "mashiro.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "2,000년 동안 아무도 듣지 못한 소리인 것 같아. 완전히 지워지기 직전의..."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "누군가 저 안에 있다는 거네. 그것도 아주 오랫동안."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "콘솔의 화면에 파형 하나가 위태롭게 깜빡인다. 곧 사라질 듯이."
+    } ]
+  }, {
+    "id" : "ch3_restoration",
+    "timing" : "after_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "무음 속에서 시작된 연주가, 완벽한 타이밍의 리듬으로 보컬의 파편을 하나씩 되살려낸다."
+    }, {
+      "character" : "마시로",
+      "characterImage" : "mashiro.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "목소리가... 복원되고 있어! 정말 누군가 있어!"
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "거기, 들려요? 우리가 지금 갈게요!"
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "희미한 응답이 노이즈 사이로 스쳐 지나간다. 2,000년만의 첫 목소리."
+    } ]
+  }, {
+    "id" : "ch3_closing",
+    "timing" : "after_song_1",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "판정선이 소멸하는 회랑 끝, 빛을 잃은 거대한 형체가 웅크리고 있었다."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "...이제 괜찮아. 우리가 찾았어."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "저건... 마룡? 2,000년이나 여기 갇혀 있었던 거야?"
+    }, {
+      "character" : "마시로",
+      "characterImage" : "mashiro.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "아직 숨은 붙어 있어. 하지만 시간이 얼마 없어."
+    }, {
+      "character" : "후야",
+      "characterImage" : "huya.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "(아주 작게)... 누구...?"
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "정적 속에서, 아주 작은 심장 박동 같은 리듬이 다시 뛰기 시작한다."
+    } ]
+  } ],
+  "requiredSongs" : [ {
+    "songEntryId" : "void_noise",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "무음으로 시작해 PERFECT 판정 시 보컬이 복원되는 음향 복원 채보"
+  }, {
+    "songEntryId" : "corridor_2000_years",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "판정선이 실시간으로 소멸하는 타임 어택 스테이지"
+  } ],
+  "rewards" : {
+    "unlockNextChapter" : true,
+    "unlockedCharacters" : [ ],
+    "unlockedEmojis" : [ ]
+  }
+}

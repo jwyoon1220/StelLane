@@ -26,6 +26,8 @@ data class StoryScene(
     val id: String = "",
     val timing: String = "",
     val backgroundImage: String? = null,
+    /** 배경 영상(`story/videos/` 기준 파일명). 설정되면 [backgroundImage]보다 우선하며, 끝까지 재생되면 반복 재생됩니다. */
+    val backgroundVideo: String? = null,
     val dialogues: List<DialogueLine> = emptyList()
 )
 

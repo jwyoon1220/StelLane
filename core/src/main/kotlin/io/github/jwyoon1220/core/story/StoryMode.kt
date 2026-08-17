@@ -7,7 +7,9 @@ data class StoryMode(
     val chapters: List<StoryChapter> = emptyList(),
     val currentChapterIndex: Int = 0,
     val completedChapters: Set<String> = emptySet(),
-    val currentProgress: ChapterProgress? = null
+    val currentProgress: ChapterProgress? = null,
+    /** 이 챕터 목록이 속한 스토리 팩의 id — [StoryProgressManager.key]로 챕터별 진행도를 팩 단위로 구분하는 데 씁니다. */
+    val packId: String = ""
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)

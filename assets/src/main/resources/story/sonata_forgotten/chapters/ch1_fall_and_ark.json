@@ -1,0 +1,94 @@
+{
+  "id" : "ch1_fall_and_ark",
+  "title" : "추락과 방주",
+  "description" : "하늘 도시 붕괴 후 지상에 떨어진 멤버들이 소멸 직전 음악 홀 '스텔라이브'를 발견하고 모인다.",
+  "order" : 1,
+  "cutscenes" : [ {
+    "id" : "ch1_opening",
+    "timing" : "before_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "하늘 도시가 무너져 내린다.\n빛의 파편들이 밤하늘을 가르며 지상으로 쏟아진다."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "흐아... 여기가 어디야? 다들... 괜찮아?"
+    }, {
+      "character" : "타비",
+      "characterImage" : "tabi.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "나는... 괜찮아. 근데 뭔가 이상해. 힘이... 하나도 안 느껴져."
+    }, {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "저기 봐, 하늘이... 우리가 있던 곳이 사라지고 있어."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "패닉 상태로는 아무것도 못 해. 일단 안전한 곳부터 찾자."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "폐허 사이로 희미한 빛이 새어 나오는 건물 하나가 보인다.\n낡은 간판에는 음표 문양이 새겨져 있었다."
+    } ]
+  }, {
+    "id" : "ch1_closing",
+    "timing" : "after_song_0",
+    "backgroundImage" : "stellive_music_hall.jpg",
+    "dialogues" : [ {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "방금... 우리 함께 노래하니까 뭔가 확실해졌어."
+    }, {
+      "character" : "타비",
+      "characterImage" : "tabi.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "이 홀 안에서는 우리가 사라지지 않는 것 같아."
+    }, {
+      "character" : "나나",
+      "characterImage" : "nana.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "저기... 간판을 봐. '스텔라이브'라고 적혀 있어."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "소멸을 막는 방주. 여기서부터 다시 시작하자."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "여섯 개의 별 중 넷이 모였다.\n나머지 별들은 아직, 어둠 속에 있다."
+    } ]
+  } ],
+  "requiredSongs" : [ {
+    "songEntryId" : "Millky_Way",
+    "difficulty" : "easy",
+    "minAccuracy" : 0,
+    "description" : "튜토리얼 및 프롤로그 스테이지"
+  } ],
+  "rewards" : {
+    "unlockNextChapter" : true,
+    "unlockedCharacters" : [ ],
+    "unlockedEmojis" : [ ]
+  }
+}

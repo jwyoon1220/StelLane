@@ -3,7 +3,8 @@ package io.github.jwyoon1220.app
 import io.github.jwyoon1220.engine.multiplayer.MultiplayerManager
 import io.github.jwyoon1220.app.render.NoteRenderer
 import io.github.jwyoon1220.core.song.SongManager
-import io.github.jwyoon1220.core.story.StoryDataLoader
+import io.github.jwyoon1220.core.story.LoadedStoryPack
+import io.github.jwyoon1220.core.story.StoryManager
 import io.github.jwyoon1220.core.story.StoryMode
 import io.github.jwyoon1220.core.story.StoryProgressManager
 import io.github.jwyoon1220.engine.GameLoop
@@ -18,14 +19,15 @@ import io.github.jwyoon1220.engine.data.pool.VisualNote
 class GameContext(
     val sceneRouter: SceneRouter,
     val songManager: SongManager,
+    val storyManager: StoryManager,
     val videoBackground: VideoBackground,
     val notePool: ObjectPool<VisualNote>,
     val inputManager: InputManager,
     val windowManager: WindowManager,
     val noteRenderer: NoteRenderer
 ) {
-    /** 스토리 모드 정적 데이터(챕터/대사/필요곡) — `assets/story/story_data.json`에서 1회 로드. */
-    val storyModeData: StoryMode by lazy { StoryDataLoader.loadFromResources() }
+    /** [pack]의 정적 데이터(챕터/대사/필요곡)로 [StoryMode]를 만듭니다 — 진행도 조회/저장은 팩 단위로 구분됩니다. */
+    fun storyModeFor(pack: LoadedStoryPack): StoryMode = StoryMode(chapters = pack.chapters, packId = pack.pack.id)
     /** 스토리 모드 진행도 저장/로드. */
     val storyProgressMgr: StoryProgressManager = StoryProgressManager()
     /** 게임 루프. Main에서 생성 직후 주입됩니다. */

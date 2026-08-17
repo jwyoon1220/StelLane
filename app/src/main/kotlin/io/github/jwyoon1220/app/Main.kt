@@ -4,6 +4,7 @@ package io.github.jwyoon1220.app
 import io.github.jwyoon1220.app.ecs.EulaScene
 import io.github.jwyoon1220.app.ecs.MainMenuScene
 import io.github.jwyoon1220.core.song.SongManager
+import io.github.jwyoon1220.core.story.StoryManager
 import io.github.jwyoon1220.engine.GLFWWindow
 import io.github.jwyoon1220.engine.GameLoop
 import io.github.jwyoon1220.engine.HitSound
@@ -107,9 +108,10 @@ fun main(args: Array<String>) {
 
     val workingDir   = File(System.getProperty("user.dir"))
     val songManager  = SongManager(workingDir)
+    val storyManager = StoryManager(workingDir)
 
     val windowManager = WindowManager(window, renderer)
-    val ctx = GameContext(sceneRouter, songManager, videoBackground, notePool, inputManager, windowManager, NoteRenderer())
+    val ctx = GameContext(sceneRouter, songManager, storyManager, videoBackground, notePool, inputManager, windowManager, NoteRenderer())
 
     renderer.init()
     ctx.renderer = renderer
@@ -131,6 +133,7 @@ fun main(args: Array<String>) {
     inputManager.stateScroll        = { dy              -> sceneRouter.current?.mouseScrolled(dy) }
 
     songManager.load()
+    storyManager.load()
     val startScene = if (AppSettings.eulaAccepted) MainMenuScene(ctx) else EulaScene(ctx)
     sceneRouter.navigate(startScene)
 

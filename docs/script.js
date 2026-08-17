@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const commandTexts = {
       play: `./gradlew :app:runGame`,
       build: `./gradlew :app:deploy`,
-      builder: `./gradlew :builder:run`
+      storyEditor: `./gradlew :story-editor:run`
     };
 
     tabBtns.forEach(btn => {

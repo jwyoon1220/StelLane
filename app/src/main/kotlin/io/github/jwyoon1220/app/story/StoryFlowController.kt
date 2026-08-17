@@ -7,6 +7,7 @@ import io.github.jwyoon1220.app.ecs.StorySelectScene
 import io.github.jwyoon1220.core.data.SongEntry
 import io.github.jwyoon1220.core.song.ChartParser
 import io.github.jwyoon1220.core.story.ChapterSong
+import io.github.jwyoon1220.core.story.LoadedStoryPack
 import io.github.jwyoon1220.core.story.StoryChapter
 import io.github.jwyoon1220.core.story.StoryMode
 import io.github.jwyoon1220.core.story.StoryProgressManager
@@ -23,6 +24,7 @@ import java.io.File
 class StoryFlowController(
     private val ctx: GameContext,
     private val storyMode: StoryMode,
+    private val pack: LoadedStoryPack,
     private val chapter: StoryChapter,
     private val progressMgr: StoryProgressManager
 ) {
@@ -51,7 +53,7 @@ class StoryFlowController(
     /** 챕터의 첫 스텝부터 진행을 시작합니다. */
     fun start() {
         stepIndex = 0
-        progressMgr.currentChapterId = chapter.id
+        progressMgr.currentChapterId = progressMgr.key(pack.pack.id, chapter.id)
         advance()
     }
 
@@ -62,7 +64,7 @@ class StoryFlowController(
         }
         when (val step = steps[stepIndex]) {
             is Step.Cutscene -> ctx.sceneRouter.navigate(
-                StoryCutsceneScene(ctx, step.scene) { stepIndex++; advance() }
+                StoryCutsceneScene(ctx, pack, step.scene) { stepIndex++; advance() }
             )
             is Step.Song -> playSong(step)
         }
@@ -85,7 +87,7 @@ class StoryFlowController(
 
         val chart = ChartParser.parseChart(File(songEntry.songDir, chartFileName))
         val playScene = PlayScene(ctx, songEntry, chart)
-        playScene.onExit = { ctx.sceneRouter.navigate(StorySelectScene(ctx)) }
+        playScene.onExit = { ctx.sceneRouter.navigate(StorySelectScene(ctx, pack)) }
         playScene.onResultConfirmed = {
             recordSongResult(playScene, step.index)
             stepIndex++
@@ -97,7 +99,7 @@ class StoryFlowController(
     private fun recordSongResult(playScene: PlayScene, songIndex: Int) {
         val counts = playScene.scoreEngine.counts
         val accuracy = PlayScene.computeAccuracy(counts[0], counts[1], counts[2], counts[3], defaultIfEmpty = 0.0)
-        val progress = progressMgr.loadChapterProgress(chapter.id)
+        val progress = progressMgr.loadChapterProgress(progressMgr.key(pack.pack.id, chapter.id))
         val updated = progress.copy(
             completedSongs = progress.completedSongs + songIndex,
             songScores = progress.songScores + (songIndex to playScene.scoreEngine.score),
@@ -108,8 +110,8 @@ class StoryFlowController(
     }
 
     private fun finishChapter() {
-        progressMgr.completeChapter(chapter.id)
-        ctx.sceneRouter.navigate(StoryResultScene(ctx, storyMode, chapter, progressMgr))
+        progressMgr.completeChapter(progressMgr.key(pack.pack.id, chapter.id))
+        ctx.sceneRouter.navigate(StoryResultScene(ctx, storyMode, pack, chapter, progressMgr))
     }
 
     private fun findSongEntry(songEntryId: String): SongEntry? =

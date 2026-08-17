@@ -11,10 +11,10 @@
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/app" />
             <option value="$PROJECT_DIR$/assets" />
-            <option value="$PROJECT_DIR$/builder" />
             <option value="$PROJECT_DIR$/core" />
             <option value="$PROJECT_DIR$/editor" />
             <option value="$PROJECT_DIR$/engine" />
+            <option value="$PROJECT_DIR$/story-editor" />
           </set>
         </option>
       </GradleProjectSettings>

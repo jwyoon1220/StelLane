@@ -14,6 +14,13 @@ class StoryProgressManager {
     private val prefs: Preferences = Preferences.userNodeForPackage(StoryProgressManager::class.java)
     private val mapper = jacksonObjectMapper()
 
+    /**
+     * 팩 id와 챕터 id를 하나의 진행도 키로 합칩니다. 서로 다른 팩이 같은 챕터 id를 써도 진행도가
+     * 섞이지 않도록, [isChapterCompleted]/[completeChapter]/[loadChapterProgress]/[saveChapterProgress]/
+     * [currentChapterId]에는 챕터 id 대신 이 함수로 만든 키를 넘겨야 합니다.
+     */
+    fun key(packId: String, chapterId: String): String = "$packId:$chapterId"
+
     var currentChapterId: String
         get() = prefs.get(KEY_CURRENT_CHAPTER, "")
         set(v) { prefs.put(KEY_CURRENT_CHAPTER, v) }
@@ -61,14 +68,14 @@ class StoryProgressManager {
         val idx = storyMode.chapters.indexOfFirst { it.id == chapterId }
         if (idx <= 0) return true
         val prevChapter = storyMode.chapters[idx - 1]
-        return isChapterCompleted(prevChapter.id)
+        return isChapterCompleted(key(storyMode.packId, prevChapter.id))
     }
 
     fun loadStoryMode(baseStoryMode: StoryMode): StoryMode {
         val completed = loadCompletedChapters()
         val currentId = currentChapterId
         val currentIndex = if (currentId.isNotEmpty()) {
-            baseStoryMode.chapters.indexOfFirst { it.id == currentId }.takeIf { it >= 0 } ?: 0
+            baseStoryMode.chapters.indexOfFirst { key(baseStoryMode.packId, it.id) == currentId }.takeIf { it >= 0 } ?: 0
         } else 0
         val progress = if (currentId.isNotEmpty()) loadChapterProgress(currentId) else null
 

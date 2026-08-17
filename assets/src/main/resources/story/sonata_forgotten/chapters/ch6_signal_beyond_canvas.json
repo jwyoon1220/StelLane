@@ -1,0 +1,116 @@
+{
+  "id" : "ch6_signal_beyond_canvas",
+  "title" : "캔버스 너머의 신호",
+  "description" : "대공연 성공 후, 한 번도 관측된 적 없는 차원 외곽(Area 04)에서 희미한 리듬 신호가 수신된다.",
+  "order" : 6,
+  "cutscenes" : [ {
+    "id" : "ch6_opening",
+    "timing" : "before_song_0",
+    "backgroundImage" : "stellive_music_hall.jpg",
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "대공연이 성공적으로 막을 내린 뒤, 홀에는 오랜만의 평화가 찾아온다."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "다들 여기까지 정말 잘 왔어. 처음 떨어졌을 때가 아득하네."
+    }, {
+      "character" : "후야",
+      "characterImage" : "huya.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "소멸 직전이던 우리가, 이렇게 다 같이 웃고 있다니."
+    }, {
+      "character" : "리코",
+      "characterImage" : "riko.png",
+      "position" : "center",
+      "emotion" : null,
+      "text" : "이 순간을 위한 노래, 마지막으로 하나 더 부를까?"
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "엔딩 크레딧처럼, 그동안의 마음을 담은 악보가 펼쳐진다."
+    } ]
+  }, {
+    "id" : "ch6_signal",
+    "timing" : "after_song_0",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "모든 것이 끝난 듯한 그 순간, 콘솔 한켠에서 낯선 신호가 깜빡인다."
+    }, {
+      "character" : "마시로",
+      "characterImage" : "mashiro.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "잠깐... 이 좌표, 한 번도 본 적 없는 구역이야."
+    }, {
+      "character" : "유니",
+      "characterImage" : "yuni.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "어디인데?"
+    }, {
+      "character" : "마시로",
+      "characterImage" : "mashiro.png",
+      "position" : "left",
+      "emotion" : null,
+      "text" : "'Area 04'. 관측된 적이 없는 차원 외곽."
+    }, {
+      "character" : "후야",
+      "characterImage" : "huya.png",
+      "position" : "right",
+      "emotion" : null,
+      "text" : "(귀 기울이며) ...들려. 아주 희미하지만, 리듬이야."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "노이즈 속에서, 또 다른 별들이 자신의 존재를 두드리기 시작한다."
+    } ]
+  }, {
+    "id" : "ch6_final",
+    "timing" : "after_song_1",
+    "backgroundImage" : null,
+    "dialogues" : [ {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "30초 남짓한 신호가 끊긴다."
+    }, {
+      "character" : "narrator",
+      "characterImage" : null,
+      "position" : "center",
+      "emotion" : null,
+      "text" : "TO BE CONTINUED IN CHAPTER 4"
+    } ]
+  } ],
+  "requiredSongs" : [ {
+    "songEntryId" : "maeum_akbo",
+    "difficulty" : "Normal",
+    "minAccuracy" : 0,
+    "description" : "엔딩 크레딧 플레이"
+  }, {
+    "songEntryId" : "area_04_teaser",
+    "difficulty" : "Hard",
+    "minAccuracy" : 0,
+    "description" : "30초 분량의 4기생 노이즈 히든 채보"
+  } ],
+  "rewards" : {
+    "unlockNextChapter" : false,
+    "unlockedCharacters" : [ ],
+    "unlockedEmojis" : [ ]
+  }
+}

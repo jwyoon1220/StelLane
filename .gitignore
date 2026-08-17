@@ -13,6 +13,6 @@
 /engine/build/classes/kotlin/main/
 /run/
 /logs/
-/builder/build/
+/story-editor/build/
 /dist/
 /.kotlin/
